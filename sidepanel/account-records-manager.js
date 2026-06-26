@@ -1986,9 +1986,14 @@
       updateStats(allRecords);
       updateToolbarState(allRecords);
       renderRecordList(allRecords, filteredRecords);
-      const membershipResults = getUpiCredentialMembershipCheckResults(currentState);
-      upiCredentialMembershipCheckBusy = membershipResults.running;
-      upiCredentialMembershipRedeemBusy = membershipResults.redeeming;
+      if (dom.upiCredentialMembershipCheckResults) {
+        const membershipResults = getUpiCredentialMembershipCheckResults(currentState);
+        upiCredentialMembershipCheckBusy = membershipResults.running;
+        upiCredentialMembershipRedeemBusy = membershipResults.redeeming;
+      } else {
+        upiCredentialMembershipCheckBusy = false;
+        upiCredentialMembershipRedeemBusy = false;
+      }
       setExportButtonsBusy(false);
       renderUpiCredentialMembershipCheckResults();
     }
@@ -1996,7 +2001,7 @@
     function openPanel() {
       setNodeHidden(dom.accountRecordsOverlay, false);
       render();
-      if (!upiCredentialMembershipPoolLoaded) {
+      if (dom.upiCredentialMembershipCheckResults && !upiCredentialMembershipPoolLoaded) {
         refreshUpiCredentialMembershipCredentialPool({ silent: true }).catch(() => null);
       }
     }
