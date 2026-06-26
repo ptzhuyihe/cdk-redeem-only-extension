@@ -1126,27 +1126,6 @@
       };
     }
 
-    function buildTrialEligibilitySummaryText(summary = {}) {
-      const parts = [];
-      if (summary.checkedAt) {
-        parts.push(`上次 ${formatAccountRecordTime(summary.checkedAt)}`);
-      }
-      parts.push(`有资格 ${summary.eligibleCount || 0}`);
-      parts.push(`无资格删除 ${summary.deletedCount || 0}`);
-      parts.push(`跳过 ${summary.skippedCount || 0}`);
-      parts.push(`失败 ${summary.failedCount || 0}`);
-      return parts.join(' / ');
-    }
-
-    function buildTrialEligibilityDeletedPreview(summary = {}) {
-      const deletedEmails = Array.isArray(summary.deletedEmails) ? summary.deletedEmails.filter(Boolean) : [];
-      if (!deletedEmails.length) {
-        return '';
-      }
-      const preview = deletedEmails.slice(0, 3).join('、');
-      return deletedEmails.length > 3 ? `${preview} 等 ${deletedEmails.length} 个无资格账号已删除` : `${preview} 已删除`;
-    }
-
     function isRedeemableFreeUpiCredentialMembershipRow(row = {}) {
       const status = String(row.status || '').trim().toLowerCase();
       if (!row?.email || row.enabled === false || status !== 'free') {
@@ -1419,12 +1398,7 @@
       const nonPlusCount = rows.length - paidCount;
       const failedCount = rows.filter((row) => String(row.status || '').trim().toLowerCase() === 'failed').length;
       const redeemableFreeCount = rows.filter(isRedeemableFreeUpiCredentialMembershipRow).length;
-      const trialCheckableFreeCount = rows.filter(isTrialEligibilityCheckableFreeUpiCredentialMembershipRow).length;
       const membershipBusy = results.running || results.redeeming || upiCredentialMembershipCheckBusy;
-      const trialSummary = buildUpiCredentialMembershipTrialEligibilitySummary(results, rows);
-      const trialSummaryText = buildTrialEligibilitySummaryText(trialSummary);
-      const trialDeletedPreview = buildTrialEligibilityDeletedPreview(trialSummary);
-      const trialDeletedTitle = (Array.isArray(trialSummary.deletedEmails) ? trialSummary.deletedEmails : []).join('\n');
       const redeemFreeButtonLabel = `兑换启用无会员(${escapeHtml(String(redeemableFreeCount))})`;
       const showPaidGroupActions = upiCredentialMembershipGroup === 'paid';
       const showFreeGroupActions = upiCredentialMembershipGroup === 'free';
@@ -1460,22 +1434,6 @@
               <strong>${escapeHtml(String(group.count))}</strong>
             </button>
           `).join('')}
-        </div>
-        <div class="upi-membership-check-prune-row">
-          <div class="upi-membership-check-prune-copy">
-            <strong>Free 试用资格</strong>
-            <span>可检测 ${escapeHtml(String(trialCheckableFreeCount))} 个；${escapeHtml(trialSummaryText)}</span>
-            ${trialDeletedPreview ? `<span class="upi-membership-check-prune-deleted" title="${escapeHtml(trialDeletedTitle)}">${escapeHtml(trialDeletedPreview)}</span>` : ''}
-          </div>
-            <button
-              class="btn btn-primary btn-xs upi-membership-check-prune-button"
-              type="button"
-              data-upi-membership-prune-ineligible-free
-              ${trialCheckableFreeCount && !membershipBusy ? '' : 'disabled'}
-              title="检测 Free 分组账号是否有试用资格，无资格自动删除"
-            >
-              检测试用资格
-            </button>
         </div>
         <div class="upi-membership-check-status-header">
           <span>启用</span>
