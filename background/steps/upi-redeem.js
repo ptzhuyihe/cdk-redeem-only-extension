@@ -517,6 +517,12 @@
       ].includes(normalizeUpiRedeemRemoteStatus(status));
     }
 
+    function isCdkeyRedeemInFlight(entry = {}) {
+      return entry?.retrying === true
+        || isActiveRemoteStatus(entry?.remoteStatus)
+        || isActiveRemoteStatus(entry?.remoteMessage);
+    }
+
     function isCdkeySelectableForRedeem(entry = {}) {
       if (entry?.enabled === false) {
         return false;
@@ -524,7 +530,7 @@
       if (entry?.subscriptionActive === true || entry?.subscriptionActive === false) {
         return false;
       }
-      if (isSuccessfulRemoteStatus(entry?.remoteStatus) || isActiveRemoteStatus(entry?.remoteStatus)) {
+      if (isSuccessfulRemoteStatus(entry?.remoteStatus) || isCdkeyRedeemInFlight(entry)) {
         return false;
       }
       return true;
@@ -584,6 +590,31 @@
           [cdkey]: storedEntry,
         },
       });
+    }
+
+    async function reserveCdkeyForRedeemSubmission({
+      cdkey = '',
+      email = '',
+      attemptAt = 0,
+      message = '',
+    } = {}) {
+      const normalizedCdkey = normalizeString(cdkey);
+      if (!normalizedCdkey) {
+        return;
+      }
+      const timestamp = Math.max(1, Math.floor(Number(attemptAt) || Number(now()) || Date.now()));
+      await updateCdkeyUsage(normalizedCdkey, (entry) => ({
+        ...entry,
+        email: normalizeString(email || entry.email || entry.accountEmail || entry.credentialEmail).toLowerCase(),
+        usedAt: 0,
+        lastAttemptAt: timestamp,
+        lastError: '',
+        remoteStatus: 'dispatching',
+        remoteMessage: normalizeString(message) || '正在提交到兑换后端，等待远端接收',
+        remoteCheckedAt: timestamp,
+        retrying: false,
+        retryError: '',
+      }));
     }
 
     function normalizeBoolean(value) {
@@ -1092,7 +1123,11 @@
         email: normalizeString(email || entry.email || entry.accountEmail || entry.credentialEmail).toLowerCase(),
         lastAttemptAt: Math.max(0, Math.floor(Number(attemptAt) || 0)),
         lastError: normalizeString(message) || 'ChatGPT session 已过期或当前会话失效。',
+        remoteStatus: 'unused',
+        remoteMessage: 'ChatGPT session 已过期或当前会话失效，未进入兑换处理，卡密已释放。',
+        remoteCheckedAt: Math.max(0, Math.floor(Number(attemptAt) || 0)),
         retrying: false,
+        retryError: '',
       }));
     }
 
@@ -1191,6 +1226,39 @@
 
     function normalizeUpiRedeemRemoteStatus(status = '') {
       const normalized = normalizeString(status).toLowerCase().replace(/[\s-]+/g, '_');
+      if (/兑换成功|成功|已兑换|已使用|已用/.test(normalized)) {
+        return 'success';
+      }
+      if (/提交失败|兑换失败|充值失败|失败|超时|拒绝|已拒绝|取消|已取消/.test(normalized)) {
+        if (/超时/.test(normalized)) return 'timeout';
+        if (/拒绝/.test(normalized)) return 'rejected';
+        if (/取消/.test(normalized)) return 'canceled';
+        return 'failed';
+      }
+      if (/未找到|不存在/.test(normalized)) {
+        return 'not_found';
+      }
+      if (/无效|不可用/.test(normalized)) {
+        return 'invalid';
+      }
+      if (/未使用|未兑换|可用/.test(normalized)) {
+        return 'unused';
+      }
+      if (/等待处理|待处理|待兑换|待派发/.test(normalized)) {
+        return 'pending_dispatch';
+      }
+      if (/派发中|正在派发/.test(normalized)) {
+        return 'dispatching';
+      }
+      if (/已派发/.test(normalized)) {
+        return 'dispatched';
+      }
+      if (/兑换中|处理中|进行中|正在兑换/.test(normalized)) {
+        return 'processing';
+      }
+      if (/已提交|已接收|排队/.test(normalized)) {
+        return 'submitted';
+      }
       if (normalized === 'succeeded' || normalized === 'redeemed' || normalized === 'used') {
         return 'success';
       }
@@ -1274,7 +1342,7 @@
       if (entry.subscriptionActive === true || isSuccessfulRemoteStatus(entry.remoteStatus)) {
         return false;
       }
-      if (isActiveRemoteStatus(entry.remoteStatus)) {
+      if (isCdkeyRedeemInFlight(entry)) {
         return false;
       }
       return isRetryableRemoteStatus(entry.remoteStatus)
@@ -1746,6 +1814,12 @@
           retrying: false,
           retryError: success ? '' : normalizeString(currentEntry.retryError),
         };
+        if (!success && !isActiveRemoteStatus(remoteStatus)) {
+          delete nextUsage[cdkey].subscriptionActive;
+          delete nextUsage[cdkey].subscriptionPlanType;
+          delete nextUsage[cdkey].subscriptionCheckedAt;
+          delete nextUsage[cdkey].subscriptionReason;
+        }
       });
 
       const updates = { upiRedeemCdkeyUsage: nextUsage };
@@ -1881,6 +1955,10 @@
       const attemptTimestamp = Math.max(0, Math.floor(Number(attemptAt) || 0));
       await updateCdkeyUsage(normalizedCdkey, (entry) => {
         const previousUsedAt = Math.max(0, Math.floor(Number(entry.usedAt) || 0));
+        const previousRemoteStatus = normalizeUpiRedeemRemoteStatus(entry.remoteStatus);
+        const inactiveRemoteStatus = isSuccessfulRemoteStatus(previousRemoteStatus)
+          ? 'success'
+          : (isActiveRemoteStatus(previousRemoteStatus) ? previousRemoteStatus : 'submitted');
         return {
           ...entry,
           email: normalizeString(email || entry.email || entry.accountEmail || entry.credentialEmail).toLowerCase(),
@@ -1889,8 +1967,8 @@
             Math.max(0, Math.floor(Number(entry.lastAttemptAt) || 0)),
             attemptTimestamp
           ),
-          lastError: active ? '' : reason,
-          remoteStatus: active ? 'success' : 'failed',
+          lastError: '',
+          remoteStatus: active ? 'success' : inactiveRemoteStatus,
           remoteMessage: reason,
           remoteCheckedAt: checkedAt || attemptTimestamp,
           subscriptionActive: active,
@@ -1898,7 +1976,7 @@
           subscriptionCheckedAt: checkedAt,
           subscriptionReason: reason,
           retrying: false,
-          retryError: active ? '' : normalizeString(entry.retryError),
+          retryError: '',
         };
       });
       return reason;
@@ -2157,6 +2235,12 @@
       }
 
       await addStepLog(visibleStep, `UPI 备份账号补兑：正在提交 ChatGPT session+卡密到兑换接口：${email || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(chatGptSession)} -> ${cdkey} -> ${apiUrl}`, 'info');
+      await reserveCdkeyForRedeemSubmission({
+        cdkey,
+        email,
+        attemptAt,
+        message: `正在提交兑换：${email || 'unknown'}`,
+      });
       try {
         await postUpiRedeem({
           apiUrl,
@@ -2388,6 +2472,7 @@
       const attemptAt = Math.max(1, Math.floor(Number(now()) || Date.now()));
       const latestForSubscription = await getMergedState({});
       let duplicateCdkeyPending = false;
+      let redeemBackendAccepted = false;
       let currentEmail = resolveCurrentRedeemEmail({
         ...runtimeState,
         ...latestForSubscription,
@@ -2534,6 +2619,12 @@
       }
 
       await addStepLog(visibleStep, `正在提交 ChatGPT session+卡密到 UPI 兑换接口：${currentEmail || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(sessionState)} -> ${cdkey} -> ${apiUrl}`, 'info');
+      await reserveCdkeyForRedeemSubmission({
+        cdkey,
+        email: currentEmail,
+        attemptAt,
+        message: `正在提交兑换：${currentEmail || 'unknown'}`,
+      });
       try {
         await postUpiRedeem({
           apiUrl,
@@ -2543,6 +2634,7 @@
           session: sessionState,
           accessToken: sessionState.accessToken,
         });
+        redeemBackendAccepted = true;
         await addStepLog(visibleStep, `UPI 兑换接口已接收 ChatGPT session+卡密：${currentEmail || 'unknown'} -> ${cdkey}`, 'ok');
         await updateCdkeyUsage(cdkey, (entry) => ({
           ...entry,
@@ -2720,25 +2812,54 @@
             upiRedeemSubscriptionCheckedAt: '',
             upiRedeemSubscriptionReason: pendingReason,
           }).catch(() => {});
+        } else if (redeemBackendAccepted) {
+          duplicateCdkeyPending = true;
+          const pendingReason = `卡密已提交到兑换后端，但本地会员确认失败：${message}；已保持处理中，等待远端状态刷新`;
+          await addStepLog(
+            visibleStep,
+            `UPI 卡密已被兑换接口接收，本地确认会员失败，已按处理中记录：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            'warn'
+          );
+          await updateCdkeyUsage(cdkey, (entry) => ({
+            ...entry,
+            email: currentEmail,
+            usedAt: 0,
+            lastAttemptAt: attemptAt,
+            lastError: '',
+            remoteStatus: 'submitted',
+            remoteMessage: pendingReason,
+            remoteCheckedAt: attemptAt,
+            retrying: false,
+            retryError: '',
+          }));
+          await setState({
+            upiRedeemSuccess: false,
+            upiRedeemCdkey: cdkey,
+            upiRedeemAccessToken: sessionState.accessToken,
+            upiRedeemSubscriptionActive: false,
+            upiRedeemSubscriptionPlanType: '',
+            upiRedeemSubscriptionCheckedAt: '',
+            upiRedeemSubscriptionReason: pendingReason,
+          }).catch(() => {});
         } else {
-        await addStepLog(
-          visibleStep,
-          `UPI ChatGPT session+卡密提交失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
-          'error'
-        );
-        await addStepLog(visibleStep, `UPI 卡密兑换失败：${message}`, 'error');
-        await updateCdkeyUsage(cdkey, (entry) => ({
-          ...entry,
-          email: currentEmail,
-          lastAttemptAt: attemptAt,
-          lastError: message,
-          remoteStatus: 'failed',
-          remoteMessage: message,
-          remoteCheckedAt: attemptAt,
-          retrying: false,
-          retryError: message,
-        }));
-        throw error;
+          await addStepLog(
+            visibleStep,
+            `UPI ChatGPT session+卡密提交失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            'error'
+          );
+          await addStepLog(visibleStep, `UPI 卡密兑换失败：${message}`, 'error');
+          await updateCdkeyUsage(cdkey, (entry) => ({
+            ...entry,
+            email: currentEmail,
+            lastAttemptAt: attemptAt,
+            lastError: message,
+            remoteStatus: 'failed',
+            remoteMessage: message,
+            remoteCheckedAt: attemptAt,
+            retrying: false,
+            retryError: message,
+          }));
+          throw error;
         }
       }
 
