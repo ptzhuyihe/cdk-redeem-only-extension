@@ -95,6 +95,25 @@
       return redeemStatus === 'failed' && !cdkey && isPreSubmitUpiCredentialMembershipBlockedReason(reason);
     }
 
+    function hasUpiCredentialMembershipLoginMaterial(row = {}) {
+      return Boolean(
+        normalizeUpiCredentialMembershipText(row.password)
+        && normalizeUpiCredentialMembershipTotpSecret(row.totpMfaSecret)
+      );
+    }
+
+    function isManualLoginRetryableUpiCredentialMembershipRow(row = {}) {
+      const redeemStatus = String(row.redeemStatus || '').trim().toLowerCase();
+      if (redeemStatus !== 'blocked' && !isPreSubmitUpiCredentialMembershipBlockedRow(row)) {
+        return false;
+      }
+      const reason = String(row.redeemReason || row.reason || '').trim();
+      if (/缺少\s*GPT\s*密码|缺少\s*2FA/i.test(reason)) {
+        return false;
+      }
+      return hasUpiCredentialMembershipLoginMaterial(row);
+    }
+
     function isDuplicateCdkeyPendingMembershipRow(row = {}) {
       const redeemStatus = String(row.redeemStatus || '').trim().toLowerCase();
       if (!['running', 'submitted', 'pending', 'processing', 'accepted'].includes(redeemStatus)) {
@@ -1007,7 +1026,9 @@
           return {
             className: 'pending',
             label: blockedLabel,
-            detail: blockedReason,
+            detail: isManualLoginRetryableUpiCredentialMembershipRow(row)
+              ? `${blockedReason}；点击可重新登录/手动接管后继续。`
+              : blockedReason,
           };
         }
         if (redeemStatus === 'failed' && trialStatus === 'eligible') {
@@ -1139,7 +1160,7 @@
         return false;
       }
       if (redeemStatus === 'blocked' || isPreSubmitUpiCredentialMembershipBlockedRow(row)) {
-        return false;
+        return isManualLoginRetryableUpiCredentialMembershipRow(row);
       }
       if (redeemStatus === 'failed') {
         return normalizeRetryCount(row.redeemFailureCount) < 3;
@@ -1170,6 +1191,9 @@
         return reason || '卡密已提交，等待远端状态刷新';
       }
       if (redeemStatus === 'blocked' || isPreSubmitUpiCredentialMembershipBlockedRow(row)) {
+        if (isManualLoginRetryableUpiCredentialMembershipRow(row)) {
+          return reason || '登录受阻，可点击重新登录或手动接管后继续';
+        }
         return reason || '登录或读取 ChatGPT session 未完成，尚未提交卡密';
       }
       if (['success', 'skipped'].includes(redeemStatus)) {
@@ -1446,11 +1470,16 @@
             const meta = getUpiCredentialMembershipRowStatusMeta(row, results);
             const email = normalizeUpiCredentialMembershipEmail(row.email);
             const isRowChecking = upiCredentialMembershipCheckingEmail === email;
+            const isManualLoginRetryable = isManualLoginRetryableUpiCredentialMembershipRow(row);
             const disableSingleCheck = membershipBusy || isRowChecking || row.enabled === false;
-            const singleActionTitle = upiCredentialMembershipGroup === 'free'
+            const singleActionTitle = upiCredentialMembershipGroup === 'free' && isManualLoginRetryable
+              ? '点击重新登录；如出现验证码可手动接管后继续'
+              : upiCredentialMembershipGroup === 'free'
               ? '点击用卡密兑换该账号'
               : '点击检测该账号是否已开通 Plus/Pro/Team';
-            const singleActionAria = upiCredentialMembershipGroup === 'free'
+            const singleActionAria = upiCredentialMembershipGroup === 'free' && isManualLoginRetryable
+              ? `重新登录 ${email}`
+              : upiCredentialMembershipGroup === 'free'
               ? `用卡密兑换 ${email}`
               : `检测 ${email} 是否有 Plus`;
             const titleParts = [
