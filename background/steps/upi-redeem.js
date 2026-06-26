@@ -1793,6 +1793,27 @@
           };
           return;
         }
+        if (remoteStatus === 'not_found') {
+          const releaseMessage = remoteMessage || '后端无兑换记录';
+          nextUsage[cdkey] = {
+            usedAt: 0,
+            lastAttemptAt: Math.max(0, Math.floor(Number(currentEntry.lastAttemptAt) || 0)),
+            lastError: '',
+            enabled: currentEntry.enabled !== false,
+            email: '',
+            releasedEmail: '',
+            releaseReason: '',
+            releasedAt: 0,
+            remoteStatus: 'not_found',
+            remoteMessage: `${releaseMessage}；后端无兑换记录，卡密可重新提交`,
+            remoteCheckedAt: checkedAt,
+            retryCount: Math.max(0, Math.floor(Number(currentEntry.retryCount) || 0)),
+            lastRetryAt: Math.max(0, Math.floor(Number(currentEntry.lastRetryAt) || 0)),
+            retrying: false,
+            retryError: '',
+          };
+          return;
+        }
         const success = isSuccessfulRemoteStatus(remoteStatus);
         const unused = isUnusedRemoteStatus(remoteStatus);
         const preserveReleaseInfo = !currentEntry.email && ['unused', 'available', 'new', 'ready'].includes(remoteStatus);

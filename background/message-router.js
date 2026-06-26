@@ -642,6 +642,32 @@
           continue;
         }
 
+        const remoteNoRedeemRecord = ['not_found', 'unused', 'available', 'new', 'ready'].includes(remoteStatus);
+        if (remoteNoRedeemRecord && isPendingUpiCredentialMembershipRedeemStatus(item.redeemStatus)) {
+          const releasedAt = toIsoFromTimestampOrNow(entry.remoteCheckedAt);
+          const releaseReason = remoteMessage || '后端无兑换记录，卡密已释放，可重新兑换';
+          changed = true;
+          nextItems.push({
+            ...item,
+            status: 'free',
+            planType: 'free',
+            reason: releaseReason,
+            redeemStatus: '',
+            redeemReason: releaseReason,
+            redeemFailureCount: normalizeRouterRetryCount(item.redeemFailureCount),
+            redeemLastFailedAt: item.redeemLastFailedAt || '',
+            upiRedeemCdkey: '',
+            upiRedeemSubscriptionCheckedAt: '',
+            membershipOverrideStatus: '',
+            membershipOverrideCheckedAt: '',
+            checkedAt: item.checkedAt || releasedAt,
+          });
+          if (typeof addLog === 'function') {
+            await addLog(`UPI 无会员补兑：${rowEmail} -> 后端无兑换记录，已释放卡密 ${entry.cdkey || item.upiRedeemCdkey || ''}，账号回到 Free 可重新兑换。`, 'warn');
+          }
+          continue;
+        }
+
         const remoteFailed = isRetryableUpiRedeemRemoteStatusForRetry(remoteStatus);
         if (remoteFailed && isPendingUpiCredentialMembershipRedeemStatus(item.redeemStatus)) {
           const failedAt = toIsoFromTimestampOrNow(entry.remoteCheckedAt);

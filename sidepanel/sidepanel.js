@@ -3128,7 +3128,7 @@ const UPI_REDEEM_REMOTE_STATUS_LABELS = Object.freeze({
   success: '兑换成功',
   failed: '兑换失败',
   timeout: '兑换超时',
-  not_found: '未找到',
+  not_found: '后端无记录',
   rejected: '提交失败',
   canceled: '已取消',
   cancelled: '充值失败',
@@ -3266,7 +3266,7 @@ function getUpiRedeemRemoteStatusClass(status = '', used = false, enabled = true
   if (used || normalized === 'success') {
     return 'used';
   }
-  if (isRetryableUpiRedeemRemoteStatus(normalized) || ['not_found', 'invalid'].includes(normalized)) {
+  if (isRetryableUpiRedeemRemoteStatus(normalized) || normalized === 'invalid') {
     return 'failed';
   }
   if (['pending', 'pending_token', 'pending_dispatch', 'dispatched', 'dispatching', 'queued', 'accepted', 'submitted'].includes(normalized)) {
