@@ -3877,7 +3877,7 @@ function normalizeSignupVerificationCodeWaitSeconds(value, fallback = DEFAULT_SI
 }
 
 function syncUpiRedeemAfterModeStepDefinitions() {
-  syncUpiRedeemAfterModeControls(getSelectedUpiRedeemStopAfterRedeem(latestState));
+  syncUpiRedeemAfterModeControls(true);
   const stepDefinitionState = typeof resolveStepDefinitionCapabilityState === 'function'
     ? resolveStepDefinitionCapabilityState({
       ...(latestState || {}),
@@ -3895,8 +3895,8 @@ function syncUpiRedeemAfterModeStepDefinitions() {
     plusPaymentMethod: getSelectedPlusPaymentMethod(),
     signupMethod: stepDefinitionState.signupMethod,
     plusAccountAccessStrategy: stepDefinitionState.plusAccountAccessStrategy,
-    upiRedeemStopAfterRedeem: getSelectedUpiRedeemStopAfterRedeem(latestState),
-    upiRedeemContinueAfterRedeem: selectUpiRedeemAfterMode?.value === 'continue',
+    upiRedeemStopAfterRedeem: true,
+    upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
   });
 }
@@ -3919,8 +3919,8 @@ function syncTotpMfaAfterProfileStepDefinitions() {
     plusPaymentMethod: getSelectedPlusPaymentMethod(),
     signupMethod: stepDefinitionState.signupMethod,
     plusAccountAccessStrategy: stepDefinitionState.plusAccountAccessStrategy,
-    upiRedeemStopAfterRedeem: getSelectedUpiRedeemStopAfterRedeem(latestState),
-    upiRedeemContinueAfterRedeem: selectUpiRedeemAfterMode?.value === 'continue',
+    upiRedeemStopAfterRedeem: true,
+    upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
   });
 }
@@ -6915,8 +6915,8 @@ function collectSettingsPayload() {
     upiSubscriptionApiBaseUrl: String(inputUpiSubscriptionApiBaseUrl?.value || '').trim(),
     upiRedeemExternalApiKey: String(inputUpiRedeemExternalApiKey?.value || '').trim(),
     upiRedeemClientId: String(inputUpiRedeemClientId?.value || '').trim(),
-    upiRedeemStopAfterRedeem: getSelectedUpiRedeemStopAfterRedeem(latestState),
-    upiRedeemContinueAfterRedeem: selectUpiRedeemAfterMode?.value === 'continue',
+    upiRedeemStopAfterRedeem: true,
+    upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
     upiCredentialMembershipCheckTotpApiBaseUrl: String(inputUpiCredentialMembershipTotpApiBaseUrl?.value || '').trim(),
     upiCredentialMembershipCheckTotpLookupKey: String(inputUpiCredentialMembershipTotpLookupKey?.value || '').trim(),
@@ -13397,7 +13397,7 @@ function updatePlusModeUI() {
     plusPaymentMethodCaption.textContent = selectedMethod === gpcValue
       ? `GPC ${isGpcAutoMode ? '自动' : '手动'}订阅链路`
       : selectedMethod === upiValue
-      ? 'UPI 卡密兑换链路'
+      ? 'UPI 注册验资链路'
       : selectedMethod === gopayValue
       ? 'GoPay 印尼订阅链路'
       : 'PayPal 订阅链路';
@@ -13462,7 +13462,6 @@ function updatePlusModeUI() {
     typeof rowSetGptPasswordVerificationWaitSeconds !== 'undefined' ? rowSetGptPasswordVerificationWaitSeconds : null,
     typeof rowUpiCredentialMembershipTotpApiBaseUrl !== 'undefined' ? rowUpiCredentialMembershipTotpApiBaseUrl : null,
     typeof rowUpiCredentialMembershipTotpLookupKey !== 'undefined' ? rowUpiCredentialMembershipTotpLookupKey : null,
-    typeof rowUpiRedeemStopAfterRedeem !== 'undefined' ? rowUpiRedeemStopAfterRedeem : null,
     typeof rowUpiRedeemCdkeyPool !== 'undefined' ? rowUpiRedeemCdkeyPool : null,
   ].forEach((row) => {
     if (!row) {
@@ -13470,6 +13469,12 @@ function updatePlusModeUI() {
     }
     row.style.display = upiRowsVisible ? '' : 'none';
   });
+  if (typeof rowUpiRedeemStopAfterRedeem !== 'undefined' && rowUpiRedeemStopAfterRedeem) {
+    rowUpiRedeemStopAfterRedeem.style.display = 'none';
+  }
+  if (typeof selectUpiRedeemAfterMode !== 'undefined' && selectUpiRedeemAfterMode) {
+    selectUpiRedeemAfterMode.value = 'stop';
+  }
   updateUpiRedeemCdkeyPoolSummary(latestState);
   scheduleUpiRedeemCdkeyStatusAutoRefresh({ immediate: upiRowsVisible });
   if (typeof rowGpcHelperPhoneMode !== 'undefined' && rowGpcHelperPhoneMode) {
@@ -14394,8 +14399,8 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
     plusAccountAccessStrategy: nextAccountAccessStrategy,
     signupMethod: nextSignupMethod,
     phoneSignupReloginAfterBindEmailEnabled: nextPhoneSignupReloginAfterBindEmailEnabled,
-    upiRedeemStopAfterRedeem: nextUpiRedeemStopAfterRedeem,
-    upiRedeemContinueAfterRedeem: nextUpiRedeemContinueAfterRedeem,
+    upiRedeemStopAfterRedeem: nextPaymentMethod === (typeof PLUS_PAYMENT_METHOD_UPI !== 'undefined' ? PLUS_PAYMENT_METHOD_UPI : 'upi') ? true : nextUpiRedeemStopAfterRedeem,
+    upiRedeemContinueAfterRedeem: nextPaymentMethod === (typeof PLUS_PAYMENT_METHOD_UPI !== 'undefined' ? PLUS_PAYMENT_METHOD_UPI : 'upi') ? false : nextUpiRedeemContinueAfterRedeem,
     totpMfaAfterProfileEnabled: nextTotpMfaAfterProfileEnabled,
     ppBoomEnabled: nextPpBoomEnabled,
   });
@@ -14425,8 +14430,8 @@ function applySettingsState(state) {
       plusAccountAccessStrategy: state?.plusAccountAccessStrategy,
       signupMethod: stepDefinitionState.signupMethod,
       phoneSignupReloginAfterBindEmailEnabled: Boolean(state?.phoneSignupReloginAfterBindEmailEnabled),
-      upiRedeemStopAfterRedeem: (state?.upiRedeemContinueAfterRedeem ?? state?.pixRedeemContinueAfterRedeem) === true ? false : true,
-      upiRedeemContinueAfterRedeem: Boolean(state?.upiRedeemContinueAfterRedeem ?? state?.pixRedeemContinueAfterRedeem),
+      upiRedeemStopAfterRedeem: true,
+      upiRedeemContinueAfterRedeem: false,
       totpMfaAfterProfileEnabled: state?.totpMfaAfterProfileEnabled !== false,
     });
   }

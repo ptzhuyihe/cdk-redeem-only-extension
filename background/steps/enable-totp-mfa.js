@@ -369,6 +369,7 @@
       setState = async () => {},
       sleepWithStop = async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       throwIfStopped = () => {},
+      checkRegistrationUpiTrialEligibility = null,
       upsertUpiAccountCredentialBackup = null,
       waitForTabCompleteUntilStopped = async () => {},
     } = deps;
@@ -809,7 +810,7 @@
         totpMfaApiPersisted: false,
       });
 
-      await addStepLog(visibleStep, '正在通过 Nerver API 开通 ChatGPT TOTP 2FA，成功后再继续 UPI 卡密兑换...', 'info');
+      await addStepLog(visibleStep, '正在通过 Nerver API 开通 ChatGPT TOTP 2FA，成功后检测 UPI 试用资格...', 'info');
       const tabId = await resolveSessionTabId(runtimeState);
       const tab = await ensureChatGptSecurityTab(tabId, visibleStep);
       const authSession = await readAuthSessionInTab(tab.id);
@@ -994,6 +995,19 @@
           `第 7 步账号已开通 2FA，但写入账号记录失败：${getErrorMessage(recordError)}`,
           'warn'
         );
+      }
+      if (typeof checkRegistrationUpiTrialEligibility === 'function') {
+        await checkRegistrationUpiTrialEligibility({
+          state: {
+            ...runtimeState,
+            email: accountEmail || runtimeState.email,
+          },
+          patch,
+          session: authSession.session || authSession,
+          accessToken,
+          email: accountEmail,
+          visibleStep,
+        });
       }
       await addStepLog(visibleStep, `ChatGPT 2FA 已通过 Nerver API 开通，TOTP 密钥：${secretMasked}`, 'success');
       await completeNodeFromBackground(state?.nodeId || 'enable-totp-mfa', patch);

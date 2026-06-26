@@ -2298,6 +2298,92 @@
       return cleanupUpdates;
     }
 
+    async function checkRegistrationUpiTrialEligibility(input = {}) {
+      throwIfStopped();
+      const runtimeState = await getMergedState(input.state || {});
+      const patch = input.patch && typeof input.patch === 'object' && !Array.isArray(input.patch)
+        ? input.patch
+        : {};
+      const visibleStep = Math.floor(Number(input.visibleStep || runtimeState.visibleStep) || 0)
+        || resolveVisibleStep(runtimeState);
+      const chatGptSession = normalizeChatGptSessionPayload(input.session || input.chatGptSession || input.chatgptSession || {});
+      const accessToken = getChatGptSessionAccessToken(chatGptSession)
+        || normalizeString(input.accessToken || input.token || input.access_token);
+      const email = parsePoolEntryEmail(input.email)
+        || resolveCurrentRedeemEmail({
+          ...runtimeState,
+          ...patch,
+        }, chatGptSession);
+      const checkedAt = toIsoTimestamp();
+
+      await addStepLog(
+        visibleStep,
+        `UPI 注册后试用资格检查：正在检测 ${email || 'unknown'}，通过后才进入 Free 分组。`,
+        'info'
+      );
+
+      try {
+        const eligibility = await checkUpiRedeemAccessTokenEligibility({
+          state: runtimeState,
+          session: chatGptSession,
+          accessToken,
+        });
+        const reason = normalizeString(eligibility?.item?.message || eligibility?.item?.reason)
+          || '账号有试用资格，可进行 UPI 卡密兑换';
+        if (typeof upsertTrialEligibleFreeCredential === 'function') {
+          await upsertTrialEligibleFreeCredential({
+            source: 'registration-upi-eligibility',
+            email,
+            credential: buildCurrentUpiCredentialForMembership({
+              ...runtimeState,
+              ...patch,
+              email,
+            }, email),
+            accessTokenMasked: maskAccessToken(accessToken),
+            reason,
+            checkedAt,
+          });
+        }
+        await addStepLog(
+          visibleStep,
+          `UPI 注册后试用资格检查通过，已进入 Free 分组：${email || 'unknown'}。`,
+          'ok'
+        );
+        return {
+          eligible: true,
+          email,
+          reason,
+          checkedAt,
+        };
+      } catch (error) {
+        const message = getErrorMessage(error) || 'UPI 试用资格检测失败。';
+        if (isUpiAccountIneligibleError(error)) {
+          await addStepLog(
+            visibleStep,
+            `UPI 注册后试用资格检查确认无资格，正在删除账号：${email || 'unknown'}：${message}`,
+            'warn'
+          );
+          await applyIneligibleAccountCleanup({
+            state: {
+              ...runtimeState,
+              ...patch,
+              email,
+            },
+            email,
+            visibleStep,
+            reason: message,
+          });
+          throw error;
+        }
+        await addStepLog(
+          visibleStep,
+          `UPI 注册后试用资格检查失败，账号未进入 Free 分组：${email || 'unknown'}：${message}`,
+          'error'
+        );
+        throw error;
+      }
+    }
+
     async function redeemUpiCredentialWithAccessToken(input = {}) {
       throwIfStopped();
       const runtimeState = await getMergedState(input.state || {});
@@ -2670,7 +2756,7 @@
       if (chrome?.tabs?.update) {
         await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
       }
-      await addStepLog(visibleStep, `第八步读取当前账号 ChatGPT session：已选中标签页 ${tab.id}（${tab.url || 'unknown'}），session API：${CHATGPT_SESSION_API_URL}`, 'info');
+      await addStepLog(visibleStep, `UPI 兑换步骤读取当前账号 ChatGPT session：已选中标签页 ${tab.id}（${tab.url || 'unknown'}），session API：${CHATGPT_SESSION_API_URL}`, 'info');
       let sessionState = await readCurrentChatGptSession(tab.id, visibleStep);
       throwIfStopped();
       const sessionEmailForLog = resolveCurrentRedeemEmail({}, sessionState) || 'unknown';
@@ -2740,7 +2826,7 @@
               accessToken: sessionState.accessToken,
             });
             await recordTrialEligibleFreeCredential(retryEligibility);
-            await addStepLog(visibleStep, 'UPI ChatGPT session 刷新后资格检查通过，继续第八步兑换。', 'ok');
+            await addStepLog(visibleStep, 'UPI ChatGPT session 刷新后资格检查通过，继续兑换。', 'ok');
           } catch (retryError) {
             const retryMessage = getErrorMessage(retryError) || 'UPI 资格检查失败。';
             if (isApproveBlockedError(retryError)) {
@@ -2963,7 +3049,7 @@
         if (isUpiAccessTokenExpiredError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI 兑换后端提示 ChatGPT session 失效，已停止当前第八步，卡密不记失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI 兑换后端提示 ChatGPT session 失效，已停止当前兑换步骤，卡密不记失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await recordAccessTokenExpiredCdkeyAttempt({
@@ -3156,6 +3242,7 @@
       normalizeUpiSubscriptionApiBaseUrl,
       checkUpiRedeemSubscriptionStatuses,
       checkUpiRedeemAccessTokenEligibility,
+      checkRegistrationUpiTrialEligibility,
       buildUpiRedeemApiUrl,
       executeUpiRedeem,
       isSupportedChatGptSessionUrl,

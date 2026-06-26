@@ -573,7 +573,7 @@
         password,
       };
 
-      await addStepLog(visibleStep, `正在为 ${email} 强制设置 GPT 登录密码，完成后才会开通 2FA 和兑换 UPI 卡密...`, 'info');
+      await addStepLog(visibleStep, `正在为 ${email} 强制设置 GPT 登录密码，完成后会开通 2FA 并检测 UPI 试用资格...`, 'info');
 
       let prepareResult = await sendSetPasswordPageMessage('START_SET_GPT_PASSWORD_RESET', {
         email,

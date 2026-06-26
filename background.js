@@ -16928,6 +16928,7 @@ const totpMfaExecutor = self.MultiPageBackgroundEnableTotpMfa?.createEnableTotpM
   setState,
   sleepWithStop,
   throwIfStopped,
+  checkRegistrationUpiTrialEligibility: (...args) => upiRedeemExecutor.checkRegistrationUpiTrialEligibility(...args),
   upsertUpiAccountCredentialBackup,
   waitForTabCompleteUntilStopped,
 });

@@ -82,13 +82,12 @@
     { id: 7, order: 70, key: 'plus-checkout-billing', title: '等待 GPC 任务完成', sourceId: 'plus-checkout', driverId: 'content/plus-checkout', command: 'plus-checkout-billing' },
   ];
 
-  const PLUS_UPI_PREFIX_STEP_DEFINITIONS = [
+  const PLUS_UPI_REGISTRATION_PREFIX_STEP_DEFINITIONS = [
     { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网', sourceId: 'chatgpt', driverId: null, command: 'open-chatgpt' },
     { id: 2, order: 20, key: 'submit-signup-email', title: '注册并输入邮箱', sourceId: 'openai-auth', driverId: 'content/signup-page', command: 'submit-signup-email' },
     { id: 3, order: 30, key: 'fill-password', title: '填写密码并继续', sourceId: 'openai-auth', driverId: 'content/signup-page', command: 'fill-password' },
     { id: 4, order: 40, key: 'fetch-signup-code', title: '获取注册验证码', sourceId: 'openai-auth', driverId: 'content/signup-page', command: 'submit-verification-code', mailRuleId: 'openai-signup-code' },
     { id: 5, order: 50, key: 'fill-profile', title: '填写姓名和生日', sourceId: 'openai-auth', driverId: 'content/signup-page', command: 'fill-profile' },
-    { id: 6, order: 60, key: 'upi-redeem', title: 'UPI 卡密兑换 Plus', sourceId: 'chatgpt', driverId: null, command: 'upi-redeem' },
   ];
   const TOTP_MFA_STEP_DEFINITION = {
     id: 7,
@@ -410,24 +409,24 @@
   const PLUS_GPC_PHONE_STEP_DEFINITIONS = createOpenAiSteps(PLUS_GPC_PREFIX_STEP_DEFINITIONS, 10, 100, SIGNUP_METHOD_PHONE);
   const PLUS_GPC_PHONE_BOUND_EMAIL_RELOGIN_STEP_DEFINITIONS = createOpenAiSteps(PLUS_GPC_PREFIX_STEP_DEFINITIONS, 10, 100, SIGNUP_METHOD_PHONE, { phoneSignupReloginAfterBindEmailEnabled: true });
   const PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS = createPlusUpiPrefixStepDefinitions({ totpMfaAfterProfileEnabled: true });
-  const PLUS_UPI_NO_TOTP_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_PREFIX_STEP_DEFINITIONS, 7, 70, SIGNUP_METHOD_EMAIL);
-  const PLUS_UPI_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 9, 90, SIGNUP_METHOD_EMAIL);
+  const PLUS_UPI_NO_TOTP_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_REGISTRATION_PREFIX_STEP_DEFINITIONS, 6, 60, SIGNUP_METHOD_EMAIL);
+  const PLUS_UPI_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 8, 80, SIGNUP_METHOD_EMAIL);
   const PLUS_UPI_SUB2API_SESSION_STEP_DEFINITIONS = createOpenAiSteps(
     PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS,
-    9,
-    90,
+    8,
+    80,
     SIGNUP_METHOD_EMAIL,
     { plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION }
   );
   const PLUS_UPI_CPA_SESSION_STEP_DEFINITIONS = createOpenAiSteps(
     PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS,
-    9,
-    90,
+    8,
+    80,
     SIGNUP_METHOD_EMAIL,
     { plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION }
   );
-  const PLUS_UPI_PHONE_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 9, 90, SIGNUP_METHOD_PHONE);
-  const PLUS_UPI_PHONE_BOUND_EMAIL_RELOGIN_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 9, 90, SIGNUP_METHOD_PHONE, { phoneSignupReloginAfterBindEmailEnabled: true });
+  const PLUS_UPI_PHONE_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 8, 80, SIGNUP_METHOD_PHONE);
+  const PLUS_UPI_PHONE_BOUND_EMAIL_RELOGIN_STEP_DEFINITIONS = createOpenAiSteps(PLUS_UPI_TOTP_PREFIX_STEP_DEFINITIONS, 8, 80, SIGNUP_METHOD_PHONE, { phoneSignupReloginAfterBindEmailEnabled: true });
 
   const PHONE_SIGNUP_TITLE_OVERRIDES = Object.freeze({
     'submit-signup-email': '注册并输入手机号',
@@ -459,17 +458,12 @@
 
   function createPlusUpiPrefixStepDefinitions(options = {}) {
     if (!shouldEnableTotpMfaAfterProfile(options)) {
-      return PLUS_UPI_PREFIX_STEP_DEFINITIONS;
+      return PLUS_UPI_REGISTRATION_PREFIX_STEP_DEFINITIONS;
     }
     return [
-      ...PLUS_UPI_PREFIX_STEP_DEFINITIONS.slice(0, 5),
+      ...PLUS_UPI_REGISTRATION_PREFIX_STEP_DEFINITIONS,
       SET_GPT_PASSWORD_STEP_DEFINITION,
       TOTP_MFA_STEP_DEFINITION,
-      {
-        ...PLUS_UPI_PREFIX_STEP_DEFINITIONS[5],
-        id: 8,
-        order: 80,
-      },
     ];
   }
 
@@ -567,39 +561,7 @@
     }
     if (paymentMethod === PLUS_PAYMENT_METHOD_UPI) {
       const plusUpiPrefixSteps = createPlusUpiPrefixStepDefinitions(options);
-      const authTailStartId = shouldEnableTotpMfaAfterProfile(options) ? 9 : 7;
-      const authTailStartOrder = authTailStartId * 10;
-      if (shouldStopUPIAfterRedeem(options)) {
-        return plusUpiPrefixSteps;
-      }
-      if (signupMethod === SIGNUP_METHOD_PHONE) {
-        return createOpenAiSteps(
-          plusUpiPrefixSteps,
-          authTailStartId,
-          authTailStartOrder,
-          SIGNUP_METHOD_PHONE,
-          { ...options, phoneSignupReloginAfterBindEmailEnabled: reloginAfterBindEmail }
-        );
-      }
-      if (plusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-        return createOpenAiSteps(
-          plusUpiPrefixSteps,
-          authTailStartId,
-          authTailStartOrder,
-          SIGNUP_METHOD_EMAIL,
-          { ...options, plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION }
-        );
-      }
-      if (plusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-        return createOpenAiSteps(
-          plusUpiPrefixSteps,
-          authTailStartId,
-          authTailStartOrder,
-          SIGNUP_METHOD_EMAIL,
-          { ...options, plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION }
-        );
-      }
-      return createOpenAiSteps(plusUpiPrefixSteps, authTailStartId, authTailStartOrder, SIGNUP_METHOD_EMAIL, options);
+      return plusUpiPrefixSteps;
     }
     if (shouldTreatHostedCheckoutAsFinalStep({
       ...options,

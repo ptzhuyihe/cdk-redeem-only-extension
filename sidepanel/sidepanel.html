@@ -599,7 +599,7 @@
             <span class="toggle-switch-thumb"></span>
           </span>
         </label>
-        <span class="setting-caption">开启后先开通 2FA，再兑换 UPI 卡密</span>
+        <span class="setting-caption">开启后先开通 2FA，再检测试用资格并进入 Free 分组</span>
       </div>
       <div class="data-row" id="row-set-gpt-password-verification-wait-seconds" style="display:none;">
         <span class="data-label">取码等待</span>
@@ -621,13 +621,13 @@
           title="Nerver /api/v1/totp/lookup 强保护模式的查询密钥" />
       </div>
       <div class="data-row" id="row-upi-redeem-stop-after-redeem" style="display:none;">
-        <span class="data-label">兑换后</span>
+        <span class="data-label">资格通过后</span>
         <select id="select-upi-redeem-after-mode" class="data-select">
           <option value="stop" selected>停止</option>
           <option value="continue">继续后续 OAuth</option>
         </select>
         <input type="checkbox" id="input-upi-redeem-stop-after-redeem" hidden checked />
-        <span class="setting-caption">选择继续后会执行 OAuth、验证码和平台回调</span>
+        <span class="setting-caption">选择继续后会在第 7 步资格通过后执行 OAuth、验证码和平台回调</span>
       </div>
       <div class="data-row data-check-row" id="row-upi-redeem-cdkey-pool" style="display:none;">
         <span class="data-label">UPI 卡密池</span>
