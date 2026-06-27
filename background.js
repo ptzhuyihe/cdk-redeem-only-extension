@@ -8987,7 +8987,7 @@ async function fetchIcloudHideMyEmail(options = {}) {
           : {}),
         hme: generatedAlias,
         label: getIcloudAliasLabel(),
-        note: 'Generated through GuJumpgate',
+        note: 'Generated through UPI Redeem Only',
       };
 
       let alias = '';

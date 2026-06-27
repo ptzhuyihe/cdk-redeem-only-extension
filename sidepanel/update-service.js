@@ -1,6 +1,6 @@
 (() => {
-  const GITHUB_OWNER = 'FoundZiGu';
-  const GITHUB_REPO = 'GuJumpgate';
+  const GITHUB_OWNER = 'kui123456789';
+  const GITHUB_REPO = 'upi-redeem-only-extension';
   const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
   const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=10`;
   const CACHE_KEY = 'multipage-release-snapshot-v1';
@@ -68,7 +68,7 @@
 
   function getVersionFamilyPrefix(family) {
     if (family === VERSION_FAMILY_GUJUMPGATE) {
-      return 'GuJumpgate  V';
+      return 'UPI Redeem Only V';
     }
     if (family === VERSION_FAMILY_ULTRA) {
       return 'Ultra';
@@ -412,7 +412,7 @@
   }
 
   async function getReleaseSnapshot(options = {}) {
-    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'GuJumpgate 0.0';
+    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'UPI Redeem Only V0.0';
 
     try {
       const releases = await loadReleases(options);

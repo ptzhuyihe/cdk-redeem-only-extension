@@ -800,7 +800,7 @@ const CHATGPT_SESSION_READER_PROFILE_SETTING_KEYS = Object.freeze([
   'removedContactVerificationPollIntervalSeconds',
 ]);
 const FIXED_PLUS_MODE_ENABLED = true;
-const GUIDE_REPOSITORY_URL = 'https://github.com/FoundZiGu/GuJumpgate';
+const GUIDE_REPOSITORY_URL = 'https://github.com/kui123456789/upi-redeem-only-extension';
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
@@ -15563,7 +15563,7 @@ function renderUpdateReleaseList(releases = []) {
 
     const version = document.createElement('span');
     version.className = 'update-release-version';
-    version.textContent = release.displayVersion || `GuJumpgate ${release.version}`;
+    version.textContent = release.displayVersion || `UPI Redeem Only V${release.version}`;
     titleRow.appendChild(version);
 
     if (release.title) {
@@ -15622,6 +15622,7 @@ function renderReleaseSnapshot(snapshot) {
   extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed', 'is-version-label');
 
   const localVersionText = snapshot?.localVersion || '';
+  const repositoryButtonText = 'GitHub';
   const logUrl = snapshot?.logUrl || snapshot?.releasesPageUrl || sidepanelUpdateService?.releasesPageUrl || '';
 
   if (btnReleaseLog) {
@@ -15633,7 +15634,7 @@ function renderReleaseSnapshot(snapshot) {
 
   switch (snapshot?.status) {
     case 'update-available': {
-      extensionUpdateStatus.textContent = '有更新';
+      extensionUpdateStatus.textContent = repositoryButtonText;
       extensionUpdateStatus.classList.add('is-update-available');
       if (btnReleaseLog) {
         btnReleaseLog.hidden = false;
@@ -15665,21 +15666,21 @@ function renderReleaseSnapshot(snapshot) {
     }
 
     case 'ignored': {
-      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate 0.0';
+      extensionUpdateStatus.textContent = repositoryButtonText;
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'latest': {
-      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate 0.0';
+      extensionUpdateStatus.textContent = repositoryButtonText;
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'empty': {
-      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate 0.0';
+      extensionUpdateStatus.textContent = repositoryButtonText;
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
@@ -15687,7 +15688,7 @@ function renderReleaseSnapshot(snapshot) {
 
     case 'error':
     default: {
-      extensionUpdateStatus.textContent = localVersionText || 'GuJumpgate 0.0';
+      extensionUpdateStatus.textContent = repositoryButtonText;
       extensionUpdateStatus.classList.add('is-version-label', 'is-check-failed');
       extensionVersionMeta.textContent = snapshot?.errorMessage || 'GitHub Releases 检查失败';
       extensionVersionMeta.hidden = false;
@@ -15710,8 +15711,8 @@ async function initializeReleaseInfo() {
 
   const localVersion = sidepanelUpdateService?.getLocalVersionLabel?.(chrome.runtime.getManifest())
     || chrome.runtime.getManifest()?.version_name
-    || (chrome.runtime.getManifest()?.version ? `GuJumpgate  V${chrome.runtime.getManifest().version}` : '');
-  extensionUpdateStatus.textContent = localVersion || 'GuJumpgate 0.0';
+    || (chrome.runtime.getManifest()?.version ? `UPI Redeem Only V${chrome.runtime.getManifest().version}` : '');
+  extensionUpdateStatus.textContent = 'GitHub';
   extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed');
   extensionUpdateStatus.classList.add('is-version-label');
   extensionVersionMeta.hidden = true;
@@ -19047,7 +19048,7 @@ btnOutlookEmailPlusGithub?.addEventListener('click', () => {
 });
 
 extensionUpdateStatus?.addEventListener('click', () => {
-  openReleaseListPage();
+  openRepositoryHomePage();
 });
 
 btnDismissContributionUpdateHint?.addEventListener('click', (event) => {
