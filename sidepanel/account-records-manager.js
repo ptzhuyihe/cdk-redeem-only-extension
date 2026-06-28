@@ -557,9 +557,12 @@
       return normalizeUpiRedeemRemoteStatus(entry.remoteStatus) === 'success';
     }
 
-    function isUpiRedeemUsageSuccess(entry = {}) {
-      return entry?.subscriptionActive === true
-        || normalizeUpiRedeemRemoteStatus(entry?.remoteStatus) === 'success';
+    function isVerifiedPaidUpiRedeemUsageEntry(entry = {}) {
+      if (entry?.subscriptionActive !== true) {
+        return false;
+      }
+      const planType = normalizeSubscriptionPlanType(entry.subscriptionPlanType || entry.subscription_plan_type || '');
+      return !planType || isPaidSubscriptionPlan(planType);
     }
 
     function getUpiRedeemSuccessCheckedAt(entry = {}) {
@@ -588,7 +591,7 @@
       const byEmail = {};
       Object.entries(usage).forEach(([rawCdkey, entry]) => {
         const cdkey = String(rawCdkey || '').trim();
-        if (!cdkey || !isUpiRedeemUsageSuccess(entry)) {
+        if (!cdkey || !isVerifiedPaidUpiRedeemUsageEntry(entry)) {
           return;
         }
         const patch = {
@@ -611,11 +614,10 @@
       if (String(row.status || '').trim().toLowerCase() !== 'free') {
         return false;
       }
-      const patchCheckedAt = normalizeTimestamp(patch.upiRedeemSubscriptionCheckedAt);
       if (String(row.membershipOverrideStatus || '').trim().toLowerCase() === 'free') {
-        const overrideCheckedAt = normalizeTimestamp(row.membershipOverrideCheckedAt || row.checkedAt);
-        return !patchCheckedAt || Boolean(overrideCheckedAt && overrideCheckedAt >= patchCheckedAt);
+        return true;
       }
+      const patchCheckedAt = normalizeTimestamp(patch.upiRedeemSubscriptionCheckedAt);
       const rowCheckedAt = normalizeTimestamp(row.checkedAt);
       if (!rowCheckedAt) {
         return false;
@@ -966,12 +968,48 @@
       return normalizeUpiCredentialMembershipText(value).replace(/\s+/g, '').toUpperCase();
     }
 
+    function isLikelyUpiCredentialMembershipTimestamp(value = '') {
+      const text = normalizeUpiCredentialMembershipText(value);
+      if (!text || !/[\d:T年月日/-]/.test(text)) {
+        return false;
+      }
+      return Number.isFinite(Date.parse(text));
+    }
+
+    function parseUpiCredentialMembershipParts(parts = []) {
+      const accessTokenOrTimestamp = parts[3] || '';
+      const explicitTimestamp = parts[4] || '';
+      const fourthPartIsTimestamp = !explicitTimestamp && isLikelyUpiCredentialMembershipTimestamp(accessTokenOrTimestamp);
+      return {
+        email: parts[0] || '',
+        password: parts[1] || '',
+        totpMfaSecret: parts[2] || '',
+        accessToken: fourthPartIsTimestamp ? '' : accessTokenOrTimestamp,
+        accessTokenUpdatedAt: explicitTimestamp || (fourthPartIsTimestamp ? accessTokenOrTimestamp : ''),
+        checkedAt: explicitTimestamp || (fourthPartIsTimestamp ? accessTokenOrTimestamp : ''),
+        source: 'txt',
+      };
+    }
+
     function normalizeUpiCredentialMembershipCredential(rawItem = {}, fallbackSource = '') {
       const source = rawItem && typeof rawItem === 'object' && !Array.isArray(rawItem) ? rawItem : {};
       const email = normalizeUpiCredentialMembershipEmail(source.email || source.accountIdentifier);
       if (!email) {
         return null;
       }
+      const rawAccessToken = normalizeUpiCredentialMembershipText(
+        source.accessToken
+        || source.token
+        || source.access_token
+        || source.upiRedeemAccessToken
+        || ''
+      );
+      const rawAccessTokenUpdatedAt = normalizeUpiCredentialMembershipText(source.accessTokenUpdatedAt || source.checkedAt || '');
+      const accessTokenIsTimestamp = rawAccessToken
+        && !rawAccessTokenUpdatedAt
+        && isLikelyUpiCredentialMembershipTimestamp(rawAccessToken);
+      const accessToken = accessTokenIsTimestamp ? '' : rawAccessToken;
+      const accessTokenUpdatedAt = rawAccessTokenUpdatedAt || (accessTokenIsTimestamp ? rawAccessToken : '');
       return {
         ...source,
         email,
@@ -987,17 +1025,26 @@
           || source.twoFactorSecret
           || ''
         ),
-        accessToken: normalizeUpiCredentialMembershipText(
-          source.accessToken
-          || source.token
-          || source.access_token
-          || source.upiRedeemAccessToken
-          || ''
-        ),
-        accessTokenMasked: normalizeUpiCredentialMembershipText(source.accessTokenMasked || ''),
-        accessTokenUpdatedAt: normalizeUpiCredentialMembershipText(source.accessTokenUpdatedAt || source.checkedAt || ''),
-        checkedAt: normalizeUpiCredentialMembershipText(source.checkedAt || source.accessTokenUpdatedAt || ''),
+        accessToken,
+        accessTokenMasked: accessToken ? normalizeUpiCredentialMembershipText(source.accessTokenMasked || '') : '',
+        accessTokenUpdatedAt,
+        checkedAt: normalizeUpiCredentialMembershipText(source.checkedAt || accessTokenUpdatedAt || ''),
         source: normalizeUpiCredentialMembershipText(fallbackSource || source.source),
+      };
+    }
+
+    function sanitizeUpiCredentialMembershipDisplayRow(row = {}) {
+      const source = row && typeof row === 'object' && !Array.isArray(row) ? row : {};
+      const accessToken = normalizeUpiCredentialMembershipText(source.accessToken);
+      const accessTokenUpdatedAt = normalizeUpiCredentialMembershipText(source.accessTokenUpdatedAt || source.tokenUpdatedAt);
+      if (!accessToken || accessTokenUpdatedAt || !isLikelyUpiCredentialMembershipTimestamp(accessToken)) {
+        return source;
+      }
+      return {
+        ...source,
+        accessToken: '',
+        accessTokenMasked: '',
+        accessTokenUpdatedAt: accessToken,
       };
     }
 
@@ -1010,15 +1057,7 @@
         .filter((line) => line && !line.startsWith('#'))
         .map((line) => {
           const parts = line.split(/---+/).map((part) => part.trim());
-          return normalizeUpiCredentialMembershipCredential({
-            email: parts[0] || '',
-            password: parts[1] || '',
-            totpMfaSecret: parts[2] || '',
-            accessToken: parts[3] || '',
-            accessTokenUpdatedAt: parts[4] || '',
-            checkedAt: parts[4] || '',
-            source: 'txt',
-          }, 'txt');
+          return normalizeUpiCredentialMembershipCredential(parseUpiCredentialMembershipParts(parts), 'txt');
         })
         .filter((item) => {
           if (!item?.email || seen.has(item.email)) {
@@ -1081,14 +1120,14 @@
           planType: 'free',
           reason: 'Free 分组账号，有试用资格',
         };
-        rows.push(applyUpiRedeemSuccessMembershipPatch({
+        rows.push(applyUpiRedeemSuccessMembershipPatch(sanitizeUpiCredentialMembershipDisplayRow({
           ...credential,
           ...fallbackFreeResult,
           ...storedResult,
           email,
           source: credential.source || upiCredentialMembershipPoolSource || results.source || '',
           enabled: !disabledUpiCredentialMembershipEmails.has(email),
-        }, successLookup));
+        }), successLookup));
       });
       results.items.forEach((result) => {
         const email = normalizeUpiCredentialMembershipEmail(result?.email);
@@ -1096,12 +1135,12 @@
           return;
         }
         seen.add(email);
-        rows.push(applyUpiRedeemSuccessMembershipPatch({
+        rows.push(applyUpiRedeemSuccessMembershipPatch(sanitizeUpiCredentialMembershipDisplayRow({
           ...result,
           email,
           source: results.source || '',
           enabled: !disabledUpiCredentialMembershipEmails.has(email),
-        }, successLookup));
+        }), successLookup));
       });
       return rows;
     }

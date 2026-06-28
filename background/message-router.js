@@ -603,6 +603,62 @@
       return ['plus', 'pro', 'team'].includes(normalizeRouterPlanType(value));
     }
 
+    function getRouterSubscriptionItemPlanType(item = {}) {
+      return normalizeRouterPlanType(
+        item?.planType
+        || item?.plan_type
+        || item?.subscriptionPlan
+        || item?.subscription_plan
+        || item?.payload?.planType
+        || item?.payload?.plan_type
+        || item?.payload?.subscriptionPlan
+        || item?.payload?.subscription_plan
+        || ''
+      );
+    }
+
+    function isVerifiedPaidUpiRedeemRemoteEntry(entry = {}) {
+      if (entry?.subscriptionActive !== true) {
+        return false;
+      }
+      const planType = normalizeRouterPlanType(entry.subscriptionPlanType || entry.subscription_plan_type || '');
+      return !planType || isPaidRouterPlanType(planType);
+    }
+
+    function normalizeRouterBoolean(value) {
+      if (value === true || value === false) return value;
+      const normalized = normalizeString(value).toLowerCase();
+      if (['true', '1', 'yes', 'y', 'active', 'paid'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'n', 'inactive', 'free'].includes(normalized)) return false;
+      return false;
+    }
+
+    function classifyRouterSubscriptionItem(item = {}) {
+      const planType = getRouterSubscriptionItemPlanType(item);
+      const active = item?.active === true
+        || item?.hasActiveSubscription === true
+        || item?.has_active_subscription === true
+        || item?.subscriptionActive === true
+        || item?.subscription_active === true
+        || item?.payload?.hasActiveSubscription === true
+        || item?.payload?.has_active_subscription === true
+        || item?.payload?.subscriptionActive === true
+        || item?.payload?.subscription_active === true;
+      const hasExplicitActiveFlag = ['active', 'hasActiveSubscription', 'has_active_subscription', 'subscriptionActive', 'subscription_active']
+        .some((key) => Object.prototype.hasOwnProperty.call(item || {}, key))
+        || ['hasActiveSubscription', 'has_active_subscription', 'subscriptionActive', 'subscription_active']
+          .some((key) => Object.prototype.hasOwnProperty.call(item?.payload || {}, key));
+      const explicitActive = hasExplicitActiveFlag
+        ? active
+        : normalizeRouterBoolean(item?.reason || item?.status || item?.ok);
+      const paid = (active || explicitActive) && isPaidRouterPlanType(planType);
+      return {
+        active: paid,
+        planType: paid ? planType : '',
+        reason: normalizeString(item?.reason || item?.message || item?.payload?.reason || item?.payload?.message || ''),
+      };
+    }
+
     function getUpiRedeemRemoteEntryRank(entry = {}) {
       const remoteStatus = normalizeUpiRedeemRemoteStatusForRetry(entry.remoteStatus);
       if (entry.subscriptionActive === true || remoteStatus === 'success') {
@@ -732,6 +788,51 @@
       );
     }
 
+    async function verifyRemoteSuccessMembershipForRow(entry = {}, row = {}, state = {}) {
+      if (typeof checkUpiRedeemSubscriptionStatuses !== 'function') {
+        return null;
+      }
+      const token = normalizeString(
+        entry.accessToken
+        || row.accessToken
+        || row.access_token
+        || row.upiRedeemAccessToken
+      );
+      if (!token) {
+        return null;
+      }
+      const email = normalizeRouterEmail(row.email || entry.email);
+      const cdkey = normalizeString(entry.cdkey || row.upiRedeemCdkey || row.cdkey);
+      try {
+        const response = await checkUpiRedeemSubscriptionStatuses({
+          ...state,
+          items: [{
+            id: email || cdkey || 'upi-membership-verify',
+            email,
+            cdkey,
+            token,
+          }],
+        });
+        const item = Array.isArray(response?.items) ? response.items[0] : null;
+        const classified = classifyRouterSubscriptionItem(item || {});
+        return {
+          checked: true,
+          active: classified.active,
+          planType: classified.planType,
+          reason: classified.reason || (classified.active ? `已开通 ${classified.planType}` : '会员验证未确认 Plus/Pro/Team'),
+          checkedAtMs: Date.now(),
+        };
+      } catch (error) {
+        return {
+          checked: true,
+          active: false,
+          planType: '',
+          reason: error?.message || String(error || '会员验证失败'),
+          checkedAtMs: Date.now(),
+        };
+      }
+    }
+
     function toIsoFromTimestampOrNow(value = 0) {
       const timestamp = Math.max(0, Math.floor(Number(value) || 0)) || Date.now();
       const date = new Date(timestamp);
@@ -802,7 +903,7 @@
           }
           continue;
         }
-        const entry = getUpiRedeemRemoteEntryForMembershipRow(item, lookup);
+        let entry = getUpiRedeemRemoteEntryForMembershipRow(item, lookup);
         if (!rowEmail || !entry) {
           nextItems.push(item);
           continue;
@@ -870,7 +971,34 @@
           }
           continue;
         }
-        const remoteSuccess = entry.subscriptionActive === true || remoteStatus === 'success';
+        let subscriptionVerification = null;
+        if (!isVerifiedPaidUpiRedeemRemoteEntry(entry) && remoteStatus === 'success') {
+          subscriptionVerification = await verifyRemoteSuccessMembershipForRow(entry, item, state);
+          if (subscriptionVerification?.checked) {
+            const verifiedCdkey = normalizeString(entry.cdkey || item.upiRedeemCdkey || item.cdkey);
+            entry = {
+              ...entry,
+              subscriptionActive: subscriptionVerification.active,
+              subscriptionPlanType: subscriptionVerification.planType,
+              subscriptionCheckedAt: subscriptionVerification.checkedAtMs,
+              subscriptionReason: subscriptionVerification.reason,
+            };
+            if (verifiedCdkey) {
+              const currentUsageEntry = nextUsage[verifiedCdkey] && typeof nextUsage[verifiedCdkey] === 'object' && !Array.isArray(nextUsage[verifiedCdkey])
+                ? nextUsage[verifiedCdkey]
+                : {};
+              nextUsage[verifiedCdkey] = {
+                ...currentUsageEntry,
+                subscriptionActive: subscriptionVerification.active,
+                subscriptionPlanType: subscriptionVerification.planType,
+                subscriptionCheckedAt: subscriptionVerification.checkedAtMs,
+                subscriptionReason: subscriptionVerification.reason,
+              };
+              usageChanged = true;
+            }
+          }
+        }
+        const remoteSuccess = isVerifiedPaidUpiRedeemRemoteEntry(entry);
         if (remoteSuccess) {
           const entryCdkey = normalizeString(entry.cdkey || item.upiRedeemCdkey || item.cdkey);
           const rowAlreadyConfirmed = normalizeString(item.status) === 'paid'
@@ -906,6 +1034,34 @@
           });
           if (typeof addLog === 'function') {
             await addLog(`UPI Free 兑换：${rowEmail} -> 当前绑定卡密远端确认成功，进入 Plus：${entryCdkey}`, 'ok');
+          }
+          continue;
+        }
+
+        if (remoteStatus === 'success' && normalizeString(item.status) === 'free') {
+          const verifyReason = subscriptionVerification?.reason || '远端兑换成功，但会员验证尚未确认 Plus/Pro/Team';
+          const nextRedeemStatus = isPendingUpiCredentialMembershipRedeemStatus(item.redeemStatus) ? item.redeemStatus : 'submitted';
+          if (
+            normalizeString(item.reason) === verifyReason
+            && normalizeString(item.redeemReason) === verifyReason
+            && normalizeUpiRedeemRemoteStatusForRetry(item.redeemStatus) === normalizeUpiRedeemRemoteStatusForRetry(nextRedeemStatus)
+          ) {
+            nextItems.push(item);
+            continue;
+          }
+          changed = true;
+          nextItems.push({
+            ...item,
+            status: 'free',
+            planType: 'free',
+            reason: verifyReason,
+            redeemStatus: nextRedeemStatus,
+            redeemReason: verifyReason,
+            upiRedeemCdkey: entry.cdkey || item.upiRedeemCdkey,
+            upiRedeemSubscriptionCheckedAt: '',
+          });
+          if (typeof addLog === 'function') {
+            await addLog(`UPI Free 兑换：${rowEmail} -> 卡密远端返回 success，但会员验证未确认 Plus，账号保留在 Free：${verifyReason}`, 'warn');
           }
           continue;
         }

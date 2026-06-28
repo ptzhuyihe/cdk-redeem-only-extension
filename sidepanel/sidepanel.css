@@ -4033,7 +4033,7 @@ header {
 
 .upi-membership-check-status-header {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 86px 48px 72px 48px;
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(0, 1fr) 124px 58px 96px 64px);
   gap: 8px;
   align-items: center;
   color: var(--text-muted);
@@ -4042,7 +4042,7 @@ header {
 }
 
 .upi-membership-check-section .upi-membership-check-status-header {
-  padding: 0 8px;
+  padding: 0 calc(12px + var(--upi-membership-check-scrollbar-gutter, 18px)) 0 8px;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -4055,6 +4055,7 @@ header {
   max-height: 220px;
   overflow: auto;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .upi-membership-check-section .upi-membership-check-list {
@@ -4064,7 +4065,7 @@ header {
 
 .upi-membership-check-item {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(0, 1fr) 124px 58px 96px 64px);
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border);

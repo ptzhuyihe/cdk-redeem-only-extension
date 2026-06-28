@@ -442,6 +442,28 @@
     return `${text.slice(0, 6)}...${text.slice(-4)}`;
   }
 
+  function isLikelyCredentialTimestamp(value = '') {
+    const text = normalizeString(value);
+    if (!text || !/[\d:T年月日/-]/.test(text)) {
+      return false;
+    }
+    return Number.isFinite(Date.parse(text));
+  }
+
+  function parseCredentialBackupParts(parts = []) {
+    const accessTokenOrTimestamp = parts[3] || '';
+    const explicitTimestamp = parts[4] || '';
+    const fourthPartIsTimestamp = !explicitTimestamp && isLikelyCredentialTimestamp(accessTokenOrTimestamp);
+    const timestamp = explicitTimestamp || (fourthPartIsTimestamp ? accessTokenOrTimestamp : '');
+    return {
+      email: normalizeEmail(parts[0] || ''),
+      password: normalizeString(parts[1] || ''),
+      totpMfaSecret: normalizeTotpSecret(parts[2] || ''),
+      accessToken: fourthPartIsTimestamp ? '' : normalizeString(accessTokenOrTimestamp),
+      accessTokenUpdatedAt: normalizeString(timestamp),
+    };
+  }
+
   function parseCredentialBackupText(text = '') {
     const seen = new Set();
     return String(text || '')
@@ -451,11 +473,13 @@
         const rawLine = line.trim();
         if (!rawLine || rawLine.startsWith('#')) return null;
         const parts = rawLine.split(/---+/).map((part) => part.trim());
-        const email = normalizeEmail(parts[0] || '');
-        const password = normalizeString(parts[1] || '');
-        const totpMfaSecret = normalizeTotpSecret(parts[2] || '');
-        const accessToken = normalizeString(parts[3] || '');
-        const accessTokenUpdatedAt = normalizeString(parts[4] || '');
+        const {
+          email,
+          password,
+          totpMfaSecret,
+          accessToken,
+          accessTokenUpdatedAt,
+        } = parseCredentialBackupParts(parts);
         if (!email) {
           return {
             email: '',
@@ -520,11 +544,17 @@
 
   function normalizeResultItem(item = {}) {
     const email = normalizeEmail(item.email);
-    const accessToken = normalizeString(item.accessToken || item.token || item.access_token || item.upiRedeemAccessToken);
+    const rawAccessToken = normalizeString(item.accessToken || item.token || item.access_token || item.upiRedeemAccessToken);
+    const rawAccessTokenUpdatedAt = normalizeString(item.accessTokenUpdatedAt || item.tokenUpdatedAt);
+    const accessTokenIsTimestamp = rawAccessToken
+      && !rawAccessTokenUpdatedAt
+      && isLikelyCredentialTimestamp(rawAccessToken);
+    const accessToken = accessTokenIsTimestamp ? '' : rawAccessToken;
+    const accessTokenUpdatedAt = rawAccessTokenUpdatedAt || (accessTokenIsTimestamp ? rawAccessToken : '');
     const status = ['paid', 'free', 'failed'].includes(normalizeString(item.status))
       ? normalizeString(item.status)
       : 'failed';
-    return {
+    const normalized = {
       email,
       password: normalizeString(item.password),
       totpMfaSecret: normalizeTotpSecret(item.totpMfaSecret),
@@ -536,8 +566,8 @@
       trialEligibilityReason: normalizeString(item.trialEligibilityReason),
       trialEligibilityCheckedAt: normalizeString(item.trialEligibilityCheckedAt),
       accessToken,
-      accessTokenMasked: normalizeString(item.accessTokenMasked) || maskAccessToken(accessToken),
-      accessTokenUpdatedAt: normalizeString(item.accessTokenUpdatedAt || item.tokenUpdatedAt),
+      accessTokenMasked: accessToken ? (normalizeString(item.accessTokenMasked) || maskAccessToken(accessToken)) : '',
+      accessTokenUpdatedAt,
       redeemStatus: normalizeString(item.redeemStatus),
       redeemReason: normalizeString(item.redeemReason),
       redeemFailureCount: Math.max(0, Math.floor(Number(item.redeemFailureCount) || 0)),
@@ -547,10 +577,19 @@
       redeemSuccessAt: normalizeString(item.redeemSuccessAt),
       upiRedeemCdkey: normalizeString(item.upiRedeemCdkey || item.cdkey),
       lastFailedUpiRedeemCdkey: normalizeString(item.lastFailedUpiRedeemCdkey || item.failedUpiRedeemCdkey),
-      upiRedeemSubscriptionCheckedAt: normalizeString(item.upiRedeemSubscriptionCheckedAt),
       membershipOverrideStatus: normalizeString(item.membershipOverrideStatus),
       membershipOverrideCheckedAt: normalizeString(item.membershipOverrideCheckedAt),
     };
+    if (Object.prototype.hasOwnProperty.call(item, 'upiRedeemSubscriptionActive')) {
+      normalized.upiRedeemSubscriptionActive = item.upiRedeemSubscriptionActive === true;
+    }
+    if (Object.prototype.hasOwnProperty.call(item, 'upiRedeemSubscriptionPlanType')) {
+      normalized.upiRedeemSubscriptionPlanType = normalizePlanType(item.upiRedeemSubscriptionPlanType);
+    }
+    if (Object.prototype.hasOwnProperty.call(item, 'upiRedeemSubscriptionCheckedAt')) {
+      normalized.upiRedeemSubscriptionCheckedAt = normalizeString(item.upiRedeemSubscriptionCheckedAt);
+    }
+    return normalized;
   }
 
   function dedupeResultItemsByEmail(items = []) {
@@ -2363,6 +2402,12 @@
         membershipOverrideCheckedAt: targetStatus === 'free' ? now : '',
         redeemStatus: targetStatus === 'paid' && baseItem.redeemStatus === 'success' ? 'success' : '',
         redeemReason: targetStatus === 'paid' && baseItem.redeemStatus === 'success' ? baseItem.redeemReason : '',
+        redeemAttemptedAt: targetStatus === 'paid' ? baseItem.redeemAttemptedAt : '',
+        redeemSuccessAt: targetStatus === 'paid' ? (baseItem.redeemSuccessAt || now) : '',
+        upiRedeemCdkey: targetStatus === 'paid' ? baseItem.upiRedeemCdkey : '',
+        upiRedeemSubscriptionActive: targetStatus === 'paid',
+        upiRedeemSubscriptionPlanType: targetStatus === 'paid' ? targetPlanType : '',
+        upiRedeemSubscriptionCheckedAt: targetStatus === 'paid' ? (baseItem.upiRedeemSubscriptionCheckedAt || baseItem.redeemSuccessAt || now) : '',
       });
       const items = upsertResultItem(currentResults.items, movedItem);
       const results = await saveResults({
