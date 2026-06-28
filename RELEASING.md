@@ -15,10 +15,10 @@
 
 ## 当前版本建议
 
-- 当前待发布版本：`v0.2.1`
-- 当前扩展版本号：`0.2.1`
-- Release 文案文件：`docs/releases/v0.2.1.md`
-- GitHub Release 正文可直接复制 `docs/releases/v0.2.1.md`
+- 当前待发布版本：`v0.2.3`
+- 当前扩展版本号：`0.2.3`
+- Release 文案来源：`Release.md` 中的 `CDK Redeem Only V0.2.3` 小节
+- GitHub Release 正文可直接复制该小节内容
 
 ## 首次发布
 
@@ -44,9 +44,9 @@ git push -u origin main
 
 ```powershell
 git status
-git add manifest.json sidepanel/sidepanel.html sidepanel/update-service.js sidepanel/sidepanel.js docs/releases/v0.2.0.md RELEASING.md
-git commit -m "Prepare v0.2.0 release"
-git tag -a v0.2.0 -m "GuJumpgate v0.2.0"
+git add manifest.json sidepanel/update-service.js Release.md RELEASING.md
+git commit -m "Prepare v0.2.3 release"
+git tag -a v0.2.3 -m "CDK Redeem Only v0.2.3"
 git push origin main
 git push origin v0.2.0
 ```

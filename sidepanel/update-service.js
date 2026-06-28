@@ -216,7 +216,7 @@
   }
 
   function getComparableReleaseVersion(release) {
-    const fallbackFamily = [VERSION_FAMILY_GUJUMPGATE, VERSION_FAMILY_ULTRA, VERSION_FAMILY_PRO].includes(release?.family)
+    const fallbackFamily = [VERSION_FAMILY_CDK, VERSION_FAMILY_ULTRA, VERSION_FAMILY_PRO].includes(release?.family)
       ? release.family
       : VERSION_FAMILY_LEGACY;
     const displayVersion = String(release?.displayVersion || '').trim();
@@ -277,7 +277,7 @@
   }
 
   function setIgnoredUpdateVersion(version) {
-    const normalized = formatDisplayVersion(version, VERSION_FAMILY_GUJUMPGATE) || String(version || '').trim();
+    const normalized = formatDisplayVersion(version, VERSION_FAMILY_CDK) || String(version || '').trim();
     try {
       if (normalized) {
         localStorage.setItem(IGNORED_UPDATE_VERSION_KEY, normalized);
@@ -402,7 +402,7 @@
       return rawVersionName;
     }
 
-    const versionName = formatDisplayVersion(rawVersionName, VERSION_FAMILY_GUJUMPGATE);
+    const versionName = formatDisplayVersion(rawVersionName, VERSION_FAMILY_CDK);
     if (versionName) {
       return versionName;
     }

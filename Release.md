@@ -1,5 +1,28 @@
 # Release Notes
 
+## CDK Redeem Only V0.2.3
+
+本版本发布 v0.2.2 之后的所有 CDK 改名、流程加速、会员核验和配置文档修复。
+
+### 主要变化
+
+- 项目与 GitHub 仓库统一改名为 `CDK Redeem Only` / `cdk-redeem-only-extension`。
+- CDK 池支持像邮箱一样导入，运行中或缺 CDK 停止后导入新 CDK 会继续剩余 Free 账号兑换。
+- 会员核验改为 AT 优先：已有 AT 直接查会员，AT 缺失或失效才登录补 AT。
+- Free 进 Plus 使用远端会员验证，确认 Plus/Pro/Team 后才进入 Plus。
+- 主流程等待时间优化：操作间延迟默认关闭，步骤 2、验证码阶段和第 6 步固定等待改短。
+- 配置文档更新为当前 CDK 版本说明，删除旧包名和旧仓库名。
+
+### 修复
+
+- 修复更新检查里旧版本族名残留，避免 CDK Release 版本比较异常。
+- 修正 Release 标题旧名残留，GitHub 页面显示为 CDK 名称。
+
+### 说明
+
+- 邮箱取码等待、2FA 接口重试、CDK 兑换远端超时和 Free/Plus 导出格式保持不变。
+- 真实远端接口域名保持不变。
+
 ## CDK Redeem Only V0.2.2
 
 本版本完成项目名与 GitHub 仓库名统一，并优化主注册流程等待时间。
