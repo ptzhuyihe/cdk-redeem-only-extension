@@ -8,6 +8,9 @@
   const DEFAULT_CODE_SUBMIT_ATTEMPTS = 5;
   const DEFAULT_VERIFICATION_WAIT_SECONDS = 10;
   const MAX_VERIFICATION_WAIT_SECONDS = 300;
+  const PASSWORD_SUBMIT_RESPONSE_TIMEOUT_MS = 12000;
+  const TRANSPORT_LOSS_CONFIRM_TIMEOUT_MS = 5000;
+  const TRANSPORT_LOSS_STABLE_MS = 500;
 
   function normalizeString(value = '') {
     return String(value || '').trim();
@@ -416,23 +419,37 @@
       return normalizeString(tab?.url || '');
     }
 
+    async function waitBrieflyForAuthTabUrlAfterTransportLoss(tabId) {
+      if (typeof waitForTabStableComplete === 'function' && tabId) {
+        await waitForTabStableComplete(tabId, {
+          timeoutMs: TRANSPORT_LOSS_CONFIRM_TIMEOUT_MS,
+          retryDelayMs: 250,
+          stableMs: TRANSPORT_LOSS_STABLE_MS,
+          initialDelayMs: 250,
+        });
+      }
+      return getCurrentAuthTabUrl(tabId);
+    }
+
     async function recoverCodeSubmitAfterTransportLoss(tabId, visibleStep, error) {
       await addStepLog(
         visibleStep,
         `设置 GPT 密码：验证码提交后页面跳转导致通信中断，正在检查新密码页状态...（${normalizeString(error?.message || error)}）`,
         'warn'
       );
-      if (typeof waitForTabStableComplete === 'function' && tabId) {
-        await waitForTabStableComplete(tabId, {
-          timeoutMs: 30000,
-          retryDelayMs: 300,
-          stableMs: 800,
-          initialDelayMs: 500,
-        });
-      }
-      const currentUrl = await getCurrentAuthTabUrl(tabId);
+      let currentUrl = await getCurrentAuthTabUrl(tabId);
       if (isSetGptPasswordNewPasswordUrl(currentUrl)) {
-        await addStepLog(visibleStep, '设置 GPT 密码：已确认进入新密码页，继续填写 GPT 密码。', 'success');
+        await addStepLog(visibleStep, '设置 GPT 密码：已检测到页面进入新密码页，继续填写 GPT 密码。', 'success');
+        return {
+          success: true,
+          newPasswordPage: true,
+          recoveredAfterTransportLoss: true,
+          url: currentUrl,
+        };
+      }
+      currentUrl = await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId);
+      if (isSetGptPasswordNewPasswordUrl(currentUrl)) {
+        await addStepLog(visibleStep, '设置 GPT 密码：短等后已确认进入新密码页，继续填写 GPT 密码。', 'success');
         return {
           success: true,
           newPasswordPage: true,
@@ -452,17 +469,19 @@
         `设置 GPT 密码：提交密码后页面跳转导致通信中断，正在确认是否已离开新密码页...（${normalizeString(error?.message || error)}）`,
         'warn'
       );
-      if (typeof waitForTabStableComplete === 'function' && tabId) {
-        await waitForTabStableComplete(tabId, {
-          timeoutMs: 30000,
-          retryDelayMs: 300,
-          stableMs: 800,
-          initialDelayMs: 500,
-        });
-      }
-      const currentUrl = await getCurrentAuthTabUrl(tabId);
+      let currentUrl = await getCurrentAuthTabUrl(tabId);
       if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
-        await addStepLog(visibleStep, '设置 GPT 密码：页面已跳出新密码页，按密码设置成功继续。', 'success');
+        await addStepLog(visibleStep, '设置 GPT 密码：已检测到页面离开新密码页，按密码设置成功继续。', 'success');
+        return {
+          success: true,
+          gptPasswordSet: true,
+          recoveredAfterTransportLoss: true,
+          url: currentUrl,
+        };
+      }
+      currentUrl = await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId);
+      if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
+        await addStepLog(visibleStep, '设置 GPT 密码：短等后已确认页面离开新密码页，按密码设置成功继续。', 'success');
         return {
           success: true,
           gptPasswordSet: true,
@@ -712,7 +731,7 @@
         try {
           passwordResult = await sendSetPasswordPageMessage('SET_GPT_PASSWORD', {
             password,
-          }, visibleStep, 45000);
+          }, visibleStep, PASSWORD_SUBMIT_RESPONSE_TIMEOUT_MS);
         } catch (error) {
           if (!isRetryableContentScriptTransportError(error)) {
             throw error;

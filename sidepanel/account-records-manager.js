@@ -1713,6 +1713,7 @@
           ${results.updatedAt ? `<span class="mono">${escapeHtml(formatAccountRecordTime(results.updatedAt))}</span>` : ''}
         </div>
         ${hasActivity ? renderUpiCredentialMembershipFlow(results, rows) : ''}
+        <div class="upi-membership-check-detail">提示：点击账号邮箱或状态标签，可以单独检测该账号是否是 Plus/Pro/Team 会员。</div>
         <div class="upi-membership-check-section" data-upi-membership-section="free">
           <div class="upi-membership-check-head upi-membership-section-head">
             <span class="upi-membership-section-title">Free 组</span>

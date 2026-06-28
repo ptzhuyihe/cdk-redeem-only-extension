@@ -2038,7 +2038,7 @@
       let lastError = null;
       let triedChatGptNavigation = false;
       let reopenedAfterClose = false;
-      await addLog('UPI 备份核验：第 5 步开始读取 ChatGPT session。', 'info');
+      await addLog('UPI 备份核验：获取/确认 AT：开始读取 ChatGPT session。', 'info');
       while (Date.now() - startedAt < 45000) {
         throwIfStopRequested();
         if (!(await isBrowserTabAlive(activeTabId))) {
@@ -2074,7 +2074,7 @@
           if (hasChatGptSessionPayload(result)) {
             const accessToken = getChatGptSessionAccessToken(result);
             await addLog(
-              `UPI 备份核验：第 5 步已读取 ChatGPT session：session字段 ${getChatGptSessionFieldCount(result)}${accessToken ? `（token 摘要 ${maskAccessToken(accessToken)}）` : ''}。`,
+              `UPI 备份核验：获取/确认 AT：已读取 ChatGPT session：session字段 ${getChatGptSessionFieldCount(result)}${accessToken ? `（token 摘要 ${maskAccessToken(accessToken)}）` : ''}。`,
               'ok'
             );
             return {
@@ -2082,11 +2082,11 @@
               accessToken,
             };
           }
-          await addLog('UPI 备份核验：第 5 步本次读取未返回 ChatGPT session，1 秒后重试。', 'info');
+          await addLog('UPI 备份核验：获取/确认 AT：本次读取未返回 ChatGPT session，1 秒后重试。', 'info');
         } catch (error) {
           if (isMembershipStopError(error)) throw error;
           lastError = error;
-          await addLog(`UPI 备份核验：第 5 步读取 ChatGPT session 失败，将重试：${getErrorMessage(error)}`, 'warn');
+          await addLog(`UPI 备份核验：获取/确认 AT：读取 ChatGPT session 失败，将重试：${getErrorMessage(error)}`, 'warn');
         }
         await sleepWithStop(1000);
         throwIfStopRequested();
@@ -2106,6 +2106,8 @@
             visibleStep: 8,
             purpose: 'login',
             loginIdentifierType: 'email',
+            membershipCheck: true,
+            membershipLogLabel: '获取/确认 AT',
           },
         }, {
           timeoutMs: 45000,
@@ -2126,7 +2128,7 @@
           throw error;
         }
         await addLog(
-          `UPI 备份核验：${credential.email} 提交 2FA 时认证页状态已变化（${getErrorMessage(error)}），尝试直接读取 ChatGPT 登录态。`,
+          `UPI 备份核验：${credential.email} 登录验证提交后认证页状态已变化（${getErrorMessage(error)}），尝试直接读取 ChatGPT 登录态。`,
           'warn'
         );
         return null;
@@ -2148,7 +2150,7 @@
       if (hasChatGptSessionPayload(existingSession?.session || existingSession)) {
         await reportStage('token');
         await addLog(
-          `UPI 备份核验：${credential.email} 第 5 步复用现有 ChatGPT session：session字段 ${getChatGptSessionFieldCount(existingSession?.session || existingSession)}。`,
+          `UPI 备份核验：${credential.email} 获取/确认 AT：复用现有 ChatGPT session：session字段 ${getChatGptSessionFieldCount(existingSession?.session || existingSession)}。`,
           'ok'
         );
         return existingSession;
@@ -2166,6 +2168,8 @@
         email: credential.email,
         password: credential.password,
         loginIdentifierType: 'email',
+        membershipCheck: true,
+        membershipLogLabel: '获取/确认 AT',
       };
       const executeLoginNode = () => sendAuthMessage(tabId, {
         type: 'EXECUTE_NODE',
@@ -2205,7 +2209,7 @@
         if (hasChatGptSessionPayload(currentSession?.session || currentSession)) {
           await reportStage('token');
           await addLog(
-            `UPI 备份核验：${credential.email} 第 5 步已从当前登录态读取 ChatGPT session：session字段 ${getChatGptSessionFieldCount(currentSession?.session || currentSession)}。`,
+            `UPI 备份核验：${credential.email} 获取/确认 AT：已从当前登录态读取 ChatGPT session：session字段 ${getChatGptSessionFieldCount(currentSession?.session || currentSession)}。`,
             'ok'
           );
           return currentSession;
@@ -2253,7 +2257,7 @@
       throwIfStopRequested();
       const { sessionEmail, targetEmail, matches } = getCredentialSessionMatch(session, credential);
       if (!matches) {
-        const mismatchMessage = `UPI 备份核验：${credential.email} 第 5 步读取到的 ChatGPT session 属于 ${sessionEmail || '未知账号'}，不是当前目标 ${targetEmail || credential.email}`;
+        const mismatchMessage = `UPI 备份核验：${credential.email} 获取/确认 AT 读取到的 ChatGPT session 属于 ${sessionEmail || '未知账号'}，不是当前目标 ${targetEmail || credential.email}`;
         if (allowSessionMismatchRetry) {
           await addLog(`${mismatchMessage}，将清理登录态后重新登录当前账号。`, 'warn');
           throwIfStopRequested();
@@ -2270,7 +2274,7 @@
         });
       }
       await addLog(
-        `UPI 备份核验：${credential.email} 第 5 步 ChatGPT session 读取完成：session字段 ${getChatGptSessionFieldCount(session)}（账号已确认：${sessionEmail}）。`,
+        `UPI 备份核验：${credential.email} 获取/确认 AT 完成：session字段 ${getChatGptSessionFieldCount(session)}（账号已确认：${sessionEmail}）。`,
         'ok'
       );
       return {
