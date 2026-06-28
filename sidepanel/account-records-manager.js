@@ -601,10 +601,11 @@
       if (String(row.status || '').trim().toLowerCase() !== 'free') {
         return false;
       }
-      if (String(row.membershipOverrideStatus || '').trim().toLowerCase() === 'free') {
-        return true;
-      }
       const patchCheckedAt = normalizeTimestamp(patch.upiRedeemSubscriptionCheckedAt);
+      if (String(row.membershipOverrideStatus || '').trim().toLowerCase() === 'free') {
+        const overrideCheckedAt = normalizeTimestamp(row.membershipOverrideCheckedAt || row.checkedAt);
+        return !patchCheckedAt || !overrideCheckedAt || overrideCheckedAt >= patchCheckedAt;
+      }
       const rowCheckedAt = normalizeTimestamp(row.checkedAt);
       if (!rowCheckedAt) {
         return false;
@@ -634,6 +635,34 @@
       };
     }
 
+    function buildFreeMembershipOverridePatch(checkedAt = new Date().toISOString()) {
+      const timestamp = String(checkedAt || '').trim() || new Date().toISOString();
+      return {
+        status: 'free',
+        planType: 'free',
+        membershipOverrideStatus: 'free',
+        membershipOverrideCheckedAt: timestamp,
+        redeemStatus: '',
+        redeemReason: '',
+        redeemSuccessAt: '',
+        upiRedeemCdkey: '',
+        cdkey: '',
+        upiRedeemSuccess: false,
+        upiRedeemSubscriptionActive: false,
+        upiRedeemHasActiveSubscription: false,
+        upiRedeemSubscriptionPlanType: '',
+        upiRedeemSubscriptionCheckedAt: timestamp,
+        hasActiveSubscription: false,
+        has_active_subscription: false,
+        subscriptionActive: false,
+        subscription_active: false,
+        subscriptionPlanType: '',
+        isPlus: false,
+        isPro: false,
+        isTeam: false,
+      };
+    }
+
     function mergeManualFreeMembershipOverridesIntoResults(results = {}, currentState = state.getLatestState()) {
       const previousResults = currentState?.upiCredentialMembershipCheckResults || {};
       const overrides = {};
@@ -657,7 +686,7 @@
         const itemStatus = String(item.status || '').trim().toLowerCase();
         const itemCheckedAt = normalizeTimestamp(item.checkedAt);
         const overrideCheckedAt = normalizeTimestamp(override.membershipOverrideCheckedAt || override.checkedAt);
-        if (itemStatus === 'paid') {
+        if (itemStatus === 'paid' && itemCheckedAt > overrideCheckedAt) {
           return {
             ...item,
             membershipOverrideStatus: '',
@@ -668,12 +697,9 @@
         changed = true;
         return {
           ...item,
-          status: 'free',
-          planType: 'free',
+          ...buildFreeMembershipOverridePatch(override.membershipOverrideCheckedAt || override.checkedAt || item.checkedAt),
           checkedAt: override.checkedAt || item.checkedAt,
           reason: override.reason || item.reason || '单账号检测确认当前无会员',
-          membershipOverrideStatus: 'free',
-          membershipOverrideCheckedAt: override.membershipOverrideCheckedAt || override.checkedAt || new Date().toISOString(),
           redeemStatus: ['success', 'skipped'].includes(redeemStatus) ? '' : item.redeemStatus,
           redeemReason: ['success', 'skipped'].includes(redeemStatus) ? '' : item.redeemReason,
         };
@@ -3440,12 +3466,7 @@
         email,
       };
       if (itemStatus === 'free') {
-        nextItem.membershipOverrideStatus = 'free';
-        nextItem.membershipOverrideCheckedAt = item.checkedAt || new Date().toISOString();
-        if (['success', 'skipped'].includes(String(nextItem.redeemStatus || '').trim().toLowerCase())) {
-          nextItem.redeemStatus = '';
-          nextItem.redeemReason = '';
-        }
+        Object.assign(nextItem, buildFreeMembershipOverridePatch(item.checkedAt || nextItem.checkedAt));
       } else if (itemStatus === 'paid') {
         delete nextItem.membershipOverrideStatus;
         delete nextItem.membershipOverrideCheckedAt;

@@ -661,6 +661,34 @@
     };
   }
 
+  function buildFreeMembershipOverrideFields(checkedAt = new Date().toISOString()) {
+    const timestamp = normalizeString(checkedAt) || new Date().toISOString();
+    return {
+      status: 'free',
+      planType: 'free',
+      membershipOverrideStatus: 'free',
+      membershipOverrideCheckedAt: timestamp,
+      redeemStatus: '',
+      redeemReason: '',
+      redeemSuccessAt: '',
+      upiRedeemCdkey: '',
+      cdkey: '',
+      upiRedeemSuccess: false,
+      upiRedeemSubscriptionActive: false,
+      upiRedeemHasActiveSubscription: false,
+      upiRedeemSubscriptionPlanType: '',
+      upiRedeemSubscriptionCheckedAt: timestamp,
+      hasActiveSubscription: false,
+      has_active_subscription: false,
+      subscriptionActive: false,
+      subscription_active: false,
+      subscriptionPlanType: '',
+      isPlus: false,
+      isPro: false,
+      isTeam: false,
+    };
+  }
+
   function buildResultExportRows(results = {}, status = 'paid') {
     const normalizedStatus = normalizeString(status);
     return normalizeResultsPayload(results).items
@@ -2417,8 +2445,10 @@
         planType: targetPlanType,
         checkedAt: now,
         reason: targetStatus === 'paid' ? '手动移入 Plus 组' : '手动移入 Free 组',
-        membershipOverrideStatus: targetStatus === 'free' ? 'free' : '',
-        membershipOverrideCheckedAt: targetStatus === 'free' ? now : '',
+        ...(targetStatus === 'free' ? buildFreeMembershipOverrideFields(now) : {
+          membershipOverrideStatus: '',
+          membershipOverrideCheckedAt: '',
+        }),
         redeemStatus: targetStatus === 'paid' && baseItem.redeemStatus === 'success' ? 'success' : '',
         redeemReason: targetStatus === 'paid' && baseItem.redeemStatus === 'success' ? baseItem.redeemReason : '',
         redeemAttemptedAt: targetStatus === 'paid' ? baseItem.redeemAttemptedAt : '',
@@ -2588,20 +2618,14 @@
           ...existingItem,
           ...credential,
           ...resultItem,
-          redeemStatus: shouldClearRedeemSuccess ? '' : (existingItem.redeemStatus || resultItem.redeemStatus),
-          redeemReason: shouldClearRedeemSuccess ? '' : (existingItem.redeemReason || resultItem.redeemReason),
-          upiRedeemCdkey: existingItem.upiRedeemCdkey || resultItem.upiRedeemCdkey,
-          upiRedeemSubscriptionCheckedAt: resultItem.checkedAt || existingItem.upiRedeemSubscriptionCheckedAt,
-          membershipOverrideStatus: resultStatus === 'free'
-            ? 'free'
-            : resultStatus === 'paid'
-              ? ''
-              : existingItem.membershipOverrideStatus,
-          membershipOverrideCheckedAt: resultStatus === 'free'
-            ? (resultItem.checkedAt || startedAt)
-            : resultStatus === 'paid'
-              ? ''
-              : existingItem.membershipOverrideCheckedAt,
+          ...(resultStatus === 'free' ? buildFreeMembershipOverrideFields(resultItem.checkedAt || startedAt) : {
+            redeemStatus: shouldClearRedeemSuccess ? '' : (existingItem.redeemStatus || resultItem.redeemStatus),
+            redeemReason: shouldClearRedeemSuccess ? '' : (existingItem.redeemReason || resultItem.redeemReason),
+            upiRedeemCdkey: existingItem.upiRedeemCdkey || resultItem.upiRedeemCdkey,
+            upiRedeemSubscriptionCheckedAt: resultItem.checkedAt || existingItem.upiRedeemSubscriptionCheckedAt,
+            membershipOverrideStatus: resultStatus === 'paid' ? '' : existingItem.membershipOverrideStatus,
+            membershipOverrideCheckedAt: resultStatus === 'paid' ? '' : existingItem.membershipOverrideCheckedAt,
+          }),
         });
         const finishedAt = new Date().toISOString();
         currentResults = await saveResults({
@@ -4023,14 +4047,11 @@
             free.push({ email, planType: subscription.planType || 'free', reason });
             items = upsertResultItem(items, {
               ...activeCredential,
-              status: 'free',
-              planType: subscription.planType || 'free',
+              ...buildFreeMembershipOverrideFields(checkedAt),
               reason,
               accessToken,
               accessTokenMasked: maskAccessToken(accessToken),
-              upiRedeemSubscriptionCheckedAt: checkedAt,
-              membershipOverrideStatus: 'free',
-              membershipOverrideCheckedAt: checkedAt,
+              accessTokenUpdatedAt: activeCredential.accessTokenUpdatedAt || checkedAt,
             });
             await saveProgress('subscription-check', email);
             await addLog(`UPI Free 分组识别 Plus：${email} -> 仍为 Free：${reason}`, 'info');
@@ -4240,16 +4261,11 @@
             items = upsertResultItem(items, {
               ...activeCredential,
               status: 'free',
-              planType: subscription.planType || 'free',
+              ...buildFreeMembershipOverrideFields(checkedAt),
               reason,
               accessToken,
               accessTokenMasked: maskAccessToken(accessToken),
               accessTokenUpdatedAt: activeCredential.accessTokenUpdatedAt || checkedAt,
-              upiRedeemSubscriptionCheckedAt: checkedAt,
-              membershipOverrideStatus: 'free',
-              membershipOverrideCheckedAt: checkedAt,
-              redeemStatus: '',
-              redeemReason: '',
             });
             await saveProgress('subscription-check', email);
             await addLog(`UPI Plus 分组验证：${email} -> 当前不是 Plus，已移回 Free：${reason}`, 'warn');

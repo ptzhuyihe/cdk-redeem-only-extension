@@ -832,6 +832,26 @@
       return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
     }
 
+    function normalizeRouterTimestampMs(value = '') {
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return Math.floor(value);
+      }
+      const parsed = Date.parse(String(value || ''));
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function shouldPreserveFreeMembershipOverrideForRemoteSuccess(item = {}, successCheckedAt = '') {
+      if (normalizeString(item?.status).toLowerCase() !== 'free') {
+        return false;
+      }
+      if (normalizeString(item?.membershipOverrideStatus).toLowerCase() !== 'free') {
+        return false;
+      }
+      const overrideCheckedAt = normalizeRouterTimestampMs(item.membershipOverrideCheckedAt || item.checkedAt);
+      const successCheckedAtMs = normalizeRouterTimestampMs(successCheckedAt);
+      return !successCheckedAtMs || !overrideCheckedAt || overrideCheckedAt >= successCheckedAtMs;
+    }
+
     function buildUpiCredentialMembershipResultCounts(results = {}, items = []) {
       const normalizedItems = Array.isArray(items) ? items : [];
       return {
@@ -1012,6 +1032,10 @@
           }
           const planType = isPaidRouterPlanType(entry.subscriptionPlanType) ? entry.subscriptionPlanType : 'plus';
           const redeemSuccessAt = toIsoFromTimestampOrNow(entry.subscriptionCheckedAt || entry.remoteCheckedAt);
+          if (shouldPreserveFreeMembershipOverrideForRemoteSuccess(item, redeemSuccessAt)) {
+            nextItems.push(item);
+            continue;
+          }
           changed = true;
           nextItems.push({
             ...item,

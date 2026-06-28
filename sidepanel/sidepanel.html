@@ -369,14 +369,10 @@
             placeholder="每行一个 CDK，例如&#10;CDK-001&#10;CDK-002&#10;CDK-003"></textarea>
           <div class="upi-redeem-cdkey-pool-toolbar">
             <button id="btn-import-cdk-pool" class="btn btn-outline btn-sm" type="button">导入 CDK</button>
+            <button id="btn-delete-all-cdk-pool" class="btn btn-danger btn-sm" type="button" disabled>一键删除</button>
             <div id="upi-redeem-cdkey-pool-summary" class="icloud-summary">总数 0 / 已用 0 / 可用 0</div>
             <input type="file" id="input-upi-credential-membership-txt" accept=".txt,text/plain" hidden />
           </div>
-          <div id="upi-credential-backup-preview-wrap" hidden>
-            <textarea id="upi-credential-backup-preview" class="data-textarea mono" rows="4" readonly
-              placeholder="点击“查看全部已存密码2FA”后显示：邮箱---GPT密码---2FA密钥"></textarea>
-          </div>
-          <div id="upi-credential-membership-check-results" class="upi-credential-membership-check-results" hidden></div>
           <div class="upi-redeem-cdkey-status-header">
             <span>启用</span>
             <span>CDK</span>
@@ -384,6 +380,11 @@
             <span>删除</span>
           </div>
           <div id="upi-redeem-cdkey-status-list" class="upi-redeem-cdkey-status-list"></div>
+          <div id="upi-credential-backup-preview-wrap" hidden>
+            <textarea id="upi-credential-backup-preview" class="data-textarea mono" rows="4" readonly
+              placeholder="点击“查看全部已存密码2FA”后显示：邮箱---GPT密码---2FA密钥"></textarea>
+          </div>
+          <div id="upi-credential-membership-check-results" class="upi-credential-membership-check-results" hidden></div>
         </div>
       </div>
       <div class="data-row module-divider-start" id="row-mail-provider">

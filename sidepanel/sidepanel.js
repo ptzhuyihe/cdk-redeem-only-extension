@@ -299,6 +299,7 @@ const inputUpiRedeemStopAfterRedeem = document.getElementById('input-upi-redeem-
 const rowUpiRedeemCdkeyPool = document.getElementById('row-upi-redeem-cdkey-pool');
 const inputUpiRedeemCdkeyPool = document.getElementById('input-upi-redeem-cdkey-pool');
 const btnImportCdkPool = document.getElementById('btn-import-cdk-pool');
+const btnDeleteAllCdkPool = document.getElementById('btn-delete-all-cdk-pool');
 const upiRedeemCdkeyPoolSummary = document.getElementById('upi-redeem-cdkey-pool-summary');
 const btnShowUpiCredentialBackups = document.getElementById('btn-show-upi-credential-backups');
 const btnExportUpiCredentialBackups = document.getElementById('btn-export-upi-credential-backups');
@@ -3571,6 +3572,34 @@ function deleteUpiRedeemCdkey(cdkey = '') {
   saveSettings({ silent: true }).catch(() => { });
 }
 
+async function deleteAllUpiRedeemCdkeys() {
+  const currentCdkeys = parseUpiRedeemCdkeyPoolTextValue(getStoredCdkPoolText(latestState));
+  if (!currentCdkeys.length) {
+    showToast('当前没有已保存的 CDK。', 'info', 1800);
+    return;
+  }
+  const confirmed = await openConfirmModal({
+    title: '删除全部 CDK',
+    message: `确认删除当前全部 ${currentCdkeys.length} 个 CDK 吗？此操作不可撤销。`,
+    confirmLabel: '一键删除',
+    confirmVariant: 'btn-danger',
+  });
+  if (!confirmed) {
+    return;
+  }
+  syncLatestState(buildCdkPoolStatePatch('', {}));
+  if (inputUpiRedeemCdkeyPool) {
+    inputUpiRedeemCdkeyPool.value = '';
+  }
+  renderUpiRedeemCdkeyStatusList(latestState);
+  updateUpiRedeemCdkeyPoolSummary(latestState, { skipRender: true });
+  markSettingsDirty(true);
+  await saveSettings({ silent: true, force: true }).catch((error) => {
+    showToast(`CDK 已删除，但保存失败：${error.message}`, 'error');
+  });
+  showToast(`已删除 CDK ${currentCdkeys.length} 个。`, 'success', 1800);
+}
+
 function getCurrentUpiRedeemCdkeys() {
   return parseUpiRedeemCdkeyPoolTextValue(getStoredCdkPoolText(latestState));
 }
@@ -3943,6 +3972,9 @@ function updateUpiRedeemCdkeyPoolSummary(state = latestState, options = {}) {
     return isUpiRedeemCdkeySelectableForRedeem(entry);
   }).length;
   upiRedeemCdkeyPoolSummary.textContent = `总数 ${cdkeys.length} / 启用 ${enabledCount} / 可用 ${availableCount}`;
+  if (btnDeleteAllCdkPool) {
+    btnDeleteAllCdkPool.disabled = cdkeys.length === 0;
+  }
   if (!options.skipRender) {
     renderUpiRedeemCdkeyStatusList(state);
   }
@@ -19851,6 +19883,12 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
 btnImportCdkPool?.addEventListener('click', () => {
   importCdkPoolFromTextarea().catch((error) => {
     showToast(`导入 CDK 失败：${error.message}`, 'error');
+  });
+});
+
+btnDeleteAllCdkPool?.addEventListener('click', () => {
+  deleteAllUpiRedeemCdkeys().catch((error) => {
+    showToast(`删除 CDK 失败：${error.message}`, 'error');
   });
 });
 
