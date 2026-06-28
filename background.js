@@ -1095,7 +1095,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   outlookEmailPlusApiKey: '',
   outlookEmailPlusProvider: 'outlook',
   outlookEmailPlusProjectKey: 'openai',
-  outlookEmailPlusCallerIdPrefix: 'gujumpgate',
+  outlookEmailPlusCallerIdPrefix: 'cdk-redeem',
   outlookEmailPlusAliasMaxPerMailbox: OUTLOOK_ALIAS_DEFAULT_MAX_PER_ACCOUNT,
   hotmailAccounts: [],
   hotmailAliasEnabled: false,

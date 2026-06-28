@@ -156,7 +156,7 @@ async function downloadHtml(url) {
       const response = await fetch(url, {
         headers: {
           'accept': 'text/html',
-          'user-agent': 'upi-redeem-only-extension-docs-downloader/1.0',
+          'user-agent': 'cdk-redeem-only-extension-docs-downloader/1.0',
         },
         signal: controller.signal,
       });

@@ -802,7 +802,7 @@ const CHATGPT_SESSION_READER_PROFILE_SETTING_KEYS = Object.freeze([
   'removedContactVerificationPollIntervalSeconds',
 ]);
 const FIXED_PLUS_MODE_ENABLED = true;
-const GUIDE_REPOSITORY_URL = 'https://github.com/kui123456789/upi-redeem-only-extension';
+const GUIDE_REPOSITORY_URL = 'https://github.com/kui123456789/cdk-redeem-only-extension';
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
@@ -5472,7 +5472,7 @@ function normalizeOutlookEmailPlusCallerIdPrefixValue(value = '') {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-{2,}/g, '-')
-    .replace(/^[-._]+|[-._]+$/g, '') || 'gujumpgate';
+    .replace(/^[-._]+|[-._]+$/g, '') || 'cdk-redeem';
 }
 
 function normalizeOutlookEmailPlusAliasMaxPerMailbox(value) {
@@ -6246,7 +6246,7 @@ function collectSettingsPayload() {
     : ((value = '') => String(value || '').trim().toLowerCase() || 'openai');
   const normalizeOutlookEmailPlusCallerIdPrefixInput = typeof normalizeOutlookEmailPlusCallerIdPrefixValue === 'function'
     ? normalizeOutlookEmailPlusCallerIdPrefixValue
-    : ((value = '') => String(value || '').trim().toLowerCase() || 'gujumpgate');
+    : ((value = '') => String(value || '').trim().toLowerCase() || 'cdk-redeem');
   const cdkPoolTextForSave = getStoredCdkPoolText(latestState);
   const cdkUsageForSave = getStoredCdkUsage(latestState);
   const contributionModeEnabled = Boolean(latestState?.contributionMode);

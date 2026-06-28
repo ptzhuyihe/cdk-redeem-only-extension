@@ -318,7 +318,7 @@
     }
     const stamp = Math.max(1, Math.floor(Date.now())).toString(36);
     const randomPart = Math.random().toString(36).slice(2, 12) || 'local';
-    return `gujumpgate-${stamp}-${randomPart}`;
+    return `cdk-redeem-${stamp}-${randomPart}`;
   }
 
   function getCookieChunkValue(cookies = [], baseName = '') {

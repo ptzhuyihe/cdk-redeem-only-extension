@@ -1,6 +1,6 @@
 (() => {
   const GITHUB_OWNER = 'kui123456789';
-  const GITHUB_REPO = 'upi-redeem-only-extension';
+  const GITHUB_REPO = 'cdk-redeem-only-extension';
   const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
   const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=10`;
   const CACHE_KEY = 'multipage-release-snapshot-v1';
@@ -9,15 +9,15 @@
   const FETCH_TIMEOUT_MS = 8000;
   const MAX_RELEASES = 10;
   const MAX_NOTES_PER_RELEASE = 5;
-  const VERSION_FAMILY_GUJUMPGATE = 'gujumpgate';
+  const VERSION_FAMILY_CDK = 'cdk';
   const VERSION_FAMILY_ULTRA = 'ultra';
   const VERSION_FAMILY_PRO = 'pro';
   const VERSION_FAMILY_LEGACY = 'legacy';
 
   function getVersionFamily(version, fallbackFamily = VERSION_FAMILY_LEGACY) {
     const trimmed = String(version || '').trim();
-    if (/^(?:gujumpgate|flowpilot)/i.test(trimmed)) {
-      return VERSION_FAMILY_GUJUMPGATE;
+    if (/^(?:cdk\s*redeem\s*only|cdk|gujumpgate|flowpilot)/i.test(trimmed)) {
+      return VERSION_FAMILY_CDK;
     }
     if (/^ultra/i.test(trimmed)) {
       return VERSION_FAMILY_ULTRA;
@@ -32,7 +32,7 @@
   }
 
   function stripVersionPrefix(version) {
-    return String(version || '').trim().replace(/^(?:(?:gujumpgate|flowpilot|ultra|pro)\s*v?|v)\s*/i, '');
+    return String(version || '').trim().replace(/^(?:(?:cdk\s*redeem\s*only|cdk|gujumpgate|flowpilot|ultra|pro)\s*v?|v)\s*/i, '');
   }
 
   function extractVersionCore(version) {
@@ -67,7 +67,7 @@
   }
 
   function getVersionFamilyPrefix(family) {
-    if (family === VERSION_FAMILY_GUJUMPGATE) {
+    if (family === VERSION_FAMILY_CDK) {
       return 'CDK Redeem Only V';
     }
     if (family === VERSION_FAMILY_ULTRA) {
@@ -80,7 +80,7 @@
   }
 
   function getVersionFamilyRank(family) {
-    if (family === VERSION_FAMILY_GUJUMPGATE) {
+    if (family === VERSION_FAMILY_CDK) {
       return 4;
     }
     if (family === VERSION_FAMILY_ULTRA) {

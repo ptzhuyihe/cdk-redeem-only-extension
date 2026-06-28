@@ -270,7 +270,7 @@
     function createUpiRedeemClientId() {
       const stamp = Math.max(1, Math.floor(Number(now()) || Date.now())).toString(36);
       const randomPart = Math.random().toString(36).slice(2, 10) || 'local';
-      return `gujumpgate-${stamp}-${randomPart}`;
+      return `cdk-redeem-${stamp}-${randomPart}`;
     }
 
     async function resolveUpiRedeemClientId(state = {}) {

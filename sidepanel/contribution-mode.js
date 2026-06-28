@@ -16,7 +16,7 @@
     } = context;
 
     const contributionPortalUrl = constants.contributionPortalUrl || '';
-    const guideRepositoryUrl = constants.guideRepositoryUrl || 'https://github.com/kui123456789/upi-redeem-only-extension';
+    const guideRepositoryUrl = constants.guideRepositoryUrl || 'https://github.com/kui123456789/cdk-redeem-only-extension';
     const contributionUploadUrl = constants.contributionUploadUrl || '';
     const pollIntervalMs = Math.max(1500, Math.floor(Number(constants.pollIntervalMs) || 2500));
 
