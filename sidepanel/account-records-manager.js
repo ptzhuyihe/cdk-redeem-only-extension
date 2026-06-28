@@ -1447,11 +1447,8 @@
     }
 
     const UPI_CREDENTIAL_MEMBERSHIP_FLOW_STEPS = [
-      { key: 'import', title: '导入备份账号' },
-      { key: 'open-chatgpt', title: '打开 ChatGPT 官网' },
-      { key: 'login', title: '登录邮箱密码' },
-      { key: 'totp', title: '提交 2FA 验证' },
-      { key: 'token', title: '读取 accessToken' },
+      { key: 'import', title: '准备账号' },
+      { key: 'token', title: '获取/确认 AT' },
       { key: 'subscription-check', title: '查询会员资格' },
     ];
 
@@ -1463,6 +1460,9 @@
       const stage = String(value || '').trim().toLowerCase();
       if (stage === 'upi-redeem-plus' || stage === 'confirm-plus') {
         return 'subscription-check';
+      }
+      if (stage === 'open-chatgpt' || stage === 'login' || stage === 'totp') {
+        return 'token';
       }
       return getUpiCredentialMembershipFlowStepIndex(stage) >= 0 ? stage : '';
     }
@@ -1519,6 +1519,8 @@
         return 'pending';
       }
       const hasCheckedItems = items.some((item) => item?.checkedAt || item?.accessTokenMasked || item?.status === 'paid' || item?.status === 'failed');
+      const hasAccessToken = items.some((item) => normalizeUpiCredentialMembershipText(item?.accessToken || item?.accessTokenMasked))
+        || rows.some((row) => normalizeUpiCredentialMembershipText(row?.accessToken || row?.accessTokenMasked));
       const hasRedeemAttempt = items.some((item) => String(item?.redeemStatus || '').trim());
       const importedFreeOnly = String(results.source || '').trim().toLowerCase() === 'txt-free' && !hasCheckedItems && !hasRedeemAttempt;
 
@@ -1528,8 +1530,8 @@
       if (!hasRows) {
         return 'pending';
       }
-      if (stepKey === 'open-chatgpt' || stepKey === 'login' || stepKey === 'totp' || stepKey === 'token') {
-        if (hasCheckedItems || hasRedeemAttempt) return 'completed';
+      if (stepKey === 'token') {
+        if (hasAccessToken || hasCheckedItems || hasRedeemAttempt) return 'completed';
         return importedFreeOnly ? 'pending' : 'pending';
       }
       if (stepKey === 'subscription-check') {

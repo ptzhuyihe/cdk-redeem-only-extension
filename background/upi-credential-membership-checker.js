@@ -1006,6 +1006,25 @@
       return /缺少\s*GPT\s*密码|缺少\s*2FA|登录需要手机验证码|登录需要邮箱一次性验证码|登录后需要手机|登录后需要邮箱|邮箱一次性验证码|手机号验证码|手机验证码|验证码页面|登录密码未通过|密码未通过|2FA\s*动态码被页面拒绝|账号登录态不一致|accessToken\s*属于|未读取到\s*accessToken|未进入\s*ChatGPT\s*已登录态|账号无资格|access[_-]?token\s*无效|access[_-]?token[\s\S]*(?:过期|失效|expired|invalid)|无效或已过期|未登录|会话已过期|重新登录|session\s*expired/i.test(text);
     }
 
+    function isAccessTokenInvalidMembershipError(error) {
+      const text = normalizeString(getErrorMessage(error));
+      if (!text) {
+        return false;
+      }
+      return /(?:access[_\s-]?token|accessToken|token|\bAT\b|会话|session)[\s\S]*(?:无效|过期|失效|未登录|重新登录|invalid|expired|unauthorized|401)|(?:无效|过期|失效|未登录|重新登录|invalid|expired|unauthorized|401)[\s\S]*(?:access[_\s-]?token|accessToken|token|\bAT\b|会话|session)|session\s*expired|\bHTTP\s*401\b|401\s*Unauthorized/i.test(text);
+    }
+
+    function buildMissingAccessTokenRefreshMaterialReason(credential = {}) {
+      const missing = [];
+      if (!normalizeString(credential.password)) {
+        missing.push('GPT 密码');
+      }
+      if (!normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret)) {
+        missing.push('2FA');
+      }
+      return missing.length ? `缺少 ${missing.join('、')}` : '';
+    }
+
     function isPreSubmitUpiRedeemBlockedReason(message = '') {
       const text = normalizeString(message);
       return isNonRetryableUpiRedeemRetryError(text)
@@ -2486,10 +2505,66 @@
       if (!credential.email) {
         return normalizeResultItem({ ...credential, status: 'failed', checkedAt, reason: '缺少邮箱' });
       }
-      if (!credential.password) {
-        return normalizeResultItem({ ...credential, status: 'failed', checkedAt, reason: '缺少 GPT 密码' });
-      }
+      const checkWithAccessToken = async (accessToken, accessTokenUpdatedAt = '') => {
+        const token = normalizeString(accessToken);
+        if (!token) {
+          throw new Error('缺少 accessToken');
+        }
+        await reportStage('subscription-check');
+        const classification = await checkCredentialPaidSubscription({
+          state,
+          credential,
+          accessToken: token,
+          throwIfStopRequested,
+        });
+        return normalizeResultItem({
+          ...credential,
+          ...(classification.status === 'free' ? buildFreeMembershipOverrideFields(checkedAt) : {
+            membershipOverrideStatus: '',
+            membershipOverrideCheckedAt: '',
+          }),
+          status: classification.status,
+          planType: classification.planType,
+          checkedAt,
+          reason: classification.reason,
+          accessToken: token,
+          accessTokenMasked: maskAccessToken(token),
+          accessTokenUpdatedAt: normalizeString(accessTokenUpdatedAt) || checkedAt,
+        });
+      };
       try {
+        const savedAccessToken = normalizeString(credential.accessToken || credential.token || credential.access_token || credential.upiRedeemAccessToken);
+        if (savedAccessToken) {
+          try {
+            await reportStage('token');
+            await addLog(`UPI 备份账号会员核验：${credential.email} -> 使用已保存 AT 直接查询会员，跳过网页登录。`, 'info');
+            return await checkWithAccessToken(savedAccessToken, credential.accessTokenUpdatedAt || credential.checkedAt);
+          } catch (error) {
+            if (isMembershipStopError(error)) throw error;
+            if (!isAccessTokenInvalidMembershipError(error)) {
+              throw error;
+            }
+            const missingRefreshMaterial = buildMissingAccessTokenRefreshMaterialReason(credential);
+            if (missingRefreshMaterial) {
+              return normalizeResultItem({
+                ...credential,
+                status: 'failed',
+                checkedAt,
+                reason: `已保存 AT 无效或过期，且${missingRefreshMaterial}，无法网页登录刷新 AT：${getErrorMessage(error)}`,
+              });
+            }
+            await addLog(`UPI 备份账号会员核验：${credential.email} -> 已保存 AT 无效或过期，开始网页登录刷新 AT。`, 'warn');
+          }
+        }
+        const missingRefreshMaterial = buildMissingAccessTokenRefreshMaterialReason(credential);
+        if (missingRefreshMaterial) {
+          return normalizeResultItem({
+            ...credential,
+            status: 'failed',
+            checkedAt,
+            reason: `缺少 AT，且${missingRefreshMaterial}，无法网页登录刷新 AT`,
+          });
+        }
         const session = await loginAndReadAccessToken(credential, state, {
           onStage: reportStage,
           throwIfStopRequested,
@@ -2498,31 +2573,7 @@
         if (!session.accessToken) {
           throw new Error('未读取到 accessToken');
         }
-        if (typeof checkUpiRedeemSubscriptionStatuses !== 'function') {
-          throw new Error('UPI 会员状态查询能力尚未接入。');
-        }
-        await reportStage('subscription-check');
-        const subscription = await checkUpiRedeemSubscriptionStatuses({
-          ...state,
-          items: [{
-            id: credential.email,
-            email: credential.email,
-            token: session.accessToken,
-          }],
-        });
-        throwIfStopRequested();
-        const item = subscription?.items?.[0] || {};
-        const classification = classifySubscriptionResult(item);
-        return normalizeResultItem({
-          ...credential,
-          status: classification.status,
-          planType: classification.planType,
-          checkedAt,
-          reason: classification.reason,
-          accessToken: session.accessToken,
-          accessTokenMasked: maskAccessToken(session.accessToken),
-          accessTokenUpdatedAt: checkedAt,
-        });
+        return await checkWithAccessToken(session.accessToken, checkedAt);
       } catch (error) {
         if (isMembershipStopError(error)) throw error;
         return normalizeResultItem({
@@ -2603,7 +2654,7 @@
 
       try {
         await addLog(`UPI 单账号会员检测：开始检测 ${targetEmail} 是否已开通 Plus/Pro/Team。`, 'info');
-        await updateSingleStage('open-chatgpt', '正在单独检测会员状态');
+        await updateSingleStage('token', '正在获取/确认 AT');
         const resultItem = await checkOneCredential(credential, {
           ...runtimeState,
           ...currentResults,
@@ -2653,10 +2704,11 @@
 
     function getUpiCredentialMembershipFlowStageReason(stage = '') {
       switch (normalizeFlowStage(stage)) {
-        case 'open-chatgpt': return '正在打开 ChatGPT 官网';
-        case 'login': return '正在登录邮箱密码';
-        case 'totp': return '正在提交 2FA 验证';
-        case 'token': return '正在读取 ChatGPT session';
+        case 'import': return '正在准备账号';
+        case 'open-chatgpt':
+        case 'login':
+        case 'totp':
+        case 'token': return '正在获取/确认 AT';
         case 'subscription-check': return '正在查询会员资格';
         default: return '正在单独检测会员状态';
       }
