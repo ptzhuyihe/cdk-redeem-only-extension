@@ -1,6 +1,6 @@
-# UPI Redeem Only
+# CDK Redeem Only
 
-这是 UPI 卡密兑换专用版 Chrome 扩展。当前版本只保留 UPI 主流程：邮箱注册、邮箱验证码、设置 GPT 密码、第 7 步开通 2FA、读取 AT、Free/Plus 分组、卡密兑换、Plus 识别/验证、导入导出。
+这是 CDK 兑换专用版 Chrome 扩展。当前版本保留 UPI 主流程：邮箱注册、邮箱验证码、设置 GPT 密码、第 7 步开通 2FA、读取 AT、Free/Plus 分组、CDK 兑换、Plus 识别/验证、导入导出。
 
 完整配置说明见 [docs/CONFIG-USAGE.md](docs/CONFIG-USAGE.md)。
 
@@ -10,7 +10,7 @@
 - 设置 GPT 登录密码。
 - 第 7 步开通 TOTP 2FA、读取 access token、检测是否有试用资格。
 - 资格通过后保存到 Free 组。
-- Free 组导入、导出、补充 AT、一键识别 Plus、一键兑换卡密。
+- Free 组导入、导出、补充 AT、一键识别 Plus、一键兑换 CDK。
 - 远端兑换成功并确认会员后移动到 Plus 组。
 - Plus 组验证、导出、删除。
 - 单账号登录、手动移动 Free/Plus 分组。
@@ -39,8 +39,8 @@
 
 - `UPI Key`：后端提供的 `X-External-Api-Key`，不要加 `Bearer`。
 - `UPI Client ID`：可留空，扩展会自动生成并保存到本地。
-- `UPI 卡密池`：一行一个卡密。
-- `兑换轮数`：首轮结束后，失败账号继续进行的轮数；`0` 表示只跑首轮，同一轮每个账号只尝试一张卡。
+- `CDK 池`：一行一个 CDK，可像邮箱一样粘贴导入；运行中或缺 CDK 停止后导入新 CDK，会自动继续剩余 Free 账号兑换。
+- `兑换轮数`：首轮结束后，失败账号继续进行的轮数；`0` 表示只跑首轮，同一轮每个账号只尝试一张 CDK。
 
 默认远端：
 
@@ -59,7 +59,7 @@
 6. 等待注册完成。
 7. 开通 2FA、读取 AT、检测 UPI 试用资格。
 
-第 7 步不会自动兑换卡密。资格通过后账号进入 Free 组。
+第 7 步不会自动兑换 CDK。资格通过后账号进入 Free 组。
 
 ## Free / Plus
 

@@ -1,6 +1,6 @@
-# UPI Redeem Only
+# CDK Redeem Only
 
-这是 UPI 专用副本。原插件目录不需要删除或移动，本目录只保留 UPI 注册、2FA、AT、Free/Plus 分组和卡密兑换能力。
+这是 CDK 兑换专用副本。原插件目录不需要删除或移动，本目录保留 UPI 注册、2FA、AT、Free/Plus 分组和 CDK 兑换能力。
 
 ## 配置使用说明
 
@@ -24,7 +24,7 @@ chrome://extensions/
 - 读取 access token。
 - UPI 试用资格检测。
 - Free / Plus 分组管理。
-- Free 补 AT、识别 Plus、AT + 卡密兑换。
+- Free 补 AT、识别 Plus、AT + CDK 兑换。
 - 远端成功后进入 Plus。
 - Free / Plus 导入导出。
 

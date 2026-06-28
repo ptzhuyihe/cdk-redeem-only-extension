@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UPI Redeem Only V0.2.0</title>
+  <title>CDK Redeem Only V0.2.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -291,7 +291,7 @@
           <select id="select-plus-payment-method" class="data-select plus-payment-method-select">
             <option value="upi" selected>UPI</option>
           </select>
-          <span class="setting-caption" id="plus-payment-method-caption">UPI 资格检测与手动卡密兑换链路</span>
+          <span class="setting-caption" id="plus-payment-method-caption">UPI 资格检测与手动 CDK 兑换链路</span>
         </div>
       </div>
       <div class="data-row" id="row-upi-subscription-api-base-url" style="display:none;">
@@ -332,7 +332,7 @@
             <span class="toggle-switch-thumb"></span>
           </span>
         </label>
-        <span class="setting-caption">第 7 步开通 2FA 后检测是否有试用资格，不兑换卡密</span>
+        <span class="setting-caption">第 7 步开通 2FA 后检测是否有试用资格，不自动兑换 CDK</span>
       </div>
       <div class="data-row" id="row-set-gpt-password-verification-wait-seconds">
         <span class="data-label">第4/6步取码等待</span>
@@ -363,11 +363,12 @@
         <span class="setting-caption">选择继续后会在第 7 步资格通过后执行 OAuth、验证码和平台回调</span>
       </div>
       <div class="data-row data-check-row" id="row-upi-redeem-cdkey-pool" style="display:none;">
-        <span class="data-label">UPI 卡密池</span>
+        <span class="data-label">CDK 池</span>
         <div class="hotmail-import-box">
           <textarea id="input-upi-redeem-cdkey-pool" class="data-textarea mono" rows="5"
-            placeholder="CDK-001&#10;CDK-002&#10;CDK-003"></textarea>
+            placeholder="每行一个 CDK，例如&#10;CDK-001&#10;CDK-002&#10;CDK-003"></textarea>
           <div class="upi-redeem-cdkey-pool-toolbar">
+            <button id="btn-import-cdk-pool" class="btn btn-outline btn-sm" type="button">导入 CDK</button>
             <div id="upi-redeem-cdkey-pool-summary" class="icloud-summary">总数 0 / 已用 0 / 可用 0</div>
             <input type="file" id="input-upi-credential-membership-txt" accept=".txt,text/plain" hidden />
           </div>
@@ -378,7 +379,7 @@
           <div id="upi-credential-membership-check-results" class="upi-credential-membership-check-results" hidden></div>
           <div class="upi-redeem-cdkey-status-header">
             <span>启用</span>
-            <span>卡密</span>
+            <span>CDK</span>
             <span>状态</span>
             <span>删除</span>
           </div>

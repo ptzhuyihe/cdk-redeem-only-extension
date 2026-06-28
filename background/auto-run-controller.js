@@ -595,7 +595,11 @@
               upiRedeemClientId: prevState.upiRedeemClientId,
               upiRedeemStopAfterRedeem: prevState.upiRedeemStopAfterRedeem,
               upiRedeemContinueAfterRedeem: prevState.upiRedeemContinueAfterRedeem,
+              cdkPoolText: prevState.cdkPoolText,
+              upiRedeemCdkPoolText: prevState.upiRedeemCdkPoolText,
               upiRedeemCdkeyPoolText: prevState.upiRedeemCdkeyPoolText,
+              cdkUsage: prevState.cdkUsage,
+              upiRedeemCdkUsage: prevState.upiRedeemCdkUsage,
               upiRedeemCdkeyUsage: prevState.upiRedeemCdkeyUsage,
               legacyWalletEmail: prevState.legacyWalletEmail,
               legacyWalletPassword: prevState.legacyWalletPassword,
@@ -858,8 +862,8 @@
 
             if (retryableUpiRedeemBackendFailure) {
               const retryIndex = attemptRun;
-              await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试 UPI 后端返回卡密兑换失败：${reason}`, 'warn');
-              cancelPendingCommands('当前尝试因 UPI 卡密兑换失败已放弃。');
+              await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试 UPI 后端返回 CDK 兑换失败：${reason}`, 'warn');
+              cancelPendingCommands('当前尝试因 CDK 兑换失败已放弃。');
               await broadcastStopToContentScripts();
               await broadcastAutoRunStatus('retrying', {
                 currentRun: targetRun,
@@ -1172,11 +1176,11 @@
                 autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
               });
               await appendRoundRecordIfNeeded('failed', reason, err);
-              cancelPendingCommands('当前轮因 UPI 卡密兑换失败已终止。');
+              cancelPendingCommands('当前轮因 CDK 兑换失败已终止。');
               await broadcastStopToContentScripts();
               if (!autoRunSkipFailures) {
                 await addLog(
-                  `第 ${targetRun}/${totalRuns} 轮 UPI 后端返回卡密兑换失败，已达到自动重试上限，当前自动运行将停止。`,
+                  `第 ${targetRun}/${totalRuns} 轮 UPI 后端返回 CDK 兑换失败，已达到自动重试上限，当前自动运行将停止。`,
                   'warn'
                 );
                 stoppedEarly = true;
@@ -1189,11 +1193,11 @@
                 break;
               }
 
-              await addLog(`第 ${targetRun}/${totalRuns} 轮 UPI 后端返回卡密兑换失败，本轮将直接失败并跳过剩余重试。`, 'warn');
+              await addLog(`第 ${targetRun}/${totalRuns} 轮 UPI 后端返回 CDK 兑换失败，本轮将直接失败并跳过剩余重试。`, 'warn');
               await addLog(
                 targetRun < totalRuns
-                  ? `第 ${targetRun}/${totalRuns} 轮因 UPI 卡密兑换失败提前结束，自动流程将继续下一轮。`
-                  : `第 ${targetRun}/${totalRuns} 轮因 UPI 卡密兑换失败提前结束，已无后续轮次，本次自动运行结束。`,
+                  ? `第 ${targetRun}/${totalRuns} 轮因 CDK 兑换失败提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因 CDK 兑换失败提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;

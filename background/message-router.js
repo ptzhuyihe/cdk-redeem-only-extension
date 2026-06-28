@@ -505,6 +505,19 @@
       const normalizedKey = normalizeString(key);
       if (!normalizedKey) return undefined;
       if (state?.[normalizedKey] !== undefined) return state[normalizedKey];
+      const cdkAliases = {
+        cdkPoolText: ['cdkPoolText', 'upiRedeemCdkPoolText', 'upiRedeemCdkeyPoolText', 'pixRedeemCdkeyPoolText'],
+        upiRedeemCdkPoolText: ['upiRedeemCdkPoolText', 'cdkPoolText', 'upiRedeemCdkeyPoolText', 'pixRedeemCdkeyPoolText'],
+        upiRedeemCdkeyPoolText: ['upiRedeemCdkeyPoolText', 'cdkPoolText', 'upiRedeemCdkPoolText', 'pixRedeemCdkeyPoolText'],
+        pixRedeemCdkeyPoolText: ['pixRedeemCdkeyPoolText', 'cdkPoolText', 'upiRedeemCdkPoolText', 'upiRedeemCdkeyPoolText'],
+        cdkUsage: ['cdkUsage', 'upiRedeemCdkUsage', 'upiRedeemCdkeyUsage', 'pixRedeemCdkeyUsage'],
+        upiRedeemCdkUsage: ['upiRedeemCdkUsage', 'cdkUsage', 'upiRedeemCdkeyUsage', 'pixRedeemCdkeyUsage'],
+        upiRedeemCdkeyUsage: ['upiRedeemCdkeyUsage', 'cdkUsage', 'upiRedeemCdkUsage', 'pixRedeemCdkeyUsage'],
+        pixRedeemCdkeyUsage: ['pixRedeemCdkeyUsage', 'cdkUsage', 'upiRedeemCdkUsage', 'upiRedeemCdkeyUsage'],
+      };
+      for (const alias of cdkAliases[normalizedKey] || []) {
+        if (state?.[alias] !== undefined) return state[alias];
+      }
       const legacyKey = normalizedKey.replace(/^upiRedeem/, 'pixRedeem');
       return legacyKey === normalizedKey ? undefined : state?.[legacyKey];
     }
@@ -831,7 +844,13 @@
     }
 
     async function syncUpiCredentialMembershipResultsAfterCdkeyRefresh(refreshResult = {}, state = {}) {
-      const usage = refreshResult?.updates?.upiRedeemCdkeyUsage || state?.upiRedeemCdkeyUsage || {};
+      const usage = refreshResult?.updates?.cdkUsage
+        || refreshResult?.updates?.upiRedeemCdkUsage
+        || refreshResult?.updates?.upiRedeemCdkeyUsage
+        || state?.cdkUsage
+        || state?.upiRedeemCdkUsage
+        || state?.upiRedeemCdkeyUsage
+        || {};
       const results = state?.[UPI_CREDENTIAL_MEMBERSHIP_RESULTS_KEY];
       const items = Array.isArray(results?.items) ? results.items : [];
       if (!items.length) {
@@ -861,7 +880,7 @@
           && !isUpiRedeemRemoteEntryCompatibleWithMembershipRow(cdkeyEntry, item, { requireCdkey: true })
         ) {
           const releasedAt = new Date().toISOString();
-          const reason = `当前卡密 ${rowCdkey} 已绑定其他账号，已回到 Free 等待重新匹配`;
+          const reason = `当前 CDK ${rowCdkey} 已绑定其他账号，已回到 Free 等待重新匹配`;
           changed = true;
           nextItems.push({
             ...item,
@@ -890,7 +909,7 @@
         }
 
         const remoteStatus = normalizeUpiRedeemRemoteStatusForRetry(entry.remoteStatus);
-        const remoteMessage = entry.subscriptionReason || entry.remoteMessage || 'UPI 卡密远端已返回结果';
+        const remoteMessage = entry.subscriptionReason || entry.remoteMessage || 'CDK 远端已返回结果';
         if (isApproveBlockedRemoteEntry(entry)) {
           const failedAt = toIsoFromTimestampOrNow(entry.remoteCheckedAt);
           const failedAtMs = Math.max(0, Date.parse(failedAt) || Number(entry.remoteCheckedAt) || Date.now());
@@ -918,7 +937,7 @@
               lastFailedAt: failedAtMs,
               lastFailedReason: remoteMessage || '后端返回 approve-blocked',
               remoteStatus: 'approve_blocked',
-              remoteMessage: `${remoteMessage || '后端返回 approve-blocked'}；卡密已回到可用池，等待其他账号匹配`,
+              remoteMessage: `${remoteMessage || '后端返回 approve-blocked'}；CDK 已回到可用池，等待其他账号匹配`,
               remoteCheckedAt: Math.max(0, Math.floor(Number(entry.remoteCheckedAt) || failedAtMs)),
               retrying: false,
               retryError: '',
@@ -947,7 +966,7 @@
             membershipOverrideCheckedAt: item.membershipOverrideCheckedAt || failedAt,
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI Free 兑换：${rowEmail} -> 后端返回 approve-blocked，${failureLabel}，旧卡 ${failedCdkey || ''} 已回到卡密池，账号保留在 Free。`, 'warn');
+            await addLog(`UPI Free 兑换：${rowEmail} -> 后端返回 approve-blocked，${failureLabel}，旧 CDK ${failedCdkey || ''} 已回到 CDK 池，账号保留在 Free。`, 'warn');
           }
           continue;
         }
@@ -1003,7 +1022,7 @@
             accessToken: normalizeString(item.accessToken || entry.accessToken),
             accessTokenMasked: normalizeString(item.accessTokenMasked || entry.accessTokenMasked),
             redeemStatus: 'success',
-            redeemReason: remoteMessage || 'UPI 卡密远端确认兑换成功',
+            redeemReason: remoteMessage || 'CDK 远端确认兑换成功',
             redeemFailureCount: 0,
             redeemLastFailedAt: '',
             redeemSuccessAt,
@@ -1013,7 +1032,7 @@
             membershipOverrideCheckedAt: '',
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI Free 兑换：${rowEmail} -> 当前绑定卡密远端确认成功，进入 Plus：${entryCdkey}`, 'ok');
+            await addLog(`UPI Free 兑换：${rowEmail} -> 当前绑定 CDK 远端确认成功，进入 Plus：${entryCdkey}`, 'ok');
           }
           continue;
         }
@@ -1041,14 +1060,14 @@
             upiRedeemSubscriptionCheckedAt: '',
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI Free 兑换：${rowEmail} -> 卡密远端返回 success，但会员验证未确认 Plus，账号保留在 Free：${verifyReason}`, 'warn');
+            await addLog(`UPI Free 兑换：${rowEmail} -> CDK 远端返回 success，但会员验证未确认 Plus，账号保留在 Free：${verifyReason}`, 'warn');
           }
           continue;
         }
 
         const remoteActive = isActiveUpiRedeemRemoteStatusForRetry(remoteStatus);
         if (remoteActive && normalizeString(item.status) === 'free') {
-          const pendingReason = remoteMessage || '卡密已提交，等待远端系统返回最终结果';
+          const pendingReason = remoteMessage || 'CDK 已提交，等待远端系统返回最终结果';
           changed = true;
           nextItems.push({
             ...item,
@@ -1090,7 +1109,7 @@
               lastFailedAt: 0,
               lastFailedReason: '',
               remoteStatus: 'unused',
-              remoteMessage: `${cancelReason}；后端已取消，卡密已回到可用池`,
+              remoteMessage: `${cancelReason}；后端已取消，CDK 已回到可用池`,
               remoteCheckedAt: Math.max(0, Math.floor(Number(entry.remoteCheckedAt) || canceledAtMs)),
               retrying: false,
               retryError: '',
@@ -1119,7 +1138,7 @@
             membershipOverrideCheckedAt: item.membershipOverrideCheckedAt || canceledAt,
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI Free 兑换：${rowEmail} -> 后端已取消卡密 ${canceledCdkey || ''}，账号已回到待兑换，卡密已释放回可用池。${cancelReason ? ` ${cancelReason}` : ''}`, 'warn');
+            await addLog(`UPI Free 兑换：${rowEmail} -> 后端已取消 CDK ${canceledCdkey || ''}，账号已回到待兑换，CDK 已释放回可用池。${cancelReason ? ` ${cancelReason}` : ''}`, 'warn');
           }
           continue;
         }
@@ -1127,7 +1146,7 @@
         const remoteNoRedeemRecord = ['not_found', 'unused', 'available', 'new', 'ready'].includes(remoteStatus);
         if (remoteNoRedeemRecord && isPendingUpiCredentialMembershipRedeemStatus(item.redeemStatus)) {
           const releasedAt = toIsoFromTimestampOrNow(entry.remoteCheckedAt);
-          const releaseReason = remoteMessage || '后端无兑换记录，卡密已释放，可重新兑换';
+          const releaseReason = remoteMessage || '后端无兑换记录，CDK 已释放，可重新兑换';
           changed = true;
           nextItems.push({
             ...item,
@@ -1145,7 +1164,7 @@
             checkedAt: item.checkedAt || releasedAt,
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI 无会员补兑：${rowEmail} -> 后端无兑换记录，已释放卡密 ${entry.cdkey || item.upiRedeemCdkey || ''}，账号回到 Free 可重新兑换。`, 'warn');
+            await addLog(`UPI 无会员补兑：${rowEmail} -> 后端无兑换记录，已释放 CDK ${entry.cdkey || item.upiRedeemCdkey || ''}，账号回到 Free 可重新兑换。`, 'warn');
           }
           continue;
         }
@@ -1178,7 +1197,7 @@
               lastFailedAt: failedAtMs,
               lastFailedReason: remoteMessage || '远端确认兑换失败',
               remoteStatus,
-              remoteMessage: `${remoteMessage || '远端确认兑换失败'}；卡密已回到可用池，等待其他账号匹配`,
+              remoteMessage: `${remoteMessage || '远端确认兑换失败'}；CDK 已回到可用池，等待其他账号匹配`,
               remoteCheckedAt: Math.max(0, Math.floor(Number(entry.remoteCheckedAt) || failedAtMs)),
               retrying: false,
               retryError: '',
@@ -1205,7 +1224,7 @@
             upiRedeemCdkey: '',
           });
           if (typeof addLog === 'function') {
-            await addLog(`UPI Free 兑换：${rowEmail} -> 远端确认失败，${failureLabel}，旧卡 ${failedCdkey || ''} 已回到卡密池，账号保留在 Free：${remoteMessage}`, 'warn');
+            await addLog(`UPI Free 兑换：${rowEmail} -> 远端确认失败，${failureLabel}，旧 CDK ${failedCdkey || ''} 已回到 CDK 池，账号保留在 Free：${remoteMessage}`, 'warn');
           }
           continue;
         }
@@ -1228,7 +1247,11 @@
       }, nextItems);
       const updates = {
         [UPI_CREDENTIAL_MEMBERSHIP_RESULTS_KEY]: nextResults,
-        ...(usageChanged ? { upiRedeemCdkeyUsage: nextUsage } : {}),
+        ...(usageChanged ? {
+          cdkUsage: nextUsage,
+          upiRedeemCdkUsage: nextUsage,
+          upiRedeemCdkeyUsage: nextUsage,
+        } : {}),
       };
       if (typeof setState === 'function') {
         await setState(updates);
@@ -1284,9 +1307,11 @@
         return {
           ...summary,
           skipped: 1,
-          reason: '刷新后没有可用 UPI 卡密，跳过自动续兑。',
+          reason: '刷新后没有可用 CDK，跳过自动续兑。',
         };
       }
+      delete runtimeSettings.cdkUsage;
+      delete runtimeSettings.upiRedeemCdkUsage;
       delete runtimeSettings.upiRedeemCdkeyUsage;
       delete runtimeSettings.pixRedeemCdkeyUsage;
       const retryResult = await retryFailedUpiRedeemCdkey({
@@ -3581,10 +3606,10 @@
         case 'REFRESH_UPI_REDEEM_CDKEY_STATUSES': {
           const state = await getState();
           if (isAutoRunLockedState(state)) {
-            throw new Error('自动流程运行中，当前不能刷新 UPI 卡密状态。');
+            throw new Error('自动流程运行中，当前不能刷新 CDK 状态。');
           }
           if (typeof refreshUpiRedeemCdkeyStatuses !== 'function') {
-            throw new Error('UPI 卡密状态查询能力尚未接入。');
+            throw new Error('CDK 状态查询能力尚未接入。');
           }
           const result = await refreshUpiRedeemCdkeyStatuses({
             ...state,

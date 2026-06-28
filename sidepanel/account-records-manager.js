@@ -447,8 +447,22 @@
     }
 
     function getUpiRedeemCdkeyUsage(currentState = state.getLatestState()) {
-      const rawUsage = currentState?.upiRedeemCdkeyUsage || currentState?.pixRedeemCdkeyUsage || {};
+      const rawUsage = currentState?.cdkUsage
+        || currentState?.upiRedeemCdkUsage
+        || currentState?.upiRedeemCdkeyUsage
+        || currentState?.pixRedeemCdkeyUsage
+        || {};
       return rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? rawUsage : {};
+    }
+
+    function getStoredCdkPoolText(currentState = state.getLatestState()) {
+      return String(
+        currentState?.cdkPoolText
+        ?? currentState?.upiRedeemCdkPoolText
+        ?? currentState?.upiRedeemCdkeyPoolText
+        ?? currentState?.pixRedeemCdkeyPoolText
+        ?? ''
+      ).replace(/\r/g, '').trim();
     }
 
     function parseUpiRedeemCdkeyPoolText(value = '') {
@@ -511,12 +525,7 @@
 
     function getAvailableUpiRedeemCdkeyCount(currentState = state.getLatestState()) {
       const usage = getUpiRedeemCdkeyUsage(currentState);
-      const cdkeys = parseUpiRedeemCdkeyPoolText(
-        dom.inputUpiRedeemCdkeyPool?.value
-        ?? currentState?.upiRedeemCdkeyPoolText
-        ?? currentState?.pixRedeemCdkeyPoolText
-        ?? ''
-      );
+      const cdkeys = parseUpiRedeemCdkeyPoolText(getStoredCdkPoolText(currentState));
       return cdkeys.filter((cdkey) => isSelectableUpiRedeemCdkeyUsageEntry(usage?.[cdkey] || {})).length;
     }
 
@@ -575,7 +584,7 @@
         const patch = {
           status: 'paid',
           planType: getUpiRedeemSuccessPlanType(entry),
-          reason: entry.subscriptionReason || entry.remoteMessage || 'UPI 卡密已确认兑换成功',
+          reason: entry.subscriptionReason || entry.remoteMessage || 'CDK 已确认兑换成功',
           upiRedeemCdkey: cdkey,
           upiRedeemSubscriptionCheckedAt: getUpiRedeemSuccessCheckedAt(entry),
         };
@@ -816,7 +825,7 @@
         ? '旧记录缺少 GPT 密码/2FA 的需要重新兑换生成成功记录。'
         : (summary.missingAccessTokenCount || summary.subscriptionNotActiveCount
           ? '请确认账号仍是 Plus/Pro/Team 会员。'
-          : '请确认远端卡密状态。');
+          : '请确认远端 CDK 状态。');
       return `未导出：${blockers.join('，') || '没有符合条件的记录'}。${suffix}`;
     }
 
@@ -1162,7 +1171,7 @@
       const status = String(row.status || '').trim().toLowerCase();
       if (status === 'paid') {
         const paidDetail = redeemStatus === 'skipped'
-          ? (row.redeemReason || row.reason || '重新核验已是会员，未消耗卡密')
+          ? (row.redeemReason || row.reason || '重新核验已是会员，未消耗 CDK')
           : (row.reason || row.redeemReason || '已确认会员');
         return {
           className: 'used',
@@ -1178,21 +1187,21 @@
           return {
             className: 'active',
             label: '可兑换',
-            detail: `${row.redeemReason || row.reason || '卡密重复提交，当前账号未提交成功'}；账号已回到 Free，可重新兑换。`,
+            detail: `${row.redeemReason || row.reason || 'CDK 重复提交，当前账号未提交成功'}；账号已回到 Free，可重新兑换。`,
           };
         }
         if (isActiveUpiRedeemRemoteStatus(redeemStatus)) {
           return {
             className: 'pending',
             label: '等待远端结果',
-            detail: row.redeemReason || row.reason || '卡密已提交，等待远端系统返回最终结果',
+            detail: row.redeemReason || row.reason || 'CDK 已提交，等待远端系统返回最终结果',
           };
         }
         if (redeemStatus === 'blocked' || isPreSubmitUpiCredentialMembershipBlockedRow(row)) {
           const blockedReason = row.redeemReason || row.reason || '登录或读取 accessToken 未完成';
           const blockedLabel = /登录|验证码|accessToken|AT|密码|2FA/i.test(blockedReason)
             ? '登录受阻'
-            : '未提交卡密';
+            : '未提交 CDK';
           return {
             className: 'pending',
             label: blockedLabel,
@@ -1207,7 +1216,7 @@
           return {
             className: redeemFailureCount >= redeemFailureLimit ? 'failed' : 'pending',
             label: `兑换轮 ${failureLabel}`,
-            detail: `${row.redeemReason || row.reason || '历史卡密兑换失败'}；${trialStatus === 'eligible' ? '账号有试用资格。' : '账号保留在 Free。'}`,
+            detail: `${row.redeemReason || row.reason || '历史 CDK 兑换失败'}；${trialStatus === 'eligible' ? '账号有试用资格。' : '账号保留在 Free。'}`,
           };
         }
         if (!normalizeUpiCredentialMembershipText(row.accessToken)) {
@@ -1221,7 +1230,7 @@
           return {
             className: 'active',
             label: '待兑换',
-            detail: trialReason || '试用资格已确认，等待分配卡密兑换',
+            detail: trialReason || '试用资格已确认，等待分配 CDK 兑换',
           };
         }
         if (trialStatus === 'ineligible') {
@@ -1248,7 +1257,7 @@
         return {
           className: 'active',
           label: normalizeUpiCredentialMembershipText(row.accessToken) ? '待兑换' : '有试用资格',
-          detail: row.trialEligibilityReason || row.reason || 'Free 分组账号，等待分配卡密兑换',
+          detail: row.trialEligibilityReason || row.reason || 'Free 分组账号，等待分配 CDK 兑换',
         };
       }
       if (status === 'failed') {
@@ -1366,16 +1375,16 @@
         return status === 'paid' ? '当前已有会员' : '当前不是无会员状态';
       }
       if (isDuplicateCdkeyPendingMembershipRow(row)) {
-        return '上次卡密重复提交，当前账号未提交成功，可重新兑换';
+        return '上次 CDK 重复提交，当前账号未提交成功，可重新兑换';
       }
       if (['running', 'submitted', 'pending', 'processing', 'accepted'].includes(redeemStatus)) {
-        return reason || '卡密已提交，等待远端状态刷新';
+        return reason || 'CDK 已提交，等待远端状态刷新';
       }
       if (redeemStatus === 'blocked' || isPreSubmitUpiCredentialMembershipBlockedRow(row)) {
         if (isManualLoginRetryableUpiCredentialMembershipRow(row)) {
           return reason || '登录受阻，可点击重新登录或手动接管后继续';
         }
-        return reason || '登录或读取 ChatGPT session 未完成，尚未提交卡密';
+        return reason || '登录或读取 ChatGPT session 未完成，尚未提交 CDK';
       }
       if (['success', 'skipped'].includes(redeemStatus)) {
         return '已有兑换成功记录';
@@ -1532,7 +1541,7 @@
       const skippedCount = items.filter((item) => String(item?.redeemStatus || '').trim().toLowerCase() === 'skipped').length;
       const successCount = items.filter((item) => String(item?.redeemStatus || '').trim().toLowerCase() === 'success').length;
       if (skippedCount && !successCount) {
-        return '已跳过兑换：账号重新核验已经是 Plus/Pro/Team 会员，未消耗 UPI 卡密。';
+        return '已跳过兑换：账号重新核验已经是 Plus/Pro/Team 会员，未消耗 CDK。';
       }
       return '';
     }
@@ -1688,7 +1697,7 @@
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="free" ${freeSectionCount && !mutatingBusy ? '' : 'disabled'}>删除 Free(${escapeHtml(String(freeSectionCount))})</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-fill-free-at ${missingAtCount && !mutatingBusy ? '' : 'disabled'}>一键补充 AT(${escapeHtml(String(missingAtCount))})</button>
             <button class="btn btn-primary btn-xs" type="button" data-upi-membership-identify-free-plus ${identifyPlusCount && !mutatingBusy ? '' : 'disabled'}>一键识别 Plus(${escapeHtml(String(identifyPlusCount))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free ${redeemNowCount && !mutatingBusy ? '' : 'disabled'}>一键兑换卡密(${escapeHtml(String(redeemNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free ${redeemNowCount && !mutatingBusy ? '' : 'disabled'}>一键兑换 CDK(${escapeHtml(String(redeemNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
             ${results.running ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check>停止补 AT/核验</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check hidden>停止补 AT/核验</button>'}
             ${results.redeeming ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem>停止兑换</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem hidden>停止兑换</button>'}
           </div>
@@ -2359,7 +2368,7 @@
       setNodeDisabled(dom.btnExportUpiRedeemSuccessRecords, busy);
       setNodeText(dom.btnExportUpiRedeemSuccessRecords, busy ? '查询中' : '导出已开通会员密码2FA');
       setNodeText(dom.btnShowUpiCredentialBackups, busy ? '读取中' : '查看全部已存密码2FA');
-      setNodeText(dom.btnExportUpiCredentialBackups, busy ? '查询中' : '导出当前卡密成功密码2FA');
+      setNodeText(dom.btnExportUpiCredentialBackups, busy ? '查询中' : '导出当前 CDK 成功密码2FA');
       setNodeText(dom.btnCheckUpiCredentialMembershipLocal, membershipBusy ? (upiCredentialMembershipRedeemBusy ? '兑换中' : '核验中') : '核验启用已存备份');
       setNodeText(dom.btnImportUpiCredentialMembershipTxt, membershipBusy ? (upiCredentialMembershipRedeemBusy ? '兑换中' : '核验中') : '导入备份TXT并核验');
       setNodeText(dom.btnImportUpiCredentialMembershipFreeTxt, membershipBusy ? (upiCredentialMembershipRedeemBusy ? '兑换中' : '核验中') : '导入 Free TXT');
@@ -2593,7 +2602,7 @@
           return;
         }
         helpers.downloadTextFile(`${rows.join('\n')}\n`, buildUpiRedeemSuccessEmailExportFileName(), 'text/plain;charset=utf-8');
-        helpers.showToast?.(`已按远端卡密状态导出 ${rows.length} 条兑换成功邮箱 2FA。`, 'success', 2200);
+        helpers.showToast?.(`已按远端 CDK 状态导出 ${rows.length} 条兑换成功邮箱 2FA。`, 'success', 2200);
       } catch (error) {
         helpers.showToast?.(`导出前查询 UPI 兑换/会员状态失败：${error.message}`, 'error');
       } finally {
@@ -2681,12 +2690,9 @@
           ?? latest?.upiRedeemFailedAccountRetryLimit
           ?? 3
         ) || 0))),
-        upiRedeemCdkeyPoolText: String(
-          dom.inputUpiRedeemCdkeyPool?.value
-          ?? latest?.upiRedeemCdkeyPoolText
-          ?? latest?.pixRedeemCdkeyPoolText
-          ?? ''
-        ).replace(/\r/g, '').trim(),
+        cdkPoolText: getStoredCdkPoolText(latest),
+        upiRedeemCdkPoolText: getStoredCdkPoolText(latest),
+        upiRedeemCdkeyPoolText: getStoredCdkPoolText(latest),
       };
     }
 
@@ -3142,6 +3148,31 @@
         setExportButtonsBusy(false);
         render();
       }
+    }
+
+    async function resumeFreeRedeemAfterCdkImport(options = {}) {
+      const currentState = state.getLatestState();
+      const results = getUpiCredentialMembershipCheckResults();
+      if (
+        upiCredentialMembershipCheckBusy
+        || upiCredentialMembershipRedeemBusy
+        || results.running === true
+        || results.redeeming === true
+        || isAutoRunRecordDisplayRunning(currentState)
+      ) {
+        return { started: false, reason: 'busy' };
+      }
+      if (getAvailableUpiRedeemCdkeyCount(currentState) <= 0) {
+        return { started: false, reason: 'no-cdk' };
+      }
+      const credentials = getEnabledFreeUpiCredentialMembershipRows();
+      if (!credentials.length) {
+        return { started: false, reason: 'no-free-credentials' };
+      }
+      await startUpiCredentialMembershipFreeRedeem(credentials, {
+        source: options.source || 'cdk-import-resume',
+      });
+      return { started: true, count: credentials.length };
     }
 
     async function startSingleUpiCredentialMembershipFreeRedeem(email = '') {
@@ -3764,6 +3795,7 @@
       openPanel,
       render,
       reset,
+      resumeFreeRedeemAfterCdkImport,
       setSelectionMode,
       showUpiCredentialBackupText,
       summarizeAccountRunHistory,

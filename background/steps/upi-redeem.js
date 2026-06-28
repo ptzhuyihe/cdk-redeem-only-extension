@@ -136,6 +136,21 @@
       if (state?.[normalizedKey] !== undefined) {
         return state[normalizedKey];
       }
+      const cdkAliases = {
+        cdkPoolText: ['cdkPoolText', 'upiRedeemCdkPoolText', 'upiRedeemCdkeyPoolText', 'pixRedeemCdkeyPoolText'],
+        upiRedeemCdkPoolText: ['upiRedeemCdkPoolText', 'cdkPoolText', 'upiRedeemCdkeyPoolText', 'pixRedeemCdkeyPoolText'],
+        upiRedeemCdkeyPoolText: ['upiRedeemCdkeyPoolText', 'cdkPoolText', 'upiRedeemCdkPoolText', 'pixRedeemCdkeyPoolText'],
+        pixRedeemCdkeyPoolText: ['pixRedeemCdkeyPoolText', 'cdkPoolText', 'upiRedeemCdkPoolText', 'upiRedeemCdkeyPoolText'],
+        cdkUsage: ['cdkUsage', 'upiRedeemCdkUsage', 'upiRedeemCdkeyUsage', 'pixRedeemCdkeyUsage'],
+        upiRedeemCdkUsage: ['upiRedeemCdkUsage', 'cdkUsage', 'upiRedeemCdkeyUsage', 'pixRedeemCdkeyUsage'],
+        upiRedeemCdkeyUsage: ['upiRedeemCdkeyUsage', 'cdkUsage', 'upiRedeemCdkUsage', 'pixRedeemCdkeyUsage'],
+        pixRedeemCdkeyUsage: ['pixRedeemCdkeyUsage', 'cdkUsage', 'upiRedeemCdkUsage', 'upiRedeemCdkeyUsage'],
+      };
+      for (const alias of cdkAliases[normalizedKey] || []) {
+        if (state?.[alias] !== undefined) {
+          return state[alias];
+        }
+      }
       const legacyKey = normalizedKey.replace(/^upiRedeem/, 'pixRedeem');
       return legacyKey === normalizedKey ? undefined : state?.[legacyKey];
     }
@@ -147,8 +162,12 @@
 
     function preferLatestUpiRedeemDynamicState(merged = {}, latestState = {}) {
       const dynamicKeys = [
+        'cdkPoolText',
+        'upiRedeemCdkPoolText',
         'upiRedeemCdkeyPoolText',
         'pixRedeemCdkeyPoolText',
+        'cdkUsage',
+        'upiRedeemCdkUsage',
         'upiRedeemCdkeyUsage',
         'pixRedeemCdkeyUsage',
       ];
@@ -713,11 +732,14 @@
       if (subscriptionReason) {
         storedEntry.subscriptionReason = subscriptionReason;
       }
+      const nextUsage = {
+        ...usage,
+        [cdkey]: storedEntry,
+      };
       await setState({
-        upiRedeemCdkeyUsage: {
-          ...usage,
-          [cdkey]: storedEntry,
-        },
+        cdkUsage: nextUsage,
+        upiRedeemCdkUsage: nextUsage,
+        upiRedeemCdkeyUsage: nextUsage,
       });
     }
 
@@ -760,7 +782,7 @@
         return;
       }
       const timestamp = Math.max(1, Math.floor(Number(attemptAt) || Number(now()) || Date.now()));
-      const releaseReason = normalizeString(reason) || '兑换接口未确认接收当前卡密，后端没有兑换记录。';
+      const releaseReason = normalizeString(reason) || '兑换接口未确认接收当前 CDK，后端没有兑换记录。';
       await updateCdkeyUsage(normalizedCdkey, (entry) => ({
         ...entry,
         usedAt: 0,
@@ -775,7 +797,7 @@
         releaseReason: '',
         releasedAt: 0,
         remoteStatus: 'not_found',
-        remoteMessage: `${releaseReason} 卡密已释放，可重新提交。`,
+        remoteMessage: `${releaseReason} CDK 已释放，可重新提交。`,
         remoteCheckedAt: timestamp,
         retrying: false,
         retryError: '',
@@ -1015,7 +1037,7 @@
     async function getResolvedSessionTab(tabId, visibleStep) {
       const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
       if (!tab?.id) {
-        throw new Error(`步骤 ${visibleStep}：ChatGPT session 标签页不存在或已关闭，无法执行 UPI 卡密兑换。`);
+        throw new Error(`步骤 ${visibleStep}：ChatGPT session 标签页不存在或已关闭，无法执行 CDK 兑换。`);
       }
       if (!isSupportedChatGptSessionUrl(tab.url)) {
         throw new Error(`步骤 ${visibleStep}：当前标签页不在 ChatGPT / OpenAI 页面，无法读取 ChatGPT session。`);
@@ -1292,7 +1314,7 @@
         lastAttemptAt: Math.max(0, Math.floor(Number(attemptAt) || 0)),
         lastError: normalizeString(message) || 'ChatGPT session 已过期或当前会话失效。',
         remoteStatus: 'unused',
-        remoteMessage: 'ChatGPT session 已过期或当前会话失效，未进入兑换处理，卡密已释放。',
+        remoteMessage: 'ChatGPT session 已过期或当前会话失效，未进入兑换处理，CDK 已释放。',
         remoteCheckedAt: Math.max(0, Math.floor(Number(attemptAt) || 0)),
         retrying: false,
         retryError: '',
@@ -1344,7 +1366,7 @@
 
     function getEligibilityFailureMessage(item) {
       if (!item) {
-        return 'UPI 资格检查未返回当前卡密结果。';
+        return 'UPI 资格检查未返回当前 CDK结果。';
       }
       const tokenOk = normalizeBoolean(item.token_ok ?? item.tokenOk ?? item.ok);
       if (!tokenOk) {
@@ -1723,8 +1745,8 @@
       const positiveAcceptedCount = getPositiveRedeemAcceptedCount(payload);
       const statusUrl = buildUpiRedeemStatusApiUrl(state);
       let lastReason = responseItem
-        ? '兑换接口响应包含当前卡密，但状态不是已接收。'
-        : '兑换接口响应没有返回当前卡密。';
+        ? '兑换接口响应包含当前 CDK，但状态不是已接收。'
+        : '兑换接口响应没有返回当前 CDK。';
       for (const delayMs of [1000, 2000, 3000]) {
         await sleepWithStop(delayMs);
         let statusPayload = null;
@@ -1748,7 +1770,7 @@
           }
           lastReason = remoteMessage || `状态查询返回 ${remoteStatus || 'unknown'}`;
         } else {
-          lastReason = '状态查询未找到当前卡密记录。';
+          lastReason = '状态查询未找到当前 CDK记录。';
         }
       }
       return {
@@ -1963,10 +1985,10 @@
           throw error;
         }
         if (isUpiRedeemDuplicateCdkeyError(error)) {
-          throw new Error(`${UPI_REDEEM_DUPLICATE_CDK_ERROR_PREFIX}${getErrorMessage(error) || 'UPI 卡密已提交过，等待远端状态刷新。'}`);
+          throw new Error(`${UPI_REDEEM_DUPLICATE_CDK_ERROR_PREFIX}${getErrorMessage(error) || 'CDK 已提交过，等待远端状态刷新。'}`);
         }
         if (isUpiRedeemBackendFailureMessage(error)) {
-          throw new Error(`${UPI_REDEEM_BACKEND_FAILED_ERROR_PREFIX}${getErrorMessage(error) || 'UPI 卡密兑换失败。'}`);
+          throw new Error(`${UPI_REDEEM_BACKEND_FAILED_ERROR_PREFIX}${getErrorMessage(error) || 'CDK 兑换失败。'}`);
         }
         throw error;
       }
@@ -1985,7 +2007,7 @@
         state,
       });
       if (!acceptance.confirmed) {
-        throw new Error(`${UPI_REDEEM_NOT_ACCEPTED_ERROR_PREFIX}UPI 兑换接口未确认接收当前卡密，后端没有兑换记录：${acceptance.reason || '状态接口未找到记录'}`);
+        throw new Error(`${UPI_REDEEM_NOT_ACCEPTED_ERROR_PREFIX}UPI 兑换接口未确认接收当前 CDK，后端没有兑换记录：${acceptance.reason || '状态接口未找到记录'}`);
       }
       return payload;
     }
@@ -2011,7 +2033,7 @@
         releaseReason,
         releasedAt,
         remoteStatus: 'approve_blocked',
-        remoteMessage: `${releaseReason}；提交被阻塞，已释放卡密`,
+        remoteMessage: `${releaseReason}；提交被阻塞，已释放 CDK`,
         remoteCheckedAt: releasedAt,
         retryCount: 0,
         lastRetryAt: 0,
@@ -2023,11 +2045,11 @@
         subscriptionReason: '',
       }));
       if (!normalizedEmail) {
-        await addStepLog(visibleStep, `后端返回 approve-blocked，已释放卡密 ${normalizedCdkey}，但未能解析邮箱。`, 'warn');
+        await addStepLog(visibleStep, `后端返回 approve-blocked，已释放 CDK ${normalizedCdkey}，但未能解析邮箱。`, 'warn');
       }
       await addStepLog(
         visibleStep,
-        `后端返回 approve-blocked：${normalizedEmail || 'unknown'} 提交被阻塞，已释放卡密 ${normalizedCdkey}，账号保留在 Free 等待重新匹配。`,
+        `后端返回 approve-blocked：${normalizedEmail || 'unknown'} 提交被阻塞，已释放 CDK ${normalizedCdkey}，账号保留在 Free 等待重新匹配。`,
         'warn'
       );
     }
@@ -2046,7 +2068,7 @@
       const usage = normalizeUpiRedeemCdkeyUsage(getUpiRedeemStateValue(runtimeState, 'upiRedeemCdkeyUsage') || {});
       const cdkeys = mergeCdkeysWithRecoverableUsage(parseCdkeyPoolText(rawCdkeys.join('\n')), usage);
       if (!cdkeys.length) {
-        throw new Error('没有可查询的 UPI 卡密，请先导入卡密。');
+        throw new Error('没有可查询的 CDK，请先导入 CDK。');
       }
 
       const checkedAt = Math.max(1, Math.floor(Number(now()) || Date.now()));
@@ -2084,7 +2106,7 @@
             releaseReason,
             releasedAt: checkedAt,
             remoteStatus: 'unused',
-            remoteMessage: `${releaseReason}；邮箱不可用，已释放卡密`,
+            remoteMessage: `${releaseReason}；邮箱不可用，已释放 CDK`,
             remoteCheckedAt: checkedAt,
             retryCount: 0,
             lastRetryAt: 0,
@@ -2105,7 +2127,7 @@
             releaseReason: '',
             releasedAt: 0,
             remoteStatus: 'not_found',
-            remoteMessage: `${releaseMessage}；后端无兑换记录，卡密可重新提交`,
+            remoteMessage: `${releaseMessage}；后端无兑换记录，CDK 可重新提交`,
             remoteCheckedAt: checkedAt,
             retryCount: Math.max(0, Math.floor(Number(currentEntry.retryCount) || 0)),
             lastRetryAt: Math.max(0, Math.floor(Number(currentEntry.lastRetryAt) || 0)),
@@ -2134,7 +2156,7 @@
             lastFailedAt: 0,
             lastFailedReason: '',
             remoteStatus: 'unused',
-            remoteMessage: `${remoteMessage || '后端已手动取消兑换'}；后端已取消，卡密已回到可用池`,
+            remoteMessage: `${remoteMessage || '后端已手动取消兑换'}；后端已取消，CDK 已回到可用池`,
             remoteCheckedAt: checkedAt,
             retrying: false,
             retryError: '',
@@ -2163,7 +2185,7 @@
             lastFailedAt: checkedAt,
             lastFailedReason: remoteMessage || '远端确认兑换失败',
             remoteStatus,
-            remoteMessage: `${remoteMessage || '远端确认兑换失败'}；卡密已回到可用池，等待其他账号匹配`,
+            remoteMessage: `${remoteMessage || '远端确认兑换失败'}；CDK 已回到可用池，等待其他账号匹配`,
             remoteCheckedAt: checkedAt,
             retrying: false,
             retryError: '',
@@ -2201,7 +2223,11 @@
         }
       });
 
-      const updates = { upiRedeemCdkeyUsage: nextUsage };
+      const updates = {
+        cdkUsage: nextUsage,
+        upiRedeemCdkUsage: nextUsage,
+        upiRedeemCdkeyUsage: nextUsage,
+      };
       await setState(updates);
       return {
         statusUrl,
@@ -2397,7 +2423,7 @@
       } catch (error) {
         await addStepLog(
           visibleStep,
-          `已确认 Plus/Pro/Team，但保存邮箱/卡密列表清理结果失败：${getErrorMessage(error) || error}`,
+          `已确认 Plus/Pro/Team，但保存邮箱/CDK 列表清理结果失败：${getErrorMessage(error) || error}`,
           'warn'
         );
       }
@@ -2582,7 +2608,7 @@
       const accessToken = getChatGptSessionAccessToken(chatGptSession)
         || normalizeString(input.accessToken || input.token || input.access_token);
       if (!hasChatGptSessionPayload(chatGptSession) && !accessToken) {
-        throw new Error('缺少 ChatGPT accessToken，无法兑换 UPI 卡密。');
+        throw new Error('缺少 ChatGPT accessToken，无法兑换 CDK。');
       }
       const credential = input.credential && typeof input.credential === 'object' && !Array.isArray(input.credential)
         ? input.credential
@@ -2604,19 +2630,19 @@
       let cdkey = forceCdkey || pickFirstUnusedCdkey(cdkeys, usage);
       if (!cdkey) {
         throw new Error(forceCdkey
-          ? '指定的 UPI 卡密为空，无法重试。'
-          : '没有可用的 UPI 卡密，请在侧边栏导入可用卡密。');
+          ? '指定的 CDK 为空，无法重试。'
+          : '没有可用的 CDK，请在侧边栏导入可用 CDK。');
       }
       if (forceCdkey) {
         const forcedUsage = usage?.[forceCdkey] || {};
         if (!cdkeys.includes(forceCdkey)) {
-          throw new Error(`指定 UPI 卡密不在当前卡密池中，已停止重试：${forceCdkey}`);
+          throw new Error(`指定 CDK 不在当前 CDK 池中，已停止重试：${forceCdkey}`);
         }
         if (forcedUsage.enabled === false) {
-          throw new Error(`指定 UPI 卡密已停用，已停止重试：${forceCdkey}`);
+          throw new Error(`指定 CDK 已停用，已停止重试：${forceCdkey}`);
         }
         if (!isCdkeySelectableForRedeem(forcedUsage)) {
-          throw new Error(`指定 UPI 卡密已兑换、处理中或已确认不可再次提交，已停止：${forceCdkey}`);
+          throw new Error(`指定 CDK 已兑换、处理中或已确认不可再次提交，已停止：${forceCdkey}`);
         }
         cdkey = forceCdkey;
       }
@@ -2626,24 +2652,24 @@
       const attemptAt = Math.max(1, Math.floor(Number(now()) || Date.now()));
       await addStepLog(
         visibleStep,
-        `UPI Free 分组卡密兑换：准备提交 ChatGPT AT + 卡密：${email || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(chatGptSession)} -> ${cdkey}`,
+        `UPI Free 分组 CDK 兑换：准备提交 ChatGPT AT + CDK：${email || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(chatGptSession)} -> ${cdkey}`,
         'info'
       );
       if (isRetryableRemoteStatus(selectedUsage.remoteStatus)) {
         await addStepLog(
           visibleStep,
-          `UPI Free 分组卡密兑换：卡密 ${cdkey} 上次状态为 ${normalizeUpiRedeemRemoteStatus(selectedUsage.remoteStatus)}，但未标记已用，将继续重试。`,
+          `UPI Free 分组 CDK 兑换：CDK ${cdkey} 上次状态为 ${normalizeUpiRedeemRemoteStatus(selectedUsage.remoteStatus)}，但未标记已用，将继续重试。`,
           'warn'
         );
       }
       if (skipEligibilityCheck) {
         await addStepLog(
           visibleStep,
-          `UPI Free 分组卡密兑换：已跳过本地资格预检，直接提交兑换后端：${email || 'unknown'} -> ${cdkey} -> ${apiUrl}`,
+          `UPI Free 分组 CDK 兑换：已跳过本地资格预检，直接提交兑换后端：${email || 'unknown'} -> ${cdkey} -> ${apiUrl}`,
           'warn'
         );
       } else {
-        await addStepLog(visibleStep, `UPI Free 分组卡密兑换：正在检查 ChatGPT session 资格：${email || 'unknown'} -> ${cdkey} -> ${checkUrl}`, 'info');
+        await addStepLog(visibleStep, `UPI Free 分组 CDK 兑换：正在检查 ChatGPT session 资格：${email || 'unknown'} -> ${cdkey} -> ${checkUrl}`, 'info');
         try {
           await checkUPIAccessTokenEligibility({
             checkUrl,
@@ -2658,7 +2684,7 @@
           if (isUpiAccessTokenExpiredError(error)) {
             await addStepLog(
               visibleStep,
-              `UPI Free 分组卡密兑换：资格预检接口提示 ChatGPT session 失效，将按 lala 逻辑继续提交兑换后端 ${apiUrl}：${message}`,
+              `UPI Free 分组 CDK 兑换：资格预检接口提示 ChatGPT session 失效，将按 lala 逻辑继续提交兑换后端 ${apiUrl}：${message}`,
               'warn'
             );
             await updateCdkeyUsage(cdkey, (entry) => ({
@@ -2694,21 +2720,21 @@
             if (isUpiAccountIneligibleError(error)) {
               await addStepLog(
                 visibleStep,
-                `UPI Free 分组卡密兑换：资格检查确认账号无资格，未提交到兑换后端 ${apiUrl}：${message}`,
+                `UPI Free 分组 CDK 兑换：资格检查确认账号无资格，未提交到兑换后端 ${apiUrl}：${message}`,
                 'error'
               );
               throw error;
             }
             await addStepLog(
               visibleStep,
-              `UPI Free 分组卡密兑换：资格检查接口失败，将继续提交兑换后端 ${apiUrl} 留痕：${message}`,
+              `UPI Free 分组 CDK 兑换：资格检查接口失败，将继续提交兑换后端 ${apiUrl} 留痕：${message}`,
               'warn'
             );
           }
         }
       }
 
-      await addStepLog(visibleStep, `UPI Free 分组卡密兑换：正在提交 ChatGPT AT+卡密到兑换接口：${email || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(chatGptSession)} -> ${cdkey} -> ${apiUrl}`, 'info');
+      await addStepLog(visibleStep, `UPI Free 分组 CDK 兑换：正在提交 ChatGPT AT+CDK 到兑换接口：${email || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(chatGptSession)} -> ${cdkey} -> ${apiUrl}`, 'info');
       await reserveCdkeyForRedeemSubmission({
         cdkey,
         email,
@@ -2726,7 +2752,7 @@
           accessToken,
           state: runtimeState,
         });
-        await addStepLog(visibleStep, `UPI Free 分组卡密兑换：兑换接口已接收 ChatGPT AT+卡密：${email || 'unknown'} -> ${cdkey}`, 'ok');
+        await addStepLog(visibleStep, `UPI Free 分组 CDK 兑换：兑换接口已接收 ChatGPT AT+CDK：${email || 'unknown'} -> ${cdkey}`, 'ok');
         await updateCdkeyUsage(cdkey, (entry) => ({
           ...entry,
           email,
@@ -2742,13 +2768,13 @@
           retrying: false,
           retryError: '',
         }));
-        await addStepLog(visibleStep, `UPI 卡密已提交到兑换后端，暂不从本地卡密池移除，等待确认会员成功后再清理：${cdkey}`, 'info');
+        await addStepLog(visibleStep, `CDK 已提交到兑换后端，暂不从本地 CDK 池移除，等待确认会员成功后再清理：${cdkey}`, 'info');
       } catch (error) {
-        const message = getErrorMessage(error) || 'UPI 卡密兑换失败。';
+        const message = getErrorMessage(error) || 'CDK 兑换失败。';
         if (isUpiAccessTokenExpiredError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI Free 分组卡密兑换：兑换后端提示 ChatGPT session 失效，已停止当前账号，卡密不记失败：${email || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI Free 分组 CDK 兑换：兑换后端提示 ChatGPT session 失效，已停止当前账号，CDK 不记失败：${email || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await recordAccessTokenExpiredCdkeyAttempt({
@@ -2762,7 +2788,7 @@
         if (isApproveBlockedError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI Free 分组卡密兑换：后端返回 approve-blocked，立即释放卡密并保留账号：${email || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI Free 分组 CDK 兑换：后端返回 approve-blocked，立即释放 CDK 并保留账号：${email || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await releaseCdkeyForApproveBlocked({
@@ -2778,7 +2804,7 @@
         if (isUpiRedeemNotAcceptedError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI Free 分组卡密兑换：兑换接口未确认接收，后端没有兑换记录，已释放卡密：${email || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI Free 分组 CDK 兑换：兑换接口未确认接收，后端没有兑换记录，已释放 CDK：${email || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await releaseCdkeyForUnacceptedSubmission({
@@ -2789,10 +2815,10 @@
           throw error;
         }
         if (isUpiRedeemDuplicateCdkeyError(error)) {
-          const pendingReason = `${message || '后端提示卡密已提交过'}；这张卡密已被占用，当前账号未提交成功，本账号本轮结束。`;
+          const pendingReason = `${message || '后端提示 CDK 已提交过'}；这张 CDK 已被占用，当前账号未提交成功，本账号本轮结束。`;
           await addStepLog(
             visibleStep,
-            `UPI Free 分组卡密兑换：后端提示卡密重复提交，当前账号未提交成功，将回到 Free 可换卡：${email || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI Free 分组 CDK 兑换：后端提示 CDK 重复提交，当前账号未提交成功，将回到 Free 可换卡：${email || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await updateCdkeyUsage(cdkey, (entry) => ({
@@ -2829,7 +2855,7 @@
         }
         await addStepLog(
           visibleStep,
-          `UPI Free 分组卡密兑换：AT+卡密提交失败：${email || 'unknown'} -> ${cdkey}：${message}`,
+          `UPI Free 分组 CDK 兑换：AT+CDK 提交失败：${email || 'unknown'} -> ${cdkey}：${message}`,
           'error'
         );
         await updateCdkeyUsage(cdkey, (entry) => ({
@@ -2845,7 +2871,7 @@
           lastFailedAt: attemptAt,
           lastFailedReason: message,
           remoteStatus: 'failed',
-          remoteMessage: `${message}；卡密已回到可用池，等待其他账号匹配`,
+          remoteMessage: `${message}；CDK 已回到可用池，等待其他账号匹配`,
           remoteCheckedAt: attemptAt,
           retrying: false,
           retryError: message,
@@ -2856,7 +2882,7 @@
       if (input.deferSubscriptionConfirmation === true) {
         await addStepLog(
           visibleStep,
-          `UPI Free 分组卡密兑换：已提交 ChatGPT AT+卡密，等待远端系统返回最终结果后再判定账号成功或失败：${email || 'unknown'} -> ${cdkey}`,
+          `UPI Free 分组 CDK 兑换：已提交 ChatGPT AT+CDK，等待远端系统返回最终结果后再判定账号成功或失败：${email || 'unknown'} -> ${cdkey}`,
           'info'
         );
         return {
@@ -2946,15 +2972,15 @@
       );
       const cdkey = pickFirstUnusedCdkey(cdkeys, usage);
       if (!cdkey) {
-        throw new Error('没有可用的 UPI 卡密，请在侧边栏导入可用卡密。');
+        throw new Error('没有可用的 CDK，请在侧边栏导入可用 CDK。');
       }
       const selectedUsage = usage?.[cdkey] || {};
 
-      await addStepLog(visibleStep, '正在读取当前 ChatGPT session，用于 UPI 卡密兑换...', 'info');
+      await addStepLog(visibleStep, '正在读取当前 ChatGPT session，用于 CDK 兑换...', 'info');
       if (isRetryableRemoteStatus(selectedUsage.remoteStatus)) {
         await addStepLog(
           visibleStep,
-          `UPI 卡密 ${cdkey} 上次状态为 ${normalizeUpiRedeemRemoteStatus(selectedUsage.remoteStatus)}，但未标记已用，将继续重试。`,
+          `CDK ${cdkey} 上次状态为 ${normalizeUpiRedeemRemoteStatus(selectedUsage.remoteStatus)}，但未标记已用，将继续重试。`,
           'warn'
         );
       }
@@ -2995,7 +3021,7 @@
               cdkey,
               accessToken: sessionState.accessToken,
               accessTokenMasked: maskAccessToken(sessionState.accessToken),
-              reason: normalizeString(eligibility?.item?.message || eligibility?.item?.reason) || '账号有试用资格，可进行 UPI 卡密兑换',
+              reason: normalizeString(eligibility?.item?.message || eligibility?.item?.reason) || '账号有试用资格，可进行 CDK 兑换',
               checkedAt: toIsoTimestamp(attemptAt),
             });
             await addStepLog(visibleStep, `已加入 Free 分组并标记“有试用资格”：${currentEmail || 'unknown'}`, 'ok');
@@ -3131,7 +3157,7 @@
         }
       }
 
-      await addStepLog(visibleStep, `正在提交 ChatGPT session+卡密到 UPI 兑换接口：${currentEmail || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(sessionState)} -> ${cdkey} -> ${apiUrl}`, 'info');
+      await addStepLog(visibleStep, `正在提交 ChatGPT session+CDK 到 UPI 兑换接口：${currentEmail || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(sessionState)} -> ${cdkey} -> ${apiUrl}`, 'info');
       await reserveCdkeyForRedeemSubmission({
         cdkey,
         email: currentEmail,
@@ -3150,7 +3176,7 @@
           state: runtimeState,
         });
         redeemBackendAccepted = true;
-        await addStepLog(visibleStep, `UPI 兑换接口已接收 ChatGPT session+卡密：${currentEmail || 'unknown'} -> ${cdkey}`, 'ok');
+        await addStepLog(visibleStep, `UPI 兑换接口已接收 ChatGPT session+CDK：${currentEmail || 'unknown'} -> ${cdkey}`, 'ok');
         await updateCdkeyUsage(cdkey, (entry) => ({
           ...entry,
           email: currentEmail,
@@ -3166,7 +3192,7 @@
           retrying: false,
           retryError: '',
         }));
-        await addStepLog(visibleStep, `UPI 卡密已提交到兑换后端，暂不从本地卡密池移除，等待确认会员成功后再清理：${cdkey}`, 'info');
+        await addStepLog(visibleStep, `CDK 已提交到兑换后端，暂不从本地 CDK 池移除，等待确认会员成功后再清理：${cdkey}`, 'info');
         const subscriptionResult = await confirmCurrentRedeemPaidSubscription({
           state: latestForSubscription,
           email: currentEmail,
@@ -3198,7 +3224,7 @@
         } catch (stateError) {
           await addStepLog(
             visibleStep,
-            `UPI 卡密已兑换成功，但记录兑换成功标志失败：${getErrorMessage(stateError) || stateError}`,
+            `CDK 已兑换成功，但记录兑换成功标志失败：${getErrorMessage(stateError) || stateError}`,
             'warn'
           );
         }
@@ -3217,7 +3243,7 @@
             });
             const cleanupParts = [];
             if (cleanupUpdates.upiRedeemCdkeyPoolText !== undefined) {
-              cleanupParts.push('UPI 卡密列表');
+              cleanupParts.push('CDK 列表');
             }
             if (
               cleanupUpdates.customMailProviderPool !== undefined
@@ -3236,14 +3262,14 @@
           } catch (cleanupError) {
             await addStepLog(
               visibleStep,
-              `已确认账号开通 ${planLabel} 会员，但清理邮箱/卡密列表失败：${getErrorMessage(cleanupError) || cleanupError}`,
+              `已确认账号开通 ${planLabel} 会员，但清理邮箱/CDK 列表失败：${getErrorMessage(cleanupError) || cleanupError}`,
               'warn'
             );
           }
         } else {
           await addStepLog(
             visibleStep,
-            `UPI 卡密已提交成功，但会员状态待确认，暂不删除邮箱和卡密：${subscriptionReason}`,
+            `CDK 已提交成功，但会员状态待确认，暂不删除邮箱和 CDK：${subscriptionReason}`,
             'warn'
           );
         }
@@ -3256,21 +3282,21 @@
             await appendAccountRunRecord('success', {
               ...latestState,
               ...successStateUpdates,
-            }, 'UPI 卡密兑换成功');
+            }, 'CDK 兑换成功');
           } catch (recordError) {
             await addStepLog(
               visibleStep,
-              `UPI 卡密已兑换成功，但记录兑换成功邮箱失败：${getErrorMessage(recordError) || recordError}`,
+              `CDK 已兑换成功，但记录兑换成功邮箱失败：${getErrorMessage(recordError) || recordError}`,
               'warn'
             );
           }
         }
       } catch (error) {
-        const message = getErrorMessage(error) || 'UPI 卡密兑换失败。';
+        const message = getErrorMessage(error) || 'CDK 兑换失败。';
         if (isUpiAccessTokenExpiredError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI 兑换后端提示 ChatGPT session 失效，已停止当前兑换步骤，卡密不记失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI 兑换后端提示 ChatGPT session 失效，已停止当前兑换步骤，CDK 不记失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await recordAccessTokenExpiredCdkeyAttempt({
@@ -3284,7 +3310,7 @@
         if (isApproveBlockedError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI 后端返回 approve-blocked，立即释放卡密并保留账号：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI 后端返回 approve-blocked，立即释放 CDK 并保留账号：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await releaseCdkeyForApproveBlocked({
@@ -3304,7 +3330,7 @@
         if (isUpiRedeemNotAcceptedError(error)) {
           await addStepLog(
             visibleStep,
-            `UPI 兑换接口未确认接收，后端没有兑换记录，已释放卡密：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI 兑换接口未确认接收，后端没有兑换记录，已释放 CDK：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await releaseCdkeyForUnacceptedSubmission({
@@ -3324,10 +3350,10 @@
           throw error;
         }
         if (isUpiRedeemDuplicateCdkeyError(error)) {
-          const pendingReason = `${message || '后端提示卡密已提交过'}；这张卡密已被占用，当前账号未提交成功，本账号本轮结束。`;
+          const pendingReason = `${message || '后端提示 CDK 已提交过'}；这张 CDK 已被占用，当前账号未提交成功，本账号本轮结束。`;
           await addStepLog(
             visibleStep,
-            `UPI 后端提示卡密重复提交，当前账号未提交成功，本账号本轮结束：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI 后端提示 CDK 重复提交，当前账号未提交成功，本账号本轮结束：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await updateCdkeyUsage(cdkey, (entry) => ({
@@ -3357,10 +3383,10 @@
           throw new Error(`${UPI_REDEEM_DUPLICATE_CDK_ERROR_PREFIX}${pendingReason}`);
         } else if (redeemBackendAccepted) {
           duplicateCdkeyPending = true;
-          const pendingReason = `卡密已提交到兑换后端，但本地会员确认失败：${message}；已保持处理中，等待远端状态刷新`;
+          const pendingReason = `CDK 已提交到兑换后端，但本地会员确认失败：${message}；已保持处理中，等待远端状态刷新`;
           await addStepLog(
             visibleStep,
-            `UPI 卡密已被兑换接口接收，本地确认会员失败，已按处理中记录：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `CDK 已被兑换接口接收，本地确认会员失败，已按处理中记录：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'warn'
           );
           await updateCdkeyUsage(cdkey, (entry) => ({
@@ -3390,10 +3416,10 @@
         } else {
           await addStepLog(
             visibleStep,
-            `UPI ChatGPT session+卡密提交失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
+            `UPI ChatGPT session+CDK 提交失败：${currentEmail || 'unknown'} -> ${cdkey}：${message}`,
             'error'
           );
-          await addStepLog(visibleStep, `UPI 卡密兑换失败：${message}`, 'error');
+          await addStepLog(visibleStep, `CDK 兑换失败：${message}`, 'error');
           await updateCdkeyUsage(cdkey, (entry) => ({
             ...entry,
             email: '',
@@ -3407,7 +3433,7 @@
             lastFailedAt: attemptAt,
             lastFailedReason: message,
             remoteStatus: 'failed',
-            remoteMessage: `${message}；卡密已回到可用池，等待其他账号匹配`,
+            remoteMessage: `${message}；CDK 已回到可用池，等待其他账号匹配`,
             remoteCheckedAt: attemptAt,
             retrying: false,
             retryError: message,
@@ -3429,23 +3455,23 @@
             upiRedeemAccessToken: sessionState.accessToken,
           });
           await markCurrentRegistrationAccountUsed(latestState, {
-            logPrefix: 'UPI 卡密兑换成功',
+            logPrefix: 'CDK 兑换成功',
             level: 'ok',
           });
         } catch (error) {
           await addStepLog(
             visibleStep,
-            `UPI 卡密已兑换成功，但标记当前账号已用失败：${getErrorMessage(error) || error}`,
+            `CDK 已兑换成功，但标记当前账号已用失败：${getErrorMessage(error) || error}`,
             'warn'
           );
         }
       }
 
       const successMessage = duplicateCdkeyPending
-        ? 'UPI 卡密已提交到兑换后端，已等待远端状态刷新，暂不判定账号成功或失败。'
+        ? 'CDK 已提交到兑换后端，已等待远端状态刷新，暂不判定账号成功或失败。'
         : shouldMarkRegistrationAccountUsedAfterRedeem(runtimeState)
-        ? 'UPI 卡密兑换成功，已停止后续 OAuth 后链。'
-        : 'UPI 卡密兑换成功，继续 OAuth 后链。';
+        ? 'CDK 兑换成功，已停止后续 OAuth 后链。'
+        : 'CDK 兑换成功，继续 OAuth 后链。';
       await addStepLog(visibleStep, successMessage, duplicateCdkeyPending ? 'warn' : 'success');
       const completionLatestState = await getMergedState({});
       await completeNodeFromBackground(state?.nodeId || 'upi-redeem', {

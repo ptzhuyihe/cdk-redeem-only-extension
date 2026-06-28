@@ -68,7 +68,7 @@
 
   function getVersionFamilyPrefix(family) {
     if (family === VERSION_FAMILY_GUJUMPGATE) {
-      return 'UPI Redeem Only V';
+      return 'CDK Redeem Only V';
     }
     if (family === VERSION_FAMILY_ULTRA) {
       return 'Ultra';
@@ -408,11 +408,11 @@
     }
 
     const versionCore = extractVersionCore(manifest?.version || '');
-    return versionCore ? `UPI Redeem Only V${versionCore}` : '';
+    return versionCore ? `CDK Redeem Only V${versionCore}` : '';
   }
 
   async function getReleaseSnapshot(options = {}) {
-    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'UPI Redeem Only V0.0';
+    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'CDK Redeem Only V0.0';
 
     try {
       const releases = await loadReleases(options);
