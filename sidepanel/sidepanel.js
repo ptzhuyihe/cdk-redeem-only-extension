@@ -3265,21 +3265,6 @@ function isUpiRedeemRemoteActiveStatus(status = '') {
   ].includes(normalizeUpiRedeemRemoteStatusValue(status));
 }
 
-function isReusableInactiveUpiRedeemRemoteStatusValue(status = '') {
-  return [
-    'failed',
-    'timeout',
-    'rejected',
-    'approve_blocked',
-    'canceled',
-    'not_found',
-    'unused',
-    'available',
-    'new',
-    'ready',
-  ].includes(normalizeUpiRedeemRemoteStatusValue(status));
-}
-
 function isUpiRedeemCdkeySelectableForRedeem(entry = {}) {
   if (!entry || entry.enabled === false) {
     return false;
@@ -3287,13 +3272,6 @@ function isUpiRedeemCdkeySelectableForRedeem(entry = {}) {
   const remoteStatus = normalizeUpiRedeemRemoteStatusValue(entry.remoteStatus);
   const remoteMessageStatus = normalizeUpiRedeemRemoteStatusValue(entry.remoteMessage);
   if (entry.subscriptionActive === true) {
-    return false;
-  }
-  if (
-    entry.subscriptionActive === false
-    && !isReusableInactiveUpiRedeemRemoteStatusValue(remoteStatus)
-    && !isReusableInactiveUpiRedeemRemoteStatusValue(remoteMessageStatus)
-  ) {
     return false;
   }
   if (

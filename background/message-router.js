@@ -501,21 +501,6 @@
       ].includes(normalizeUpiRedeemRemoteStatusForRetry(status));
     }
 
-    function isReusableInactiveUpiRedeemRemoteStatusForRetry(status = '') {
-      return [
-        'failed',
-        'timeout',
-        'rejected',
-        'approve_blocked',
-        'canceled',
-        'not_found',
-        'unused',
-        'available',
-        'new',
-        'ready',
-      ].includes(normalizeUpiRedeemRemoteStatusForRetry(status));
-    }
-
     function getUpiRedeemStateValueForRetry(state = {}, key = '') {
       const normalizedKey = normalizeString(key);
       if (!normalizedKey) return undefined;
@@ -542,11 +527,6 @@
       const remoteStatus = normalizeUpiRedeemRemoteStatusForRetry(entry.remoteStatus);
       const remoteMessageStatus = normalizeUpiRedeemRemoteStatusForRetry(entry.remoteMessage);
       if (entry.subscriptionActive === true) return false;
-      if (
-        entry.subscriptionActive === false
-        && !isReusableInactiveUpiRedeemRemoteStatusForRetry(remoteStatus)
-        && !isReusableInactiveUpiRedeemRemoteStatusForRetry(remoteMessageStatus)
-      ) return false;
       if (remoteStatus === 'success' || remoteMessageStatus === 'success') return false;
       if (remoteStatus === 'invalid' || remoteMessageStatus === 'invalid') return false;
       if (

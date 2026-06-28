@@ -3815,6 +3815,26 @@ header {
   font-weight: 800;
 }
 
+.upi-membership-check-section .upi-membership-check-actions .btn-ghost {
+  background: var(--blue);
+  color: #fff;
+}
+
+.upi-membership-check-section .upi-membership-check-actions .btn-ghost:hover:not(:disabled) {
+  background: var(--blue);
+  color: #fff;
+  opacity: 0.9;
+  box-shadow: 0 2px 8px var(--blue-glow);
+}
+
+.upi-membership-check-section .upi-membership-check-actions .btn:disabled {
+  background: var(--blue);
+  color: #fff;
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .upi-membership-check-groups {
   display: inline-flex;
   align-items: center;

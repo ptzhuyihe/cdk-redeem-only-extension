@@ -483,21 +483,6 @@
       ].includes(normalizeUpiRedeemRemoteStatus(status));
     }
 
-    function isReusableInactiveUpiRedeemRemoteStatus(status = '') {
-      return [
-        'failed',
-        'timeout',
-        'rejected',
-        'approve_blocked',
-        'canceled',
-        'not_found',
-        'unused',
-        'available',
-        'new',
-        'ready',
-      ].includes(normalizeUpiRedeemRemoteStatus(status));
-    }
-
     function isSelectableUpiRedeemCdkeyUsageEntry(entry = {}) {
       if (!entry || entry.enabled === false) {
         return false;
@@ -505,13 +490,6 @@
       const remoteStatus = normalizeUpiRedeemRemoteStatus(entry.remoteStatus);
       const remoteMessageStatus = normalizeUpiRedeemRemoteStatus(entry.remoteMessage);
       if (entry.subscriptionActive === true) {
-        return false;
-      }
-      if (
-        entry.subscriptionActive === false
-        && !isReusableInactiveUpiRedeemRemoteStatus(remoteStatus)
-        && !isReusableInactiveUpiRedeemRemoteStatus(remoteMessageStatus)
-      ) {
         return false;
       }
       if (
