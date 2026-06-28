@@ -33,6 +33,7 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'PREPARE_SIGNUP_VERIFICATION'
       || message.type === 'RECOVER_AUTH_RETRY_PAGE'
       || message.type === 'RECOVER_STEP5_SUBMIT_RETRY_PAGE'
+      || message.type === 'TRIGGER_STEP5_PROFILE_SUBMIT'
       || message.type === 'RESEND_VERIFICATION_CODE'
       || message.type === 'SUBMIT_PHONE_NUMBER'
       || message.type === 'SUBMIT_PHONE_VERIFICATION_CODE'
@@ -49,11 +50,32 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'READ_CHATGPT_SESSION_EXPORT_DATA'
     ) {
       resetStopState();
+      const reportedStep = Number(message.payload?.visibleStep) || message.step;
+      const reportedNodeId = resolveCommandNodeId(message);
+      if (message.type === 'EXECUTE_NODE' && reportedNodeId === 'fill-profile') {
+        Promise.resolve()
+          .then(() => handleCommand(message))
+          .then((result) => {
+            if (result?.skipProfileStep || result?.prefilled) {
+              reportComplete(reportedNodeId || reportedStep, result);
+            }
+          })
+          .catch((err) => {
+            if (isStopError(err)) {
+              if (reportedStep) {
+                log(`步骤 ${reportedStep || 5}：已被用户停止。`, 'warn');
+              }
+              reportError(reportedNodeId || reportedStep, err.message);
+              return;
+            }
+            reportError(reportedNodeId || reportedStep, err.message);
+          });
+        sendResponse({ ok: true, accepted: true, asyncCompletion: true, nodeId: reportedNodeId });
+        return;
+      }
       handleCommand(message).then((result) => {
         sendResponse({ ok: true, ...(result || {}) });
       }).catch(err => {
-        const reportedStep = Number(message.payload?.visibleStep) || message.step;
-        const reportedNodeId = resolveCommandNodeId(message);
         if (isStopError(err)) {
           if (reportedStep) {
             log(`步骤 ${reportedStep || 8}：已被用户停止。`, 'warn');
@@ -142,6 +164,8 @@ async function handleCommand(message) {
       return await recoverCurrentAuthRetryPage(message.payload);
     case 'RECOVER_STEP5_SUBMIT_RETRY_PAGE':
       return await recoverStep5SubmitRetryPage(message.payload);
+    case 'TRIGGER_STEP5_PROFILE_SUBMIT':
+      return await triggerStep5ProfileSubmit(message.payload);
     case 'RESEND_VERIFICATION_CODE':
       return await resendVerificationCode(message.step);
     case 'SUBMIT_PHONE_NUMBER':
@@ -3961,10 +3985,12 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
     logLabel = '',
     maxClickAttempts = 5,
     pathPatterns = null,
+    stepKey = '',
     step = null,
     timeoutMs = 12000,
     waitAfterClickMs = 3000,
   } = payload;
+  const operationStepKey = stepKey || (step === 8 || flow === 'login' ? 'oauth-login' : 'fetch-signup-code');
   const resolvedPathPatterns = Array.isArray(pathPatterns)
     ? pathPatterns
     : getAuthRetryPathPatternsForFlow(flow);
@@ -3974,7 +4000,7 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       maxClickAttempts,
       pathPatterns: resolvedPathPatterns,
       step,
-      stepKey: step === 8 || flow === 'login' ? 'oauth-login' : 'fetch-signup-code',
+      stepKey: operationStepKey,
       timeoutMs,
       waitAfterClickMs,
     });
@@ -4007,7 +4033,7 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       clickCount += 1;
       log(`${logLabel || `步骤 ${step || '?'}：检测到重试页，正在点击“重试”恢复`}（第 ${clickCount} 次）...`, 'warn');
       await humanPause(300, 800);
-      await performOperationWithDelay({ stepKey: step === 8 || flow === 'login' ? 'oauth-login' : 'fetch-signup-code', kind: 'click', label: 'auth-retry-click' }, async () => {
+      await performOperationWithDelay({ stepKey: operationStepKey, kind: 'click', label: 'auth-retry-click' }, async () => {
         simulateClick(retryState.retryButton);
       });
       const settleStart = Date.now();
@@ -5775,6 +5801,32 @@ function isResetPasswordNewPasswordPage() {
   return /\/reset-password\/new-password(?:[/?#]|$)/i.test(location.pathname || '');
 }
 
+function getSetGptPasswordAuthRetryPathPatterns() {
+  return [
+    /\/reset-password\/new-password(?:[/?#]|$)/i,
+    /\/email-verification(?:[/?#]|$)/i,
+  ];
+}
+
+function getSetGptPasswordAuthRetryPageState() {
+  return getAuthTimeoutErrorPageState({
+    pathPatterns: getSetGptPasswordAuthRetryPathPatterns(),
+  });
+}
+
+async function recoverSetGptPasswordAuthRetryPage(visibleStep = 6, contextLabel = '设置 GPT 密码') {
+  return recoverCurrentAuthRetryPage({
+    flow: 'set_gpt_password',
+    logLabel: `步骤 ${visibleStep}：${contextLabel}检测到认证超时页，正在点击“重试”恢复`,
+    maxClickAttempts: 3,
+    pathPatterns: getSetGptPasswordAuthRetryPathPatterns(),
+    step: visibleStep,
+    stepKey: 'set-gpt-password',
+    timeoutMs: 15000,
+    waitAfterClickMs: 3000,
+  });
+}
+
 function getResetPasswordInputCandidates() {
   return Array.from(document.querySelectorAll(
     'input[type="password"], input[name*="password" i], input[autocomplete="new-password"]'
@@ -5860,6 +5912,17 @@ function isResetPasswordReuseErrorText(value = '') {
 }
 
 function getSetGptPasswordPageState() {
+  const retryState = getSetGptPasswordAuthRetryPageState();
+  if (retryState) {
+    return {
+      state: 'auth_retry_page',
+      url: retryState.url || location.href,
+      retryEnabled: Boolean(retryState.retryEnabled),
+      maxCheckAttemptsBlocked: Boolean(retryState.maxCheckAttemptsBlocked),
+      userAlreadyExistsBlocked: Boolean(retryState.userAlreadyExistsBlocked),
+    };
+  }
+
   const resetInputs = getResetPasswordInputs();
   if (isResetPasswordNewPasswordPage()) {
     return {
@@ -5911,6 +5974,10 @@ async function waitForSetGptPasswordInteractiveReady(visibleStep, label, timeout
   while (Date.now() - start < timeout) {
     throwIfStopped();
     snapshot = getSetGptPasswordPageState();
+    if (snapshot.state === 'auth_retry_page') {
+      await recoverSetGptPasswordAuthRetryPage(visibleStep, label);
+      continue;
+    }
     if (accepted.has(snapshot.state)) {
       if (!isDocumentLoadComplete()) {
         log(
@@ -6089,6 +6156,10 @@ async function waitForSetGptPasswordCodeSubmitOutcome(visibleStep, timeout = 300
   while (Date.now() - start < timeout) {
     throwIfStopped();
     lastSnapshot = getSetGptPasswordPageState();
+    if (lastSnapshot.state === 'auth_retry_page') {
+      await recoverSetGptPasswordAuthRetryPage(visibleStep, '设置 GPT 密码验证码提交后');
+      continue;
+    }
     if (lastSnapshot.state === 'new_password_page') {
       return {
         success: true,
@@ -6226,20 +6297,77 @@ async function waitForResetPasswordSubmitButton(timeout = 5000) {
   return null;
 }
 
-async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 30000) {
+function fillResetPasswordInputsWithPassword(password) {
+  const { passwordInput, confirmInput } = getResetPasswordInputs();
+  if (!passwordInput || !confirmInput) {
+    return false;
+  }
+  fillInput(passwordInput, password);
+  fillInput(confirmInput, password);
+  return true;
+}
+
+async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 45000, options = {}) {
+  const password = String(options.password || '').trim();
+  const maxAuthRetryRecoveries = Math.max(1, Math.floor(Number(options.maxAuthRetryRecoveries) || 3));
+  const maxSubmitClicks = Math.max(1, Math.floor(Number(options.maxSubmitClicks) || 3));
+  const retryClickIntervalMs = Math.max(1000, Math.floor(Number(options.retryClickIntervalMs) || 3500));
   const start = Date.now();
   let lastUrl = location.href;
+  let authRetryRecoveryCount = 0;
+  let submitClickCount = 1;
+  let lastSubmitClickAt = Date.now();
+
   while (Date.now() - start < timeout) {
     throwIfStopped();
     lastUrl = location.href;
+    const snapshot = getSetGptPasswordPageState();
+
+    if (snapshot.state === 'auth_retry_page') {
+      if (authRetryRecoveryCount >= maxAuthRetryRecoveries) {
+        throw new Error(`步骤 ${visibleStep}：GPT 密码提交后连续进入认证超时页 ${maxAuthRetryRecoveries} 次，页面仍未恢复。URL: ${snapshot.url || lastUrl}`);
+      }
+      authRetryRecoveryCount += 1;
+      await recoverSetGptPasswordAuthRetryPage(visibleStep, 'GPT 密码提交后');
+      lastSubmitClickAt = Date.now() - retryClickIntervalMs;
+      await sleep(500);
+      continue;
+    }
+
     if (!isResetPasswordNewPasswordPage()) {
       return {
         success: true,
         gptPasswordSet: true,
         url: lastUrl,
+        authRetryRecoveredCount: authRetryRecoveryCount,
+        submitClickCount,
       };
     }
-    const errorText = getResetPasswordFieldErrorText();
+
+    if (
+      snapshot.state === 'new_password_page'
+      && submitClickCount < maxSubmitClicks
+      && Date.now() - lastSubmitClickAt >= retryClickIntervalMs
+    ) {
+      const submitButton = getResetPasswordSubmitButton({ allowDisabled: false });
+      if (submitButton) {
+        submitClickCount += 1;
+        if (password) {
+          fillResetPasswordInputsWithPassword(password);
+        }
+        log(`步骤 ${visibleStep}：GPT 密码提交后仍停留在新密码页，正在重新提交（第 ${submitClickCount}/${maxSubmitClicks} 次）...`, 'warn', {
+          step: visibleStep,
+          stepKey: 'set-gpt-password',
+        });
+        await humanPause(350, 900);
+        simulateClick(submitButton);
+        lastSubmitClickAt = Date.now();
+        await sleep(1000);
+        continue;
+      }
+    }
+
+    const errorText = snapshot.errorText || getResetPasswordFieldErrorText();
     if (errorText) {
       if (isResetPasswordReuseErrorText(errorText)) {
         return {
@@ -6247,13 +6375,15 @@ async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 30000) 
           passwordReused: true,
           errorText,
           url: lastUrl,
+          authRetryRecoveredCount: authRetryRecoveryCount,
+          submitClickCount,
         };
       }
       throw new Error(`步骤 ${visibleStep}：设置 GPT 密码失败：${errorText}`);
     }
     await sleep(250);
   }
-  throw new Error(`步骤 ${visibleStep}：GPT 密码提交后仍停留在设置密码页。URL: ${lastUrl || location.href}`);
+  throw new Error(`步骤 ${visibleStep}：GPT 密码提交后仍停留在设置密码页（已恢复超时页 ${authRetryRecoveryCount}/${maxAuthRetryRecoveries} 次，已提交 ${submitClickCount}/${maxSubmitClicks} 次）。URL: ${lastUrl || location.href}`);
 }
 
 async function setGptPasswordOnResetPage(payload = {}) {
@@ -6301,7 +6431,7 @@ async function setGptPasswordOnResetPage(payload = {}) {
     simulateClick(submitButton);
   });
   log(`步骤 ${visibleStep}：GPT 密码已提交，等待页面跳转确认。`, 'info', { step: visibleStep, stepKey: 'set-gpt-password' });
-  return waitForSetGptPasswordSubmitOutcome(visibleStep);
+  return waitForSetGptPasswordSubmitOutcome(visibleStep, 45000, { password });
 }
 
 async function waitForSplitVerificationInputsFilled(inputs, code, timeout = 2500) {
@@ -8147,6 +8277,7 @@ function getStep5SubmitState() {
   const retryState = getStep5AuthRetryPageState();
   const successState = getStep5PostSubmitSuccessState();
   const passkeyState = getCreateAccountEnrollPasskeyPageState();
+  const submitButton = getStep5SubmitButton();
   const errorText = typeof getStep5ErrorText === 'function' ? getStep5ErrorText() : '';
   let signupAuthHost = false;
   try {
@@ -8167,6 +8298,8 @@ function getStep5SubmitState() {
     passkeyEnrollPage: Boolean(passkeyState),
     passkeySkipEnabled: Boolean(passkeyState?.skipEnabled),
     profileVisible: isStep5ProfileStillVisible(),
+    submitButtonVisible: Boolean(submitButton),
+    submitButtonClickable: isStep5SubmitButtonClickable(submitButton),
     errorText,
     unknownAuthPage: Boolean(
       signupAuthHost
@@ -8175,6 +8308,60 @@ function getStep5SubmitState() {
       && !passkeyState
       && !isStep5ProfileStillVisible()
     ),
+  };
+}
+
+async function triggerStep5ProfileSubmit(payload = {}) {
+  const state = getStep5SubmitState();
+  if (!state.profileVisible) {
+    return {
+      ...state,
+      clicked: false,
+      reason: state.successState ? 'already_left_profile' : 'profile_not_visible',
+    };
+  }
+
+  if (state.errorText) {
+    return {
+      ...state,
+      clicked: false,
+      reason: 'profile_error_visible',
+    };
+  }
+
+  const submitButton = getStep5SubmitButton();
+  if (!submitButton) {
+    return {
+      ...state,
+      clicked: false,
+      reason: 'submit_button_missing',
+    };
+  }
+
+  if (!isStep5SubmitButtonClickable(submitButton)) {
+    return {
+      ...state,
+      clicked: false,
+      reason: 'submit_button_not_clickable',
+      submitButtonVisible: true,
+      submitButtonClickable: false,
+    };
+  }
+
+  const attempt = Math.max(1, Math.floor(Number(payload?.attempt) || 1));
+  log(`步骤 5：检测到资料页仍停留，正在重新点击“完成帐户创建”（恢复 ${attempt}）。`, 'warn', {
+    step: 5,
+    stepKey: 'fill-profile',
+  });
+  await humanPause(250, 700);
+  simulateClick(submitButton);
+  await sleep(500);
+
+  return {
+    ...getStep5SubmitState(),
+    clicked: true,
+    reason: 'submit_clicked',
+    attempt,
   };
 }
 

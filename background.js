@@ -12416,10 +12416,6 @@ async function failNodeFromBackground(nodeId, errorLike = '未知错误') {
   const latestState = await getState();
   try {
     await runBestEffort('set failed status', () => setNodeStatus(normalizedNodeId, 'failed'));
-    await runBestEffort(
-      'schedule LegacyWallet cookie cleanup',
-      () => scheduleLegacyWalletCookieCleanupBeforeCheckoutCreateIfNeeded(normalizedNodeId, latestState, errorLike)
-    );
     await runBestEffort('write failure log', () => addLog(`失败：${message}`, 'error', { nodeId: normalizedNodeId }));
     await runBestEffort(
       'append failure record',
@@ -12455,7 +12451,6 @@ async function finalizeDeferredNodeExecutionError(nodeId, error) {
   }
 
   await setNodeStatus(normalizedNodeId, 'failed');
-  await scheduleLegacyWalletCookieCleanupBeforeCheckoutCreateIfNeeded(normalizedNodeId, latestState, error);
   await addLog(`失败：${getErrorMessage(error)}`, 'error', { nodeId: normalizedNodeId });
   await appendManualAccountRunRecordIfNeeded(`node:${normalizedNodeId}:failed`, latestState, getErrorMessage(error));
 }
@@ -12475,6 +12470,9 @@ async function executeNodeViaCompletionSignal(nodeId, timeoutMs = 0) {
   const resolvedTimeoutMs = Number(timeoutMs) > 0
     ? timeoutMs
     : getNodeCompletionSignalTimeoutMs(normalizedNodeId, executionState);
+  const recoveryWatchdog = startStep5ProfileSubmitRecoveryWatchdog(normalizedNodeId, {
+    timeoutMs: resolvedTimeoutMs,
+  });
   const completionResultPromise = waitForNodeComplete(normalizedNodeId, resolvedTimeoutMs).then(
     payload => ({ ok: true, payload }),
     error => ({ ok: false, error }),
@@ -12490,31 +12488,35 @@ async function executeNodeViaCompletionSignal(nodeId, timeoutMs = 0) {
     }
   }
 
-  const completionResult = await completionResultPromise;
-  if (completionResult.ok) {
-    if (executeError) {
-      console.warn(
-        LOG_PREFIX,
-        `[executeNodeViaCompletionSignal] node ${normalizedNodeId} completed after deferred execute error: ${getErrorMessage(executeError)}`
-      );
+  try {
+    const completionResult = await completionResultPromise;
+    if (completionResult.ok) {
+      if (executeError) {
+        console.warn(
+          LOG_PREFIX,
+          `[executeNodeViaCompletionSignal] node ${normalizedNodeId} completed after deferred execute error: ${getErrorMessage(executeError)}`
+        );
+      }
+      return completionResult.payload;
     }
-    return completionResult.payload;
-  }
 
-  if (executeError && isRetryableContentScriptTransportError(executeError)) {
-    const completionMessage = getErrorMessage(completionResult.error);
-    if (/等待超时/.test(completionMessage)) {
-      await finalizeDeferredNodeExecutionError(normalizedNodeId, executeError);
+    if (executeError && isRetryableContentScriptTransportError(executeError)) {
+      const completionMessage = getErrorMessage(completionResult.error);
+      if (/等待超时/.test(completionMessage)) {
+        await finalizeDeferredNodeExecutionError(normalizedNodeId, executeError);
+        throw executeError;
+      }
+      throw completionResult.error;
+    }
+
+    if (executeError) {
       throw executeError;
     }
+
     throw completionResult.error;
+  } finally {
+    recoveryWatchdog?.cancel?.();
   }
-
-  if (executeError) {
-    throw executeError;
-  }
-
-  throw completionResult.error;
 }
 
 async function executeStepViaCompletionSignal(step, timeoutMs = 0) {
@@ -16257,6 +16259,169 @@ async function getStep5SubmitStateFromContent(options = {}) {
   }
 
   return result || {};
+}
+
+async function triggerStep5ProfileSubmitOnTab(options = {}) {
+  const timeoutMs = options.timeoutMs ?? 8000;
+  const result = await sendToContentScriptResilient(
+    'signup-page',
+    {
+      type: 'TRIGGER_STEP5_PROFILE_SUBMIT',
+      source: 'background',
+      payload: {
+        attempt: options.attempt || 1,
+      },
+    },
+    {
+      timeoutMs,
+      retryDelayMs: options.retryDelayMs ?? 500,
+      responseTimeoutMs: options.responseTimeoutMs ?? timeoutMs,
+      logMessage: options.logMessage || '步骤 5：资料页仍停留，正在等待提交按钮重新就绪...',
+      logStep: 5,
+      logStepKey: options.logStepKey || 'fill-profile',
+    }
+  );
+
+  if (result?.error) {
+    throw new Error(result.error);
+  }
+
+  return result || {};
+}
+
+function isStep5SubmitRecoverySuccessState(pageState = {}) {
+  const successState = String(pageState?.successState || '').trim();
+  return successState === 'logged_in_home'
+    || successState === 'oauth_consent'
+    || successState === 'add_phone';
+}
+
+function buildStep5SubmitRecoveryCompletionPayload(pageState = {}) {
+  const payload = {
+    profileSubmitted: true,
+    postSubmitChecked: true,
+    recoveredByBackground: true,
+  };
+  if (pageState?.successState) {
+    payload.outcome = pageState.successState;
+  }
+  if (pageState?.url) {
+    payload.url = pageState.url;
+  }
+  return payload;
+}
+
+function startStep5ProfileSubmitRecoveryWatchdog(nodeId, options = {}) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (normalizedNodeId !== 'fill-profile') {
+    return null;
+  }
+
+  const timeoutMs = Math.max(0, Math.floor(Number(options.timeoutMs) || 0));
+  const initialDelayMs = Math.max(5000, Math.floor(Number(options.initialDelayMs) || 10000));
+  const intervalMs = Math.max(3000, Math.floor(Number(options.intervalMs) || 9000));
+  const maxAttempts = Math.max(1, Math.floor(Number(options.maxAttempts) || 3));
+  const startedAt = Date.now();
+  let attempts = 0;
+  let cancelled = false;
+  let timer = null;
+  let completing = false;
+
+  const schedule = (delayMs = intervalMs) => {
+    if (cancelled || completing) {
+      return;
+    }
+    if (timeoutMs > 0 && Date.now() - startedAt >= timeoutMs) {
+      return;
+    }
+    timer = setTimeout(() => {
+      timer = null;
+      void check();
+    }, Math.max(250, delayMs));
+  };
+
+  const isStillRunning = async () => {
+    const state = await getState();
+    const status = String(state?.nodeStatuses?.[normalizedNodeId] || '').trim();
+    if (status !== 'running') {
+      return false;
+    }
+    const currentNodeId = String(state?.currentNodeId || '').trim();
+    return !currentNodeId || currentNodeId === normalizedNodeId;
+  };
+
+  const check = async () => {
+    if (cancelled || completing) {
+      return;
+    }
+
+    try {
+      throwIfStopped();
+      if (!await isStillRunning()) {
+        return;
+      }
+
+      const pageState = await getStep5SubmitStateFromContent({
+        timeoutMs: 6000,
+        responseTimeoutMs: 6000,
+        retryDelayMs: 500,
+        logMessage: '步骤 5：正在确认资料页是否需要重新提交...',
+      });
+
+      if (!await isStillRunning()) {
+        return;
+      }
+
+      if (isStep5SubmitRecoverySuccessState(pageState)) {
+        completing = true;
+        await addLog('步骤 5：恢复检测到资料提交已完成，正在继续后续流程。', 'ok', {
+          step: 5,
+          stepKey: 'fill-profile',
+        });
+        await completeNodeFromBackground(normalizedNodeId, buildStep5SubmitRecoveryCompletionPayload(pageState));
+        return;
+      }
+
+      if (pageState?.profileVisible && pageState?.submitButtonClickable && attempts < maxAttempts) {
+        attempts += 1;
+        const submitResult = await triggerStep5ProfileSubmitOnTab({
+          attempt: attempts,
+          timeoutMs: 8000,
+          responseTimeoutMs: 8000,
+          retryDelayMs: 500,
+        });
+
+        if (isStep5SubmitRecoverySuccessState(submitResult) && await isStillRunning()) {
+          completing = true;
+          await addLog('步骤 5：重新提交后已确认资料页完成，正在继续后续流程。', 'ok', {
+            step: 5,
+            stepKey: 'fill-profile',
+          });
+          await completeNodeFromBackground(normalizedNodeId, buildStep5SubmitRecoveryCompletionPayload(submitResult));
+          return;
+        }
+      }
+    } catch (error) {
+      if (isStopError(error)) {
+        return;
+      }
+      console.warn(LOG_PREFIX, `[step5 recovery watchdog] ${getErrorMessage(error)}`);
+    }
+
+    schedule();
+  };
+
+  schedule(initialDelayMs);
+
+  return {
+    cancel() {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
 }
 
 async function recoverStep5SubmitRetryPageOnTab(options = {}) {

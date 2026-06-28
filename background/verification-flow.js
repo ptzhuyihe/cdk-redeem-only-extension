@@ -179,6 +179,63 @@
       };
     }
 
+    function buildLinlinflowMailApiUrl(rawUrl = '') {
+      const value = String(rawUrl || '').trim();
+      if (!/^https?:\/\//i.test(value)) {
+        return '';
+      }
+
+      try {
+        const parsed = new URL(value);
+        const pathname = String(parsed.pathname || '').replace(/\/+$/g, '') || '/';
+        const hostname = String(parsed.hostname || '').toLowerCase();
+        const looksLikeLinlinflow = hostname.includes('linlinflow') || pathname === '/latest';
+        if (!looksLikeLinlinflow || pathname === '/mail-api' || pathname.startsWith('/mail-api/')) {
+          return '';
+        }
+
+        let email = parsed.searchParams.get('email') || parsed.searchParams.get('mail') || '';
+        let authCode = parsed.searchParams.get('auth_code')
+          || parsed.searchParams.get('code')
+          || parsed.searchParams.get('key')
+          || '';
+
+        if ((!email || !authCode) && pathname !== '/') {
+          const parts = pathname.split('/').filter(Boolean);
+          if (parts.length >= 2) {
+            authCode = authCode || parts[0];
+            email = email || parts[1];
+          }
+        }
+
+        email = String(email || '').trim();
+        authCode = String(authCode || '').trim();
+        if (!email || !authCode) {
+          return '';
+        }
+
+        const apiUrl = new URL(
+          `/mail-api/${encodeURIComponent(authCode)}/${encodeURIComponent(email)}`,
+          parsed.origin
+        );
+        apiUrl.searchParams.set('folder', 'inbox');
+        apiUrl.searchParams.set('refresh', '1');
+        return apiUrl.toString();
+      } catch {
+        return '';
+      }
+    }
+
+    function getCustomEmailVerificationRequestUrl(rawUrl = '') {
+      return buildLinlinflowMailApiUrl(rawUrl) || rawUrl;
+    }
+
+    function getCustomEmailVerificationRequestLabel(rawUrl = '') {
+      return buildLinlinflowMailApiUrl(rawUrl)
+        ? 'LinlinFlow 邮箱取码接口'
+        : (isAssurivoOpenVerificationUrl(rawUrl) ? 'Assurivo 网页取件' : '自定义邮箱取码 URL');
+    }
+
     function normalizeCustomEmailPoolEntryForVerification(rawEntry = {}) {
       const asObject = rawEntry && typeof rawEntry === 'object'
         ? rawEntry
@@ -1965,10 +2022,12 @@
           });
         }
       } else {
+        const linlinflowRequestUrl = buildLinlinflowMailApiUrl(verificationUrl);
+        const requestUrl = linlinflowRequestUrl || getCustomEmailVerificationRequestUrl(verificationUrl);
         requests.push({
-          url: verificationUrl,
-          label: isAssurivoOpenVerificationUrl(verificationUrl) ? 'Assurivo 网页取件' : '自定义邮箱取码 URL',
-          preferFirstCode: isAssurivoOpenVerificationUrl(verificationUrl),
+          url: requestUrl,
+          label: getCustomEmailVerificationRequestLabel(verificationUrl),
+          preferFirstCode: Boolean(linlinflowRequestUrl) || isAssurivoOpenVerificationUrl(verificationUrl),
           assurivoOpenPage: isAssurivoOpenVerificationUrl(verificationUrl),
         });
       }

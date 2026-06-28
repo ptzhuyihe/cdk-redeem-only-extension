@@ -4147,8 +4147,42 @@
       };
 
       try {
-        await addLog(`UPI 失败账号自动换卡：找到 ${candidates.length} 个失败账号，上限 ${retryLimit} 次，将随机挑选剩余可用卡密。`, 'info');
-        for (const candidate of candidates) {
+        const firstRuntimeState = await getFreshUpiRedeemRuntimeState(input);
+        if (!getAvailableUpiRedeemCdkeys(firstRuntimeState).length) {
+          const reason = '没有剩余可用 UPI 卡密，失败账号自动换卡已停止。';
+          const resumeReason = `${reason}导入新卡密后可手动一键兑换。`;
+          const stoppedAt = new Date().toISOString();
+          for (const candidate of candidates) {
+            const email = normalizeEmail(candidate.email);
+            const accessToken = normalizeString(candidate.accessToken);
+            const previousFailureCount = normalizeRetryCount(candidate.redeemFailureCount) || 1;
+            items = upsertResultItem(items, {
+              ...candidate,
+              status: 'free',
+              planType: 'free',
+              reason: resumeReason,
+              checkedAt: candidate.checkedAt || stoppedAt,
+              accessToken,
+              accessTokenMasked: maskAccessToken(accessToken),
+              redeemStatus: '',
+              redeemReason: resumeReason,
+              redeemFailureCount: previousFailureCount,
+              redeemFailureLimit: retryLimit,
+              redeemLastFailedAt: candidate.redeemLastFailedAt,
+              lastFailedUpiRedeemCdkey: candidate.lastFailedUpiRedeemCdkey || candidate.upiRedeemCdkey,
+              upiRedeemCdkey: '',
+            });
+            summary.skippedCount += 1;
+            summary.items.push({ email, skipped: true, reason });
+          }
+          await saveRetryProgress({ flowStage: '', email: '' });
+          await addLog(
+            `UPI 失败账号自动换卡：${reason}已暂停 ${candidates.length} 个失败账号；导入新卡密后可手动一键兑换。`,
+            'warn'
+          );
+        } else {
+          await addLog(`UPI 失败账号自动换卡：找到 ${candidates.length} 个失败账号，上限 ${retryLimit} 次，将随机挑选剩余可用卡密。`, 'info');
+          for (const candidate of candidates) {
           throwIfMembershipStopRequested('redeem');
           const email = normalizeEmail(candidate.email);
           const accessToken = normalizeString(candidate.accessToken);
@@ -4172,6 +4206,22 @@
           if (!availableCdkeys.length) {
             const reason = '没有剩余可用 UPI 卡密，失败账号自动换卡已停止。';
             summary.skippedCount += 1;
+            items = upsertResultItem(items, {
+              ...candidate,
+              status: 'free',
+              planType: 'free',
+              reason: `${reason}导入新卡密后可手动一键兑换。`,
+              accessToken,
+              accessTokenMasked: maskAccessToken(accessToken),
+              redeemStatus: '',
+              redeemReason: `${reason}导入新卡密后可手动一键兑换。`,
+              redeemFailureCount: previousFailureCount,
+              redeemFailureLimit: retryLimit,
+              redeemLastFailedAt: candidate.redeemLastFailedAt,
+              lastFailedUpiRedeemCdkey: candidate.lastFailedUpiRedeemCdkey || candidate.upiRedeemCdkey,
+              upiRedeemCdkey: '',
+            });
+            await saveRetryProgress({ flowStage: '', email: '' });
             summary.items.push({ email, skipped: true, reason });
             await addLog(`UPI 失败账号自动换卡：${email} -> 跳过：${reason}`, 'warn');
             break;
@@ -4343,6 +4393,7 @@
             await saveRetryProgress({ flowStage: 'upi-redeem-plus', email });
             summary.items.push({ email, skipped: true, reason });
           }
+        }
         }
       } finally {
         const finishedAt = new Date().toISOString();
