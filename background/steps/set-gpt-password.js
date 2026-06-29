@@ -8,7 +8,11 @@
   const DEFAULT_CODE_SUBMIT_ATTEMPTS = 5;
   const DEFAULT_VERIFICATION_WAIT_SECONDS = 10;
   const MAX_VERIFICATION_WAIT_SECONDS = 300;
-  const PASSWORD_SUBMIT_RESPONSE_TIMEOUT_MS = 12000;
+  const PASSWORD_SUBMIT_RESPONSE_TIMEOUT_MS = 15000;
+  const PASSWORD_SUBMIT_STATE_TIMEOUT_MS = 12000;
+  const PASSWORD_SUBMIT_POLL_TIMEOUT_MS = 10000;
+  const PASSWORD_SUBMIT_POLL_INTERVAL_MS = 500;
+  const PASSWORD_SUBMIT_POLL_STATE_TIMEOUT_MS = 1500;
   const TRANSPORT_LOSS_CONFIRM_TIMEOUT_MS = 5000;
   const TRANSPORT_LOSS_STABLE_MS = 500;
 
@@ -23,6 +27,16 @@
   function isRetryableContentScriptTransportError(error) {
     const message = normalizeString(typeof error === 'string' ? error : error?.message || '');
     return /back\/forward cache|message channel is closed|Receiving end does not exist|port closed before a response was received|A listener indicated an asynchronous response|内容脚本\s+\d+(?:\.\d+)?\s*秒内未响应|did not respond in \d+s/i.test(message);
+  }
+
+  function isPasswordSubmitStateProbeError(error) {
+    const message = normalizeString(typeof error === 'string' ? error : error?.message || '');
+    return isRetryableContentScriptTransportError(error)
+      || /GPT\s*密码提交后仍停留在(?:设置密码页|新密码页)|仍停留在(?:设置密码页|新密码页)/i.test(message);
+  }
+
+  function isSetGptPasswordReuseErrorText(value = '') {
+    return /password.*(?:must\s+not\s+be\s+)?re(?:use|used)|re(?:use|used).*password|密码.*(?:重复|用过|不能.*相同)|(?:重复|用过|不能.*相同).*密码|パスワード.*(?:再利用|使用済み|同じパスワード)|(?:再利用|使用済み|同じパスワード).*パスワード/i.test(String(value || ''));
   }
 
   function isRetryablePasswordSetupCodeFetchError(error) {
@@ -431,6 +445,80 @@
       return getCurrentAuthTabUrl(tabId);
     }
 
+    function normalizeSetPasswordPageStateSnapshot(snapshot = {}) {
+      const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+      const state = normalizeString(source.state || 'unknown') || 'unknown';
+      return {
+        ...source,
+        state,
+        url: normalizeString(source.url),
+        errorText: normalizeString(source.errorText || source.verificationErrorText),
+      };
+    }
+
+    async function readSetPasswordPageState(tabId, visibleStep, options = {}) {
+      if (!tabId) {
+        return { state: 'unknown', url: '' };
+      }
+      const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || PASSWORD_SUBMIT_STATE_TIMEOUT_MS));
+      try {
+        if (options.ensureReady !== false) {
+          await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+        }
+        const snapshot = await sendSetPasswordPageMessage(
+          'GET_SET_GPT_PASSWORD_STATE',
+          {},
+          visibleStep,
+          timeoutMs
+        );
+        return normalizeSetPasswordPageStateSnapshot(snapshot);
+      } catch (error) {
+        const url = options.waitForUrlAfterError === false
+          ? await getCurrentAuthTabUrl(tabId).catch(() => '')
+          : await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId).catch(() => '');
+        return {
+          state: url && !isSetGptPasswordNewPasswordUrl(url)
+            ? 'left_new_password_page'
+            : 'new_password_unreachable',
+          url,
+          errorText: normalizeString(error?.message || error),
+        };
+      }
+    }
+
+    async function recoverSetPasswordAuthRetryPageFromBackground(tabId, visibleStep, snapshot = {}) {
+      await addStepLog(
+        visibleStep,
+        '设置 GPT 密码：检测到 OpenAI 认证超时页，正在点击 Try again 恢复后继续提交密码。',
+        'warn'
+      );
+      const recoverResult = await sendSetPasswordPageMessage(
+        'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE',
+        {},
+        visibleStep,
+        20000
+      );
+      const currentUrl = normalizeString(recoverResult?.url) || await getCurrentAuthTabUrl(tabId);
+      if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
+        await addStepLog(visibleStep, '设置 GPT 密码：Try again 后已离开新密码页，按密码设置成功继续。', 'success');
+        return {
+          success: true,
+          gptPasswordSet: true,
+          recoveredAuthRetryPage: true,
+          pageState: 'auth_retry_page',
+          url: currentUrl,
+        };
+      }
+      await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+      return {
+        success: false,
+        retryPasswordSubmit: true,
+        recoveredAuthRetryPage: true,
+        pageState: 'auth_retry_page',
+        url: normalizeString(recoverResult?.url || snapshot?.url),
+      };
+    }
+
     async function recoverCodeSubmitAfterTransportLoss(tabId, visibleStep, error) {
       await addStepLog(
         visibleStep,
@@ -489,10 +577,106 @@
           url: currentUrl,
         };
       }
-      if (tabId) {
-        await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+
+      const pageState = await readSetPasswordPageState(tabId, visibleStep);
+      if (pageState.url && !isSetGptPasswordNewPasswordUrl(pageState.url)) {
+        await addStepLog(visibleStep, '设置 GPT 密码：页面状态探测确认已离开新密码页，按密码设置成功继续。', 'success');
+        return {
+          success: true,
+          gptPasswordSet: true,
+          recoveredAfterTransportLoss: true,
+          pageState: pageState.state,
+          url: pageState.url,
+        };
+      }
+      if (pageState.state === 'left_new_password_page') {
+        await addStepLog(visibleStep, '设置 GPT 密码：页面状态探测确认已离开新密码页，按密码设置成功继续。', 'success');
+        return {
+          success: true,
+          gptPasswordSet: true,
+          recoveredAfterTransportLoss: true,
+          pageState: pageState.state,
+          url: pageState.url,
+        };
+      }
+      if (pageState.state === 'auth_retry_page') {
+        return recoverSetPasswordAuthRetryPageFromBackground(tabId, visibleStep, pageState);
+      }
+      if (['new_password_page', 'new_password_loading', 'new_password_unreachable'].includes(pageState.state)) {
+        if (tabId && pageState.state !== 'new_password_unreachable') {
+          await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+        }
+        return {
+          success: false,
+          retryPasswordSubmit: true,
+          recoveredAfterTransportLoss: true,
+          pageState: pageState.state,
+          url: pageState.url || currentUrl,
+          errorText: pageState.errorText,
+        };
       }
       return null;
+    }
+
+    function createPasswordSubmitSuccess(snapshot = {}, extra = {}) {
+      return {
+        success: true,
+        gptPasswordSet: true,
+        pageState: snapshot.state || snapshot.pageState || '',
+        url: normalizeString(snapshot.url),
+        ...extra,
+      };
+    }
+
+    async function waitForPasswordSubmitOutcomeFromBackground(tabId, visibleStep) {
+      const startedAt = Date.now();
+      let lastState = { state: 'unknown', url: '' };
+
+      while (Date.now() - startedAt < PASSWORD_SUBMIT_POLL_TIMEOUT_MS) {
+        throwIfStopped();
+        const pageState = await readSetPasswordPageState(tabId, visibleStep, {
+          ensureReady: false,
+          timeoutMs: PASSWORD_SUBMIT_POLL_STATE_TIMEOUT_MS,
+          waitForUrlAfterError: false,
+        });
+        lastState = pageState;
+
+        if (pageState.state === 'auth_retry_page') {
+          return recoverSetPasswordAuthRetryPageFromBackground(tabId, visibleStep, pageState);
+        }
+        if (pageState.state === 'left_new_password_page' || (pageState.url && !isSetGptPasswordNewPasswordUrl(pageState.url))) {
+          await addStepLog(visibleStep, '设置 GPT 密码：后台轮询确认已离开新密码页，按密码设置成功继续。', 'success');
+          return createPasswordSubmitSuccess(pageState, {
+            confirmedByBackgroundPoll: true,
+          });
+        }
+
+        const errorText = normalizeString(pageState.errorText);
+        if (errorText && pageState.state !== 'new_password_unreachable') {
+          if (isSetGptPasswordReuseErrorText(errorText)) {
+            return {
+              success: false,
+              passwordReused: true,
+              pageState: pageState.state,
+              url: pageState.url,
+              errorText,
+              confirmedByBackgroundPoll: true,
+            };
+          }
+          throw new Error(`步骤 ${visibleStep}：设置 GPT 密码失败：${errorText}`);
+        }
+
+        await sleepWithStop(PASSWORD_SUBMIT_POLL_INTERVAL_MS);
+      }
+
+      return {
+        success: false,
+        retryPasswordSubmit: true,
+        pollTimedOut: true,
+        pageState: lastState.state || 'unknown',
+        url: lastState.url || '',
+        errorText: lastState.errorText || '',
+      };
     }
 
     async function sendSetPasswordPageMessage(type, payload = {}, visibleStep = 6, timeoutMs = 30000) {
@@ -725,18 +909,38 @@
       await ensureSetPasswordContentScriptReady(authTabId, visibleStep, 'OpenAI 新密码页');
 
       let passwordResult = null;
+      let lastPasswordSubmitState = null;
       const submittedPasswords = new Set();
       for (let submitAttempt = 1; submitAttempt <= 3; submitAttempt += 1) {
         submittedPasswords.add(password);
         try {
-          passwordResult = await sendSetPasswordPageMessage('SET_GPT_PASSWORD', {
+          const submitAck = await sendSetPasswordPageMessage('SET_GPT_PASSWORD', {
             password,
+            waitForOutcome: false,
           }, visibleStep, PASSWORD_SUBMIT_RESPONSE_TIMEOUT_MS);
+          if (submitAck?.success || submitAck?.gptPasswordSet) {
+            passwordResult = submitAck;
+          } else {
+            passwordResult = await waitForPasswordSubmitOutcomeFromBackground(authTabId, visibleStep);
+          }
         } catch (error) {
-          if (!isRetryableContentScriptTransportError(error)) {
+          if (!isPasswordSubmitStateProbeError(error)) {
             throw error;
           }
           passwordResult = await recoverPasswordSubmitAfterTransportLoss(authTabId, visibleStep, error);
+          if (passwordResult?.retryPasswordSubmit) {
+            lastPasswordSubmitState = passwordResult;
+            if (submitAttempt >= 3) {
+              break;
+            }
+            await addStepLog(
+              visibleStep,
+              `设置 GPT 密码：页面状态 ${passwordResult.pageState || 'unknown'}，重新提交当前 GPT 密码（${submitAttempt + 1}/3）。`,
+              'warn'
+            );
+            passwordResult = null;
+            continue;
+          }
           if (!passwordResult) {
             if (submitAttempt >= 3) {
               throw error;
@@ -748,6 +952,19 @@
             );
             continue;
           }
+        }
+        if (passwordResult?.retryPasswordSubmit) {
+          lastPasswordSubmitState = passwordResult;
+          if (submitAttempt >= 3) {
+            break;
+          }
+          await addStepLog(
+            visibleStep,
+            `设置 GPT 密码：页面状态 ${passwordResult.pageState || 'unknown'}，重新提交当前 GPT 密码（${submitAttempt + 1}/3）。`,
+            'warn'
+          );
+          passwordResult = null;
+          continue;
         }
         if (passwordResult?.passwordReused) {
           await addStepLog(
@@ -765,8 +982,10 @@
         break;
       }
       if (!passwordResult?.success && !passwordResult?.gptPasswordSet) {
-        const detail = passwordResult?.errorText ? ` 原因：${passwordResult.errorText}` : '';
-        throw new Error(`步骤 ${visibleStep}：GPT 密码提交后未确认成功。URL: ${passwordResult?.url || ''}${detail}`);
+        const finalState = passwordResult || lastPasswordSubmitState || {};
+        const stateDetail = finalState.pageState ? ` 页面状态：${finalState.pageState}。` : '';
+        const detail = finalState.errorText ? ` 原因：${finalState.errorText}` : '';
+        throw new Error(`步骤 ${visibleStep}：GPT 密码提交后未确认成功。${stateDetail}URL: ${finalState.url || ''}${detail}`);
       }
 
       const gptPasswordSetAt = new Date().toISOString();

@@ -17793,8 +17793,20 @@ function updateProgressCounter() {
   stepsProgress.textContent = `${completed} / ${STEP_IDS.length}`;
 }
 
-function canExecuteNodeWithoutPreviousNode(nodeId = '') {
-  return INDEPENDENT_EXECUTE_NODES.has(String(nodeId || '').trim());
+function arePreviousNodesReadyForManualExecute(nodeId = '', statuses = getNodeStatuses()) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  const currentIndex = NODE_IDS.indexOf(normalizedNodeId);
+  if (currentIndex <= 0) {
+    return true;
+  }
+  return NODE_IDS.slice(0, currentIndex)
+    .every((prevNodeId) => isDoneStatus(statuses[prevNodeId]));
+}
+
+function canExecuteNodeWithoutPreviousNode(nodeId = '', statuses = getNodeStatuses()) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  return INDEPENDENT_EXECUTE_NODES.has(normalizedNodeId)
+    && arePreviousNodesReadyForManualExecute(normalizedNodeId, statuses);
 }
 
 function updateButtonStates() {
@@ -17820,12 +17832,16 @@ function updateButtonStates() {
       const prevNodeId = currentIndex > 0 ? NODE_IDS[currentIndex - 1] : null;
       const prevStatus = prevNodeId === null ? 'completed' : statuses[prevNodeId];
       const currentStatus = statuses[nodeId];
-      btn.disabled = !(
-        canExecuteNodeWithoutPreviousNode(nodeId)
-        || isDoneStatus(prevStatus)
-        || currentStatus === 'failed'
+      const previousNodesReady = arePreviousNodesReadyForManualExecute(nodeId, statuses);
+      const canRerunCurrentNode = previousNodesReady && (
+        currentStatus === 'failed'
         || isDoneStatus(currentStatus)
         || currentStatus === 'stopped'
+      );
+      btn.disabled = !(
+        canExecuteNodeWithoutPreviousNode(nodeId, statuses)
+        || (previousNodesReady && isDoneStatus(prevStatus))
+        || canRerunCurrentNode
       );
     }
   }

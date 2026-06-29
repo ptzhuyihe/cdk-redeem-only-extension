@@ -286,7 +286,48 @@
       return appendAccountRunRecord(status, state, reason);
     }
 
-    async function ensureManualStepPrerequisites(step) {
+    function isManualPrerequisiteDoneStatus(status = '') {
+      return status === 'completed'
+        || status === 'manual_completed'
+        || status === 'skipped';
+    }
+
+    function getManualNodeSequenceForState(state = {}) {
+      if (typeof getNodeIdsForState === 'function') {
+        const nodeIds = getNodeIdsForState(state);
+        if (Array.isArray(nodeIds) && nodeIds.length) {
+          return nodeIds.map((nodeId) => String(nodeId || '').trim()).filter(Boolean);
+        }
+      }
+      return [];
+    }
+
+    function ensurePreviousNodesReadyForManualExecute(nodeId = '', state = {}) {
+      const normalizedNodeId = String(nodeId || '').trim();
+      const nodeIds = getManualNodeSequenceForState(state);
+      const currentIndex = nodeIds.indexOf(normalizedNodeId);
+      if (currentIndex <= 0) {
+        return;
+      }
+      const nodeStatuses = state?.nodeStatuses && typeof state.nodeStatuses === 'object'
+        ? state.nodeStatuses
+        : {};
+      const blockedPreviousNodes = nodeIds.slice(0, currentIndex)
+        .filter((prevNodeId) => !isManualPrerequisiteDoneStatus(String(nodeStatuses[prevNodeId] || 'pending').trim()));
+      if (!blockedPreviousNodes.length) {
+        return;
+      }
+      const blockedSteps = blockedPreviousNodes
+        .map((prevNodeId) => findStepByNodeId(prevNodeId, state))
+        .filter((stepId) => Number.isInteger(stepId) && stepId > 0);
+      const currentStep = findStepByNodeId(normalizedNodeId, state);
+      throw new Error(
+        `手动执行${currentStep ? `步骤 ${currentStep}` : `节点 ${normalizedNodeId}`}前，请先完成或跳过前置步骤${blockedSteps.length ? `：${blockedSteps.join('、')}` : ''}。`
+      );
+    }
+
+    async function ensureManualStepPrerequisites(step, nodeId = '', state = {}) {
+      ensurePreviousNodesReadyForManualExecute(nodeId, state);
       if (step !== 4) {
         return;
       }
@@ -2917,7 +2958,7 @@
             await ensureManualInteractionAllowed('手动执行节点');
           }
           if (message.source === 'sidepanel') {
-            await ensureManualStepPrerequisites(resolvedStep);
+            await ensureManualStepPrerequisites(resolvedStep, nodeId, requestState);
           }
           if (message.source === 'sidepanel') {
             await invalidateDownstreamAfterStepRestart(resolvedStep, { logLabel: `节点 ${nodeId} 重新执行` });
@@ -3359,10 +3400,6 @@
 
         case 'REDEEM_UPI_CREDENTIAL_MEMBERSHIP_FREE': {
           clearStopRequest();
-          const state = await getState();
-          if (isAutoRunLockedState(state)) {
-            throw new Error('自动流程运行中，当前不能兑换 UPI 无会员备份账号。');
-          }
           if (typeof redeemUpiCredentialMembershipFree !== 'function') {
             throw new Error('UPI Free 账号兑换能力尚未接入。');
           }
@@ -3454,15 +3491,17 @@
 
         case 'IMPORT_UPI_CREDENTIAL_MEMBERSHIP_FREE_RESULTS': {
           clearStopRequest();
-          const state = await getState();
-          if (isAutoRunLockedState(state)) {
-            throw new Error('自动流程运行中，当前不能导入 UPI 无会员备份账号。');
-          }
           if (typeof importUpiCredentialMembershipFreeResults !== 'function') {
             throw new Error('UPI 无会员备份账号导入能力尚未接入。');
           }
           const result = await importUpiCredentialMembershipFreeResults(message.payload || {});
-          return { ok: true, results: result };
+          return {
+            ok: true,
+            results: result,
+            importedCount: Math.max(0, Math.floor(Number(result?.importedCount) || 0)),
+            skippedCount: Math.max(0, Math.floor(Number(result?.skippedCount) || 0)),
+            skippedEmails: Array.isArray(result?.skippedEmails) ? result.skippedEmails : [],
+          };
         }
 
         case 'GET_UPI_CREDENTIAL_MEMBERSHIP_CREDENTIAL_POOL': {
@@ -3480,10 +3519,6 @@
         }
 
         case 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CREDENTIALS': {
-          const state = await getState();
-          if (isAutoRunLockedState(state)) {
-            throw new Error('自动流程运行中，当前不能删除 UPI 备份账号核验池。');
-          }
           if (typeof deleteUpiCredentialMembershipCredentials !== 'function') {
             throw new Error('UPI 备份账号核验池删除能力尚未接入。');
           }
@@ -3491,10 +3526,6 @@
         }
 
         case 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS': {
-          const state = await getState();
-          if (isAutoRunLockedState(state)) {
-            throw new Error('自动流程运行中，当前不能删除 UPI 备份账号核验结果。');
-          }
           if (typeof deleteUpiCredentialMembershipCheckResults !== 'function') {
             throw new Error('UPI 备份账号核验结果删除能力尚未接入。');
           }

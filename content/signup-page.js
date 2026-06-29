@@ -47,6 +47,8 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'PREPARE_SET_GPT_PASSWORD'
       || message.type === 'SUBMIT_SET_GPT_PASSWORD_CODE'
       || message.type === 'SET_GPT_PASSWORD'
+      || message.type === 'GET_SET_GPT_PASSWORD_STATE'
+      || message.type === 'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE'
       || message.type === 'READ_CHATGPT_SESSION_EXPORT_DATA'
     ) {
       resetStopState();
@@ -124,6 +126,8 @@ function resolveCommandNodeId(message = {}) {
     || message.type === 'PREPARE_SET_GPT_PASSWORD'
     || message.type === 'SUBMIT_SET_GPT_PASSWORD_CODE'
     || message.type === 'SET_GPT_PASSWORD'
+    || message.type === 'GET_SET_GPT_PASSWORD_STATE'
+    || message.type === 'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE'
   ) {
     return 'set-gpt-password';
   }
@@ -202,6 +206,10 @@ async function handleCommand(message) {
       return await submitSetGptPasswordVerificationCode(message.payload);
     case 'SET_GPT_PASSWORD':
       return await setGptPasswordOnResetPage(message.payload);
+    case 'GET_SET_GPT_PASSWORD_STATE':
+      return getSetGptPasswordPageState();
+    case 'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE':
+      return await recoverSetGptPasswordAuthRetryPage(resolveVisibleStep(message.payload, 6), 'GPT 密码提交后');
     case 'READ_CHATGPT_SESSION_EXPORT_DATA':
       return await readChatGptSessionExportData();
     case 'STEP8_FIND_AND_CLICK':
@@ -6378,7 +6386,7 @@ function fillResetPasswordInputsWithPassword(password) {
   return true;
 }
 
-async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 12000, options = {}) {
+async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 30000, options = {}) {
   const password = String(options.password || '').trim();
   const maxAuthRetryRecoveries = Math.max(1, Math.floor(Number(options.maxAuthRetryRecoveries) || 3));
   const maxSubmitClicks = Math.max(1, Math.floor(Number(options.maxSubmitClicks) || 3));
@@ -6454,7 +6462,8 @@ async function waitForSetGptPasswordSubmitOutcome(visibleStep, timeout = 12000, 
     }
     await sleep(250);
   }
-  throw new Error(`步骤 ${visibleStep}：GPT 密码提交后仍停留在设置密码页（已恢复超时页 ${authRetryRecoveryCount}/${maxAuthRetryRecoveries} 次，已提交 ${submitClickCount}/${maxSubmitClicks} 次）。URL: ${lastUrl || location.href}`);
+  const finalSnapshot = getSetGptPasswordPageState();
+  throw new Error(`步骤 ${visibleStep}：GPT 密码提交后仍停留在设置密码页（状态 ${finalSnapshot.state}，已恢复超时页 ${authRetryRecoveryCount}/${maxAuthRetryRecoveries} 次，已提交 ${submitClickCount}/${maxSubmitClicks} 次）。URL: ${finalSnapshot.url || lastUrl || location.href}`);
 }
 
 async function setGptPasswordOnResetPage(payload = {}) {
@@ -6501,8 +6510,24 @@ async function setGptPasswordOnResetPage(payload = {}) {
   await performOperationWithDelay({ stepKey: 'set-gpt-password', kind: 'submit', label: 'submit-set-gpt-password' }, async () => {
     simulateClick(submitButton);
   });
-  log(`步骤 ${visibleStep}：GPT 密码已提交，等待页面跳转确认。`, 'info', { step: visibleStep, stepKey: 'set-gpt-password' });
-  return waitForSetGptPasswordSubmitOutcome(visibleStep, 12000, { password });
+  const waitForOutcome = payload.waitForOutcome !== false;
+  log(
+    waitForOutcome
+      ? `步骤 ${visibleStep}：GPT 密码已提交，等待页面跳转确认。`
+      : `步骤 ${visibleStep}：GPT 密码已提交，后台将轮询页面状态。`,
+    'info',
+    { step: visibleStep, stepKey: 'set-gpt-password' }
+  );
+  if (!waitForOutcome) {
+    const submittedSnapshot = getSetGptPasswordPageState();
+    return {
+      submitted: true,
+      pageState: submittedSnapshot.state || 'unknown',
+      url: submittedSnapshot.url || location.href,
+      errorText: submittedSnapshot.errorText || submittedSnapshot.verificationErrorText || '',
+    };
+  }
+  return waitForSetGptPasswordSubmitOutcome(visibleStep, 30000, { password });
 }
 
 async function waitForSplitVerificationInputsFilled(inputs, code, timeout = 2500) {

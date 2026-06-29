@@ -523,6 +523,22 @@
       ].includes(normalizeUpiRedeemRemoteStatus(status));
     }
 
+    function isActiveUpiCredentialMembershipRedeemRow(row = {}, results = getUpiCredentialMembershipCheckResults()) {
+      const source = row && typeof row === 'object' && !Array.isArray(row) ? row : {};
+      const email = normalizeUpiCredentialMembershipEmail(source.email);
+      const currentEmail = normalizeUpiCredentialMembershipEmail(results?.flowStageEmail);
+      if (results?.redeeming === true && email && currentEmail && email === currentEmail) {
+        return true;
+      }
+      return [
+        source.redeemStatus,
+        source.remoteStatus,
+        source.remote_status,
+        source.remoteMessage,
+        source.remote_message,
+      ].some((status) => isActiveUpiRedeemRemoteStatus(status));
+    }
+
     function isSelectableUpiRedeemCdkeyUsageEntry(entry = {}) {
       if (!entry || entry.enabled === false) {
         return false;
@@ -1692,11 +1708,18 @@
       const membershipBusy = results.running || results.redeeming || upiCredentialMembershipCheckBusy || upiCredentialMembershipRedeemBusy;
       const autoRunBusy = isAutoRunRecordDisplayRunning(state.getLatestState());
       const mutatingBusy = membershipBusy || autoRunBusy;
+      const redeemActionBusy = membershipBusy;
+      const importActionBusy = membershipBusy;
+      const deleteActionBusy = membershipBusy;
       const freeSectionRows = rows.filter((row) => {
         const status = String(row.status || '').trim().toLowerCase();
         return status === 'free' || status === 'failed';
       });
       const paidRows = rows.filter((row) => String(row.status || '').trim().toLowerCase() === 'paid');
+      const deletableFreeRows = freeSectionRows.filter((row) => !isActiveUpiCredentialMembershipRedeemRow(row, results));
+      const deletablePaidRows = paidRows.filter((row) => !isActiveUpiCredentialMembershipRedeemRow(row, results));
+      const blockedFreeDeleteCount = Math.max(0, freeSectionRows.length - deletableFreeRows.length);
+      const blockedPaidDeleteCount = Math.max(0, paidRows.length - deletablePaidRows.length);
       const allFreeRows = freeSectionRows.filter((row) => String(row.status || '').trim().toLowerCase() === 'free');
       const failedRows = freeSectionRows.filter((row) => {
         const status = String(row.status || '').trim().toLowerCase();
@@ -1736,6 +1759,11 @@
             const isFreeGroup = group === 'free';
             const targetMoveStatus = isFreeGroup ? 'paid' : 'free';
             const moveLabel = isFreeGroup ? '移到 Plus' : '移到 Free';
+            const deleteLockedByRedeem = isActiveUpiCredentialMembershipRedeemRow(row, results);
+            const disableDelete = deleteActionBusy || deleteLockedByRedeem;
+            const deleteTitle = deleteLockedByRedeem
+              ? '正在兑换或等待远端结果，不能删除；请先取消对应 CDK 任务。'
+              : '删除';
             const singleActionTitle = isFreeGroup
               ? '点击重新核验该账号资格'
               : '点击检测该账号是否已开通 Plus/Pro/Team';
@@ -1758,7 +1786,7 @@
                 <button class="icloud-tag upi-membership-check-status-action ${escapeHtml(meta.className)}" type="button" data-upi-membership-check-one="${escapeHtml(email)}" ${disableSingleCheck ? 'disabled' : ''} aria-label="${escapeHtml(singleActionAria)}" title="${escapeHtml(singleActionTitle)}">${escapeHtml(meta.label)}</button>
                 <button class="icloud-tag upi-membership-check-login-action" type="button" data-upi-membership-login="${escapeHtml(email)}" ${disableLogin ? 'disabled' : ''} title="登录">登录</button>
                 <button class="icloud-tag upi-membership-check-move-action" type="button" data-upi-membership-move-group="${escapeHtml(email)}" data-upi-membership-move-target="${escapeHtml(targetMoveStatus)}" ${mutatingBusy ? 'disabled' : ''}>${escapeHtml(moveLabel)}</button>
-                <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" ${mutatingBusy ? 'disabled' : ''}>删除</button>
+                <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" ${disableDelete ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">删除</button>
               </div>
               ${meta.detail ? `<div class="upi-membership-check-detail">${escapeHtml(meta.detail)}</div>` : ''}
             `;
@@ -1777,14 +1805,14 @@
             <span class="upi-membership-section-title">Free 组</span>
             <span class="upi-membership-section-meta">${escapeHtml(String(freeSectionCount))} 个账号 · 待兑换 ${escapeHtml(String(freeCount))} · 失败 ${escapeHtml(String(failedCount))} · 缺 AT ${escapeHtml(String(missingAtCount))}</span>
           </div>
-          ${autoRunBusy ? '<div class="upi-membership-check-detail">自动注册中，仅允许查看和导出，修改类操作已锁定。</div>' : ''}
+          ${autoRunBusy ? '<div class="upi-membership-check-detail">自动注册中，允许导入 Free、删除安全行和一键兑换 CDK；补 AT、识别、登录、移动仍锁定。</div>' : ''}
           <div class="upi-membership-check-actions">
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-import-free ${mutatingBusy ? 'disabled' : ''}>导入 Free</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-import-free ${importActionBusy ? 'disabled' : ''}>导入 Free</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-export="free"${freeSectionRows.length || autoRunBusy ? '' : ' disabled'}>导出 Free(${escapeHtml(String(freeSectionRows.length))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="free" ${freeSectionCount && !mutatingBusy ? '' : 'disabled'}>删除 Free(${escapeHtml(String(freeSectionCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="free" ${deletableFreeRows.length && !deleteActionBusy ? '' : 'disabled'} title="${blockedFreeDeleteCount ? escapeHtml(`将跳过 ${blockedFreeDeleteCount} 条正在兑换或等待远端结果的账号`) : '删除 Free'}">删除 Free(${escapeHtml(String(deletableFreeRows.length))})</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-fill-free-at ${missingAtCount && !mutatingBusy ? '' : 'disabled'}>一键补充 AT(${escapeHtml(String(missingAtCount))})</button>
             <button class="btn btn-primary btn-xs" type="button" data-upi-membership-identify-free-plus ${identifyPlusCount && !mutatingBusy ? '' : 'disabled'}>一键识别 Plus(${escapeHtml(String(identifyPlusCount))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free ${redeemNowCount && !mutatingBusy ? '' : 'disabled'}>一键兑换 CDK(${escapeHtml(String(redeemNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free ${redeemNowCount && !redeemActionBusy ? '' : 'disabled'}>一键兑换 CDK(${escapeHtml(String(redeemNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
             ${results.running ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check>停止补 AT/核验</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check hidden>停止补 AT/核验</button>'}
             ${results.redeeming ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem>停止兑换</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem hidden>停止兑换</button>'}
           </div>
@@ -1798,7 +1826,7 @@
           <div class="upi-membership-check-actions">
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-export="paid"${paidRows.length || autoRunBusy ? '' : ' disabled'}>导出 Plus(${escapeHtml(String(paidRows.length))})</button>
             <button class="btn btn-primary btn-xs" type="button" data-upi-membership-verify-plus ${verifyPlusCount && !mutatingBusy ? '' : 'disabled'}>一键验证 Plus(${escapeHtml(String(verifyPlusCount))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="paid" ${paidCount && !mutatingBusy ? '' : 'disabled'}>删除 Plus(${escapeHtml(String(paidCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="paid" ${deletablePaidRows.length && !deleteActionBusy ? '' : 'disabled'} title="${blockedPaidDeleteCount ? escapeHtml(`将跳过 ${blockedPaidDeleteCount} 条正在兑换或等待远端结果的账号`) : '删除 Plus'}">删除 Plus(${escapeHtml(String(deletablePaidRows.length))})</button>
           </div>
           ${renderRows(paidRows, 'paid')}
         </div>
@@ -2857,9 +2885,42 @@
       });
     }
 
+    function mergeUpiCredentialMembershipFreeImportPoolRows(credentials = []) {
+      const currentResults = getUpiCredentialMembershipCheckResults();
+      const protectedEmails = new Set(
+        buildUpiCredentialMembershipDisplayRows(currentResults)
+          .filter((row) => {
+            const status = String(row.status || '').trim().toLowerCase();
+            return status === 'paid' || isActiveUpiCredentialMembershipRedeemRow(row, currentResults);
+          })
+          .map((row) => normalizeUpiCredentialMembershipEmail(row.email))
+          .filter(Boolean)
+      );
+      const byEmail = {};
+      upiCredentialMembershipPoolRows.forEach((row) => {
+        const email = normalizeUpiCredentialMembershipEmail(row?.email);
+        if (email) {
+          byEmail[email] = row;
+        }
+      });
+      (Array.isArray(credentials) ? credentials : []).forEach((credential) => {
+        const email = normalizeUpiCredentialMembershipEmail(credential?.email);
+        if (!email || protectedEmails.has(email)) {
+          return;
+        }
+        byEmail[email] = {
+          ...(byEmail[email] || {}),
+          ...credential,
+          email,
+          source: 'txt-free',
+        };
+      });
+      return Object.values(byEmail);
+    }
+
     async function importUpiCredentialMembershipFreeText(text = '') {
       const credentials = parseUpiCredentialMembershipText(text);
-      setUpiCredentialMembershipPoolRows(credentials, 'txt-free');
+      setUpiCredentialMembershipPoolRows(mergeUpiCredentialMembershipFreeImportPoolRows(credentials), 'txt-free');
       upiCredentialMembershipPoolLoaded = true;
       const response = await runtime.sendMessage({
         type: 'IMPORT_UPI_CREDENTIAL_MEMBERSHIP_FREE_RESULTS',
@@ -2881,12 +2942,15 @@
         })),
         source: 'txt-free',
       };
-      state.syncLatestState({ upiCredentialMembershipCheckResults: results });
-      disabledUpiCredentialMembershipEmails.clear();
+      state.syncLatestState({ upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(results) });
       renderUpiCredentialMembershipCheckResults();
+      const importedCountValue = response?.importedCount ?? response?.results?.importedCount;
       return {
         results,
-        importedCount: credentials.length,
+        importedCount: importedCountValue === undefined
+          ? credentials.length
+          : Math.max(0, Math.floor(Number(importedCountValue) || 0)),
+        skippedCount: Math.floor(Number(response?.skippedCount ?? response?.results?.skippedCount) || 0),
       };
     }
 
@@ -2911,15 +2975,19 @@
           helpers.showToast?.('导入的 TXT 为空。', 'warn', 1800);
           return;
         }
+        if (importMode === 'free') {
+          const importResult = await importUpiCredentialMembershipFreeText(text);
+          helpers.showToast?.(
+            `已导入 Free ${importResult.importedCount || 0} 条账号${importResult.skippedCount ? `，跳过 ${importResult.skippedCount} 条 Plus/处理中账号` : ''}，可补充 AT 或直接兑换。`,
+            'success',
+            2600
+          );
+          return;
+        }
         const credentials = parseUpiCredentialMembershipText(text);
         setUpiCredentialMembershipPoolRows(credentials, 'txt');
         upiCredentialMembershipPoolLoaded = true;
         renderUpiCredentialMembershipCheckResults();
-        if (importMode === 'free') {
-          const importResult = await importUpiCredentialMembershipFreeText(text);
-          helpers.showToast?.(`已导入 Free ${importResult.importedCount || 0} 条账号，可补充 AT 或直接兑换。`, 'success', 2200);
-          return;
-        }
         await startUpiCredentialMembershipCheck({ source: 'txt', text });
       } catch (error) {
         helpers.showToast?.(`读取备份 TXT 失败：${error.message}`, 'error');
@@ -3407,8 +3475,15 @@
       const normalizedStatus = String(status || '').trim().toLowerCase() || 'paid';
       const results = getUpiCredentialMembershipCheckResults();
       const targetItems = buildUpiCredentialMembershipDisplayRows(results)
-        .filter((item) => String(item?.status || '').trim().toLowerCase() === normalizedStatus);
-      const targetEmails = targetItems
+        .filter((item) => {
+          const itemStatus = String(item?.status || '').trim().toLowerCase();
+          return normalizedStatus === 'free'
+            ? itemStatus === 'free' || itemStatus === 'failed'
+            : itemStatus === normalizedStatus;
+        });
+      const blockedItems = targetItems.filter((item) => isActiveUpiCredentialMembershipRedeemRow(item, results));
+      const safeItems = targetItems.filter((item) => !isActiveUpiCredentialMembershipRedeemRow(item, results));
+      const safeEmails = safeItems
         .map((item) => normalizeUpiCredentialMembershipEmail(item?.email))
         .filter(Boolean);
       const count = targetItems.length;
@@ -3416,11 +3491,15 @@
         helpers.showToast?.(`${getMembershipStatusTitle(normalizedStatus)} 分组没有可删除的记录。`, 'warn', 1800);
         return;
       }
+      if (!safeEmails.length) {
+        helpers.showToast?.('正在兑换或等待远端结果的账号不能删除，请先取消对应 CDK 任务。', 'warn', 2600);
+        return;
+      }
 
       const confirmed = typeof helpers.openConfirmModal === 'function'
         ? await helpers.openConfirmModal({
           title: `删除${getMembershipStatusTitle(normalizedStatus)}分组`,
-          message: `确认从当前核验结果中删除 ${count} 条${getMembershipStatusTitle(normalizedStatus)}记录吗？该操作只清理当前结果列表，不删除本地密码/2FA 备份。`,
+          message: `确认从当前核验结果中删除 ${safeEmails.length} 条${getMembershipStatusTitle(normalizedStatus)}记录吗？该操作只清理当前结果列表，不删除本地密码/2FA 备份。${blockedItems.length ? ` 将跳过 ${blockedItems.length} 条正在兑换或等待远端结果的账号。` : ''}`,
           confirmLabel: '确认删除',
           confirmVariant: 'btn-danger',
         })
@@ -3433,7 +3512,7 @@
         const response = await runtime.sendMessage({
           type: 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS',
           source: 'sidepanel',
-          payload: { status: normalizedStatus, emails: targetEmails },
+          payload: { status: normalizedStatus, emails: safeEmails },
         });
         if (response?.error) {
           throw new Error(response.error);
@@ -3448,15 +3527,23 @@
         if (Object.keys(stateUpdates).length) {
           state.syncLatestState(stateUpdates);
         }
-        if (targetEmails.length) {
-          const deletedSet = new Set(targetEmails);
+        const responseDeletedEmails = Array.isArray(response?.deletedEmails)
+          ? response.deletedEmails.map(normalizeUpiCredentialMembershipEmail).filter(Boolean)
+          : safeEmails;
+        if (responseDeletedEmails.length) {
+          const deletedSet = new Set(responseDeletedEmails);
           setUpiCredentialMembershipPoolRows(
             upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
             upiCredentialMembershipPoolSource
           );
-          targetEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
+          responseDeletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
         }
-        helpers.showToast?.(`已删除 ${response?.deletedCount || 0} 条${getMembershipStatusTitle(normalizedStatus)}分组记录。`, 'success', 1800);
+        const skippedCount = Math.max(blockedItems.length, Math.floor(Number(response?.skippedCount) || 0));
+        helpers.showToast?.(
+          `已删除 ${response?.deletedCount || 0} 条${getMembershipStatusTitle(normalizedStatus)}分组记录${skippedCount ? `，跳过 ${skippedCount} 条处理中账号` : ''}。`,
+          'success',
+          2200
+        );
       } catch (error) {
         helpers.showToast?.(`删除${getMembershipStatusTitle(normalizedStatus)}分组失败：${error.message}`, 'error');
       } finally {
@@ -3469,7 +3556,13 @@
       if (!normalizedEmail) {
         return;
       }
-      const deleteBackups = upiCredentialMembershipPoolSource !== 'txt';
+      const currentResults = getUpiCredentialMembershipCheckResults();
+      const row = getUpiCredentialMembershipDisplayRowByEmail(normalizedEmail);
+      if (row && isActiveUpiCredentialMembershipRedeemRow(row, currentResults)) {
+        helpers.showToast?.('正在兑换或等待远端结果的账号不能删除，请先取消对应 CDK 任务。', 'warn', 2600);
+        return;
+      }
+      const deleteBackups = upiCredentialMembershipPoolSource !== 'txt' && upiCredentialMembershipPoolSource !== 'txt-free';
       try {
         const response = await runtime.sendMessage({
           type: 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CREDENTIALS',
@@ -3482,21 +3575,32 @@
         if (response?.error) {
           throw new Error(response.error);
         }
-        disabledUpiCredentialMembershipEmails.delete(normalizedEmail);
-        setUpiCredentialMembershipPoolRows(
-          upiCredentialMembershipPoolRows.filter((item) => item.email !== normalizedEmail),
-          upiCredentialMembershipPoolSource
-        );
+        const skippedCount = Math.floor(Number(response?.skippedCount) || 0);
+        const deletedEmails = Array.isArray(response?.deletedEmails)
+          ? response.deletedEmails.map(normalizeUpiCredentialMembershipEmail).filter(Boolean)
+          : (Number(response?.deletedCount) > 0 ? [normalizedEmail] : []);
+        if (deletedEmails.length) {
+          const deletedSet = new Set(deletedEmails);
+          deletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
+          setUpiCredentialMembershipPoolRows(
+            upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
+            upiCredentialMembershipPoolSource
+          );
+        }
         if (response?.results) {
           state.syncLatestState({
             upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(response.results),
           });
         }
-        helpers.showToast?.(
-          deleteBackups ? `已从本地备份核验池删除 ${normalizedEmail}` : `已从当前核验池删除 ${normalizedEmail}`,
-          'success',
-          1800
-        );
+        if (skippedCount || !deletedEmails.length) {
+          helpers.showToast?.(`${normalizedEmail} 正在兑换或等待远端结果，已跳过删除。`, 'warn', 2200);
+        } else {
+          helpers.showToast?.(
+            deleteBackups ? `已从本地备份核验池删除 ${normalizedEmail}` : `已从当前核验池删除 ${normalizedEmail}`,
+            'success',
+            1800
+          );
+        }
       } catch (error) {
         helpers.showToast?.(`删除 UPI 核验账号失败：${error.message}`, 'error');
       } finally {
