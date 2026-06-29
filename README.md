@@ -4,9 +4,9 @@
 
 ## 新手使用教程
 
-第一次使用请先看：[图文使用教程（Word）](教程.docx)。
+第一次使用请先看：[图文使用教程](docs/tutorial.md)。
 
-教程包含安装扩展、配置 UPI Key、导入 CDK/邮箱、开始自动注册、Free/Plus 导出与兑换说明。
+教程包含安装扩展、配置 UPI Key、导入 CDK/邮箱、开始自动注册、Free/Plus 导出与兑换说明。需要离线保存时，可下载 [Word 版教程](教程.docx)。
 
 完整配置说明见 [docs/CONFIG-USAGE.md](docs/CONFIG-USAGE.md)。
 
