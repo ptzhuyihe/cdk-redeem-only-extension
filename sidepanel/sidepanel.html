@@ -321,8 +321,8 @@
         <span class="data-label">兑换轮数</span>
         <input type="number" id="input-upi-redeem-failed-account-retry-limit" class="data-input"
           min="0" max="20" step="1" value="3"
-          title="首轮结束后，失败账号最多继续进行多少轮；0 表示只跑首轮" />
-        <span class="setting-caption">0=只跑首轮；失败账号按轮继续</span>
+          title="失败账号最多参与的总兑换轮数；0 表示只跑首轮" />
+        <span class="setting-caption">0=只跑首轮；3=最多 3 轮</span>
       </div>
       <div class="data-row" id="row-totp-mfa-after-profile-enabled" style="display:none;">
         <span class="data-label">第7步 2FA + 资格检测</span>
@@ -368,7 +368,17 @@
           <textarea id="input-upi-redeem-cdkey-pool" class="data-textarea mono" rows="5"
             placeholder="每行一个 CDK，例如&#10;CDK-001&#10;CDK-002&#10;CDK-003"></textarea>
           <div class="upi-redeem-cdkey-pool-toolbar">
-            <button id="btn-import-cdk-pool" class="btn btn-outline btn-sm" type="button">导入 CDK</button>
+            <button id="btn-import-cdk-pool" class="btn btn-primary btn-sm btn-cdk-import" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="m7 8 5-5 5 5" />
+                <path d="M5 21h14" />
+                <path d="M5 16v5" />
+                <path d="M19 16v5" />
+              </svg>
+              <span>导入 CDK</span>
+            </button>
             <button id="btn-delete-all-cdk-pool" class="btn btn-danger btn-sm" type="button" disabled>一键删除</button>
             <div id="upi-redeem-cdkey-pool-summary" class="icloud-summary">总数 0 / 已用 0 / 可用 0</div>
             <input type="file" id="input-upi-credential-membership-txt" accept=".txt,text/plain" hidden />
@@ -377,7 +387,7 @@
             <span>启用</span>
             <span>CDK</span>
             <span>状态</span>
-            <span>删除</span>
+            <span>操作</span>
           </div>
           <div id="upi-redeem-cdkey-status-list" class="upi-redeem-cdkey-status-list"></div>
           <div id="upi-credential-backup-preview-wrap" hidden>
@@ -1379,4 +1389,3 @@
 </body>
 
 </html>
-

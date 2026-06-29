@@ -67,6 +67,7 @@ CDK-003
    - 首轮结束后，失败账号会按轮继续。
    - 同一轮每个账号只尝试一张 CDK，失败后释放 CDK 并切换下一个账号。
    - 达到总轮数后账号保留在 Free，不再继续下一轮。
+   - 填 `3` 表示最多 `3` 轮，界面会显示 `兑换轮 1/3`、`2/3`、`3/3`。
    - 设置为 `0` 表示只跑首轮。
 
 5. `订阅 API`
@@ -164,7 +165,7 @@ Plus 组保留本地 AT 便于验证，但导出时不会带 AT。
 3. 远端返回成功并确认会员后，对应 AT 的邮箱进入 Plus。
 4. 远端处于等待、处理中、已提交等状态时，账号留在 Free 等待刷新结果，CDK 不释放。
 5. 后端手动取消后，账号自动回到待兑换，CDK 回到可用池。
-6. 普通失败、超时、拒绝、取消、后端无记录时，账号保留 Free，旧 CDK 释放回可用池。
+6. 普通失败、超时、拒绝、取消、未找到时，账号保留 Free，旧 CDK 释放回可用池。
 7. 同一轮失败后不会继续给同一个账号换 CDK，而是切换下一个账号。
 
 失败 CDK 不会永久占用；未超过兑换轮数时，失败账号可在下一轮重新随机匹配 CDK。
@@ -178,22 +179,43 @@ CDK 状态以远端返回为准：
   - 对应账号进入 Plus。
 
 - `等待/处理中`
-  - 远端返回 `submitted`、`running`、`processing`、`pending_dispatch`、`queued` 等。
+  - 远端返回 `pending_dispatch`（等待兑换）、`dispatched`（已派发）、`running`（兑换中）、`submitted`、`processing`、`queued` 等。
   - 保持等待，不重新分配该 CDK。
 
 - `已取消`
-  - 后端已取消。
+  - 远端返回 `cancelled` 或本地兼容值 `canceled`。
   - 账号回到待兑换，CDK 释放回可用池。
 
 - `兑换失败`
-  - 远端返回 `failed`、`timeout`、`rejected`、`approve-blocked` 等。
+  - 远端返回 `failed`（兑换失败）、`timeout`（兑换超时）、`rejected`、`approve-blocked` 等。
   - 账号保留在 Free。
   - 旧 CDK 释放回 CDK 池。
   - 未超过轮数时，账号可在下一轮自动随机匹配新 CDK。
 
+- `未找到`
+  - 远端返回 `not_found`。
+  - 账号保留在 Free，旧 CDK 按失败类结果释放回可用池。
+
 - `CDK 无效`
   - 不自动复用。
   - 建议手动删除或停用该 CDK。
+
+CDK 行操作以状态查询接口返回的能力字段为准：
+
+- `can_cancel=true`
+  - 显示 `取消`。
+  - 点击后调用 `/api/external/cdkey-jobs/cancel`，只取消后端任务，不重新提交 CDK。
+
+- `can_retry=true`、`can_reuse_token=true`、`has_access_token=true`
+  - 显示 `重试`。
+  - 点击后调用 `/api/external/cdkey-jobs/retry`，复用后端已绑定的 `access_token` 重新入列。
+  - 不读取新的 AT，也不提交新的 `access_token`。
+
+- 已取消、未找到、没有后端 `access_token` 的任务
+  - 不显示后端 `重试`。
+  - 如需更换 AT 或重新兑换，使用 `一键兑换 CDK` 重新提交。
+
+自动续兑时同样优先使用后端 `retry` 复用已绑定 token；只有后端不能复用 token 时，才回到原来的重新提交/重新匹配 CDK 流程。
 
 ## 8. 注册中按钮规则
 

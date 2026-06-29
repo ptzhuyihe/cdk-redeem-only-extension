@@ -1037,7 +1037,11 @@
       const runtimeState = await getMergedState(state);
       const visibleStep = resolveVisibleStep(runtimeState);
       if (shouldRequireGptPasswordBeforeTotp(runtimeState) && !runtimeState.gptPasswordSet) {
-        throw new Error(`步骤 ${visibleStep}：UPI 2FA 流程必须先完成“设置 GPT 密码”，已停止当前账号，避免继续开通 2FA 或检测资格。`);
+        await addStepLog(
+          visibleStep,
+          '未检测到第 6 步“设置 GPT 密码”完成记录，仍按独立第 7 步继续开通 2FA/检测资格；如 OpenAI 要求重新认证，会在运行时再提示所需信息。',
+          'warn'
+        );
       }
       await setState({
         totpMfaEnabled: false,
@@ -1316,5 +1320,4 @@
     normalizeTotpSecret,
   };
 });
-
 

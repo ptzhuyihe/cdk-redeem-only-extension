@@ -58,7 +58,9 @@
       testCheckoutConversionProxy = null,
       fetchGeneratedEmail,
       refreshCardHelperCardBalance,
+      cancelUpiRedeemCdkeyJobs = null,
       refreshUpiRedeemCdkeyStatuses = null,
+      retryUpiRedeemCdkeyJobs = null,
       checkUpiRedeemSubscriptionStatuses = null,
       refreshOAuthTimeoutWindowAfterCheckoutSuccess = null,
       finalizePhoneActivationAfterSuccessfulFlow,
@@ -382,6 +384,7 @@
     const UPI_CREDENTIAL_MEMBERSHIP_RESULTS_KEY = 'upiCredentialMembershipCheckResults';
     const DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT = 3;
     const UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX = 20;
+    const UPI_REDEEM_JOB_RETRY_COOLDOWN_MS = 60000;
     const UPI_CREDENTIAL_MEMBERSHIP_PENDING_REDEEM_STATUSES = new Set([
       'running',
       'submitted',
@@ -413,11 +416,12 @@
       return Math.max(0, Math.min(UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX, numeric));
     }
 
-    function getUpiRedeemTotalRoundLimit(additionalRoundCount = 0) {
-      return 1 + Math.max(0, Math.min(
+    function getUpiRedeemTotalRoundLimit(configuredRoundCount = 0) {
+      const roundCount = Math.max(0, Math.min(
         UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX,
-        Math.floor(Number(additionalRoundCount) || 0)
+        Math.floor(Number(configuredRoundCount) || 0)
       ));
+      return roundCount > 0 ? roundCount : 1;
     }
 
     function getUpiRedeemRoundLabel(roundNumber = 1, totalRoundLimit = 1) {
@@ -426,6 +430,21 @@
 
     function normalizeUpiRedeemRemoteStatusForRetry(status = '') {
       const normalized = normalizeString(status).toLowerCase().replace(/[\s-]+/g, '_');
+      switch (normalized) {
+        case 'pending_dispatch':
+        case 'dispatched':
+        case 'running':
+        case 'success':
+        case 'failed':
+        case 'timeout':
+        case 'not_found':
+          return normalized;
+        case 'cancelled':
+        case 'canceled':
+          return 'canceled';
+        default:
+          break;
+      }
       if (normalized === 'approve_blocked') {
         return 'approve_blocked';
       }
@@ -876,8 +895,8 @@
       if (!items.length) {
         return { updated: false, updates: {}, deletedEmails: [], results };
       }
-      const additionalRoundCount = normalizeUpiFailedAccountRetryLimit(state?.upiRedeemFailedAccountRetryLimit);
-      const totalRoundLimit = getUpiRedeemTotalRoundLimit(additionalRoundCount);
+      const configuredRoundCount = normalizeUpiFailedAccountRetryLimit(state?.upiRedeemFailedAccountRetryLimit);
+      const totalRoundLimit = getUpiRedeemTotalRoundLimit(configuredRoundCount);
 
       const lookup = buildUpiRedeemRemoteEntryLookup(usage);
       const nextUsage = usage && typeof usage === 'object' && !Array.isArray(usage) ? { ...usage } : {};
@@ -1132,9 +1151,13 @@
               lastFailedEmail: '',
               lastFailedAt: 0,
               lastFailedReason: '',
-              remoteStatus: 'unused',
-              remoteMessage: `${cancelReason}；后端已取消，CDK 已回到可用池`,
+              remoteStatus: 'canceled',
+              remoteMessage: `${cancelReason}；后端已取消，CDK 可重新提交`,
               remoteCheckedAt: Math.max(0, Math.floor(Number(entry.remoteCheckedAt) || canceledAtMs)),
+              canCancel: false,
+              canRetry: false,
+              canReuseToken: false,
+              hasAccessToken: false,
               retrying: false,
               retryError: '',
             };
@@ -1288,6 +1311,124 @@
       };
     }
 
+    function getUpiRedeemRefreshUsage(refreshResult = {}, state = {}) {
+      return refreshResult?.updates?.cdkUsage
+        || refreshResult?.updates?.upiRedeemCdkUsage
+        || refreshResult?.updates?.upiRedeemCdkeyUsage
+        || state?.cdkUsage
+        || state?.upiRedeemCdkUsage
+        || state?.upiRedeemCdkeyUsage
+        || {};
+    }
+
+    function getReusableUpiRedeemJobRetryCdkeys(refreshResult = {}, state = {}) {
+      const usage = getUpiRedeemRefreshUsage(refreshResult, state);
+      const source = usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : {};
+      const nowMs = Date.now();
+      return Object.entries(source)
+        .filter(([rawCdkey, rawEntry]) => {
+          const cdkey = normalizeString(rawCdkey);
+          const entry = rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry) ? rawEntry : {};
+          const remoteStatus = normalizeUpiRedeemRemoteStatusForRetry(entry.remoteStatus || entry.remoteMessage);
+          const lastRetryAt = Math.max(0, Math.floor(Number(entry.lastRetryAt) || 0));
+          return Boolean(cdkey)
+            && isRetryableUpiRedeemRemoteStatusForRetry(remoteStatus)
+            && remoteStatus !== 'canceled'
+            && remoteStatus !== 'not_found'
+            && entry.canRetry === true
+            && entry.canReuseToken === true
+            && entry.hasAccessToken === true
+            && entry.retrying !== true
+            && (!lastRetryAt || nowMs - lastRetryAt >= UPI_REDEEM_JOB_RETRY_COOLDOWN_MS);
+        })
+        .map(([cdkey]) => normalizeString(cdkey));
+    }
+
+    async function retryReusableUpiRedeemCdkeyJobsAfterRefresh(refreshResult = {}, state = {}, payload = {}) {
+      const summary = {
+        attempted: 0,
+        skipped: 0,
+        submitted: 0,
+        succeeded: 0,
+        failed: 0,
+        items: [],
+        updates: {},
+      };
+      if (typeof retryUpiRedeemCdkeyJobs !== 'function') {
+        return {
+          ...summary,
+          skipped: 1,
+          reason: 'UPI 后端 Jobs 重试能力尚未接入。',
+        };
+      }
+      const cdkeys = getReusableUpiRedeemJobRetryCdkeys(refreshResult, {
+        ...(state || {}),
+        ...(payload || {}),
+      });
+      if (!cdkeys.length) {
+        return {
+          ...summary,
+          skipped: 1,
+          reason: '没有可复用后端 access_token 重试的 CDK 任务。',
+        };
+      }
+      const result = await retryUpiRedeemCdkeyJobs({
+        ...(state || {}),
+        ...(payload || {}),
+        cdkeys,
+      });
+      const items = Array.isArray(result?.items) ? result.items : [];
+      const submitted = items.filter((item) => item?.retried === true).length;
+      const failed = Math.max(0, items.length - submitted);
+      if (typeof addLog === 'function') {
+        await addLog(
+          `UPI 后端任务重试：已请求 ${items.length || cdkeys.length} 个 CDK，成功重新入列 ${submitted} 个${failed ? `，失败 ${failed} 个` : ''}。`,
+          failed ? 'warn' : 'info'
+        );
+      }
+      return {
+        ...summary,
+        attempted: items.length || cdkeys.length,
+        submitted,
+        succeeded: submitted,
+        failed,
+        items,
+        updates: result?.updates || {},
+        result,
+      };
+    }
+
+    function combineUpiRedeemAutoRetrySummaries(...summaries) {
+      const validSummaries = summaries.filter(Boolean);
+      return validSummaries.reduce((combined, summary) => ({
+        attempted: combined.attempted + Math.max(0, Math.floor(Number(summary?.attempted) || 0)),
+        skipped: combined.skipped + Math.max(0, Math.floor(Number(summary?.skipped) || 0)),
+        submitted: combined.submitted + Math.max(0, Math.floor(Number(summary?.submitted) || 0)),
+        succeeded: combined.succeeded + Math.max(0, Math.floor(Number(summary?.succeeded) || 0)),
+        failed: combined.failed + Math.max(0, Math.floor(Number(summary?.failed) || 0)),
+        items: [
+          ...combined.items,
+          ...(Array.isArray(summary?.items) ? summary.items : []),
+        ],
+        updates: {
+          ...combined.updates,
+          ...(summary?.updates || {}),
+        },
+        backendJobRetry: summary?.backendJobRetry || combined.backendJobRetry,
+        localRetry: summary?.localRetry || combined.localRetry,
+        reason: normalizeString(summary?.reason || combined.reason),
+      }), {
+        attempted: 0,
+        skipped: 0,
+        submitted: 0,
+        succeeded: 0,
+        failed: 0,
+        items: [],
+        updates: {},
+        reason: '',
+      });
+    }
+
     async function retryFailedUpiRedeemCdkeysAfterRefresh(refreshResult = {}, state = {}, payload = {}, membershipSync = {}) {
       const summary = {
         attempted: 0,
@@ -1304,12 +1445,12 @@
           reason: 'UPI 失败账号兑换轮次能力尚未接入。',
         };
       }
-      const additionalRoundCount = Math.max(0, Math.min(20, Math.floor(Number(
+      const configuredRoundCount = Math.max(0, Math.min(20, Math.floor(Number(
         payload.upiRedeemFailedAccountRetryLimit
         ?? state.upiRedeemFailedAccountRetryLimit
         ?? 3
       ) || 0)));
-      if (additionalRoundCount <= 0) {
+      if (configuredRoundCount <= 0) {
         return {
           ...summary,
           skipped: 1,
@@ -1325,7 +1466,7 @@
         ...(refreshResult?.updates || {}),
         ...(membershipSync?.updates || {}),
         ...(payload || {}),
-        upiRedeemFailedAccountRetryLimit: additionalRoundCount,
+        upiRedeemFailedAccountRetryLimit: configuredRoundCount,
       };
       if (countAvailableUpiRedeemCdkeysForRetry(runtimeSettings) <= 0) {
         return {
@@ -1342,7 +1483,7 @@
         source: 'upi-failed-account-auto-retry',
         results: syncedResults,
         settings: runtimeSettings,
-        upiRedeemFailedAccountRetryLimit: additionalRoundCount,
+        upiRedeemFailedAccountRetryLimit: configuredRoundCount,
       });
       return {
         ...summary,
@@ -3277,7 +3418,12 @@
           if (typeof loginUpiCredentialMembershipAccount !== 'function') {
             throw new Error('UPI 分组账号登录能力尚未接入。');
           }
-          const result = await loginUpiCredentialMembershipAccount(message.payload || {});
+          const result = await loginUpiCredentialMembershipAccount({
+            ...(message.payload || {}),
+            source: 'row-login',
+            readAccessToken: false,
+            refreshAccessToken: false,
+          });
           return { ok: true, ...result };
         }
 
@@ -3629,7 +3775,11 @@
 
         case 'REFRESH_UPI_REDEEM_CDKEY_STATUSES': {
           const state = await getState();
-          if (isAutoRunLockedState(state)) {
+          const payload = message.payload || {};
+          const autoRefresh = payload.autoRefresh === true;
+          const skipAutoRetry = payload.skipAutoRetry === true;
+          const autoRunLocked = isAutoRunLockedState(state);
+          if (autoRunLocked && !autoRefresh) {
             throw new Error('自动流程运行中，当前不能刷新 CDK 状态。');
           }
           if (typeof refreshUpiRedeemCdkeyStatuses !== 'function') {
@@ -3637,18 +3787,55 @@
           }
           const result = await refreshUpiRedeemCdkeyStatuses({
             ...state,
-            ...(message.payload || {}),
+            ...payload,
           });
           if (result?.updates) {
             broadcastDataUpdate(result.updates);
           }
-          const membershipSync = await syncUpiCredentialMembershipResultsAfterCdkeyRefresh(result, {
+          const backendJobRetry = (autoRunLocked && autoRefresh) || skipAutoRetry
+            ? {
+              attempted: 0,
+              skipped: 1,
+              succeeded: 0,
+              failed: 0,
+              submitted: 0,
+              items: [],
+              reason: skipAutoRetry ? '本次只刷新远端状态，跳过后端任务重试。' : '自动注册中只刷新远端状态，跳过后端任务重试。',
+              updates: {},
+            }
+            : await retryReusableUpiRedeemCdkeyJobsAfterRefresh(result, state, payload);
+          if (Object.keys(backendJobRetry?.updates || {}).length) {
+            broadcastDataUpdate(backendJobRetry.updates);
+          }
+          const resultForSync = {
+            ...result,
+            updates: {
+              ...(result?.updates || {}),
+              ...(backendJobRetry?.updates || {}),
+            },
+          };
+          const membershipSync = await syncUpiCredentialMembershipResultsAfterCdkeyRefresh(resultForSync, {
             ...state,
-            ...(message.payload || {}),
+            ...payload,
           });
-          const autoRetry = await retryFailedUpiRedeemCdkeysAfterRefresh(result, state, message.payload || {}, membershipSync);
+          const localAutoRetry = (autoRunLocked && autoRefresh) || skipAutoRetry
+            ? {
+              attempted: 0,
+              skipped: 1,
+              succeeded: 0,
+              failed: 0,
+              submitted: 0,
+              items: [],
+              reason: skipAutoRetry ? '本次只刷新远端状态，跳过失败账号续兑。' : '自动注册中只刷新远端状态，跳过失败账号续兑。',
+              updates: {},
+            }
+            : await retryFailedUpiRedeemCdkeysAfterRefresh(resultForSync, state, payload, membershipSync);
+          const autoRetry = combineUpiRedeemAutoRetrySummaries(
+            { ...backendJobRetry, backendJobRetry },
+            { ...localAutoRetry, localRetry: localAutoRetry }
+          );
           const updates = {
-            ...(result?.updates || {}),
+            ...(resultForSync?.updates || {}),
             ...(membershipSync?.updates || {}),
             ...(autoRetry?.updates || {}),
           };
@@ -3659,6 +3846,39 @@
             broadcastDataUpdate(autoRetry.updates);
           }
           return { ok: true, ...result, updates, membershipSync, autoRetry };
+        }
+
+        case 'CANCEL_UPI_REDEEM_CDKEY_JOBS':
+        case 'RETRY_UPI_REDEEM_CDKEY_JOBS': {
+          const state = await getState();
+          if (isAutoRunLockedState(state)) {
+            throw new Error('自动流程运行中，当前不能手动取消或重试 CDK 任务。');
+          }
+          const isCancel = message.type === 'CANCEL_UPI_REDEEM_CDKEY_JOBS';
+          const operator = isCancel ? cancelUpiRedeemCdkeyJobs : retryUpiRedeemCdkeyJobs;
+          if (typeof operator !== 'function') {
+            throw new Error(isCancel ? 'CDK 任务取消能力尚未接入。' : 'CDK 任务重试能力尚未接入。');
+          }
+          const payload = message.payload || {};
+          const result = await operator({
+            ...state,
+            ...payload,
+          });
+          if (result?.updates) {
+            broadcastDataUpdate(result.updates);
+          }
+          const membershipSync = await syncUpiCredentialMembershipResultsAfterCdkeyRefresh(result, {
+            ...state,
+            ...payload,
+          });
+          const updates = {
+            ...(result?.updates || {}),
+            ...(membershipSync?.updates || {}),
+          };
+          if (Object.keys(membershipSync?.updates || {}).length) {
+            broadcastDataUpdate(membershipSync.updates);
+          }
+          return { ok: true, ...result, updates, membershipSync };
         }
 
         case 'CHECK_UPI_REDEEM_SUBSCRIPTION_STATUSES': {
@@ -3759,9 +3979,3 @@
     createMessageRouter,
   };
 });
-
-
-
-
-
-

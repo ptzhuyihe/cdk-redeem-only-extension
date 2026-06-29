@@ -2241,7 +2241,7 @@ header {
 
 .upi-redeem-cdkey-status-header {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 48px 48px;
+  grid-template-columns: 46px minmax(0, 1fr) minmax(64px, auto) minmax(104px, auto);
   gap: 8px;
   align-items: center;
   color: var(--text-muted);
@@ -2267,6 +2267,47 @@ header {
   flex: 0 0 auto;
 }
 
+.upi-redeem-cdkey-pool-toolbar .btn-cdk-import {
+  min-height: 32px;
+  min-width: 98px;
+  padding-inline: 14px;
+  border-color: color-mix(in srgb, var(--blue) 92%, #fff);
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 4px 12px var(--blue-glow);
+}
+
+.upi-redeem-cdkey-pool-toolbar .btn-cdk-import svg {
+  flex-shrink: 0;
+}
+
+.upi-redeem-cdkey-pool-toolbar .btn-cdk-import:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--blue) 88%, #fff);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.20),
+    0 6px 16px var(--blue-glow);
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.upi-redeem-cdkey-pool-toolbar .btn-cdk-import:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--blue-glow),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.upi-redeem-cdkey-pool-toolbar .btn-cdk-import:disabled {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-muted);
+  box-shadow: none;
+  transform: none;
+}
+
 .icloud-tag.pending,
 .icloud-tag.running {
   background: var(--blue-soft);
@@ -2289,7 +2330,7 @@ header {
 
 .upi-redeem-cdkey-status-item {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto auto;
+  grid-template-columns: 46px minmax(0, 1fr) minmax(64px, auto) minmax(104px, auto);
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border);
@@ -2315,14 +2356,24 @@ header {
   font-family: inherit;
 }
 
+.upi-redeem-cdkey-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 104px;
+}
+
+.upi-redeem-cdkey-job-action,
 .upi-redeem-cdkey-delete-action {
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
+  min-width: 44px;
+  white-space: nowrap;
 }
 
 .upi-redeem-cdkey-status-action:hover,
 .upi-redeem-cdkey-status-action:focus-visible,
+.upi-redeem-cdkey-job-action:hover:not(:disabled),
+.upi-redeem-cdkey-job-action:focus-visible,
 .upi-redeem-cdkey-delete-action:hover,
 .upi-redeem-cdkey-delete-action:focus-visible {
   filter: brightness(1.08);
@@ -4496,8 +4547,6 @@ header {
     transition-duration: 0.01ms !important;
   }
 }
-
-
 
 
 

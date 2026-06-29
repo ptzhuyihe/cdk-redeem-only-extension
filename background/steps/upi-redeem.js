@@ -215,6 +215,8 @@
         .replace(/#.*$/g, '')
         .replace(/\/+$/g, '');
       normalized = normalized
+        .replace(/\/api\/external\/cdkey-jobs\/(?:cancel|retry)$/i, '')
+        .replace(/\/api\/external\/cdkey-jobs$/i, '')
         .replace(/\/api\/external\/cdkey-redeems\/status$/i, '')
         .replace(/\/api\/external\/cdkey-redeems$/i, '')
         .replace(/\/api\/v1\/subscription$/i, '')
@@ -239,6 +241,22 @@
 
     function buildUpiRedeemStatusApiUrl(state = {}) {
       return `${getUpiRedeemApiBaseUrl(state)}/api/external/cdkey-redeems/status`;
+    }
+
+    function buildUpiRedeemCdkeyJobsApiUrl(state = {}, action = '') {
+      const normalizedAction = normalizeString(action).toLowerCase();
+      if (!['cancel', 'retry'].includes(normalizedAction)) {
+        throw new Error(`不支持的 CDK Jobs 操作：${action}`);
+      }
+      return `${getUpiRedeemApiBaseUrl(state)}/api/external/cdkey-jobs/${normalizedAction}`;
+    }
+
+    function buildUpiRedeemCdkeyJobsCancelApiUrl(state = {}) {
+      return buildUpiRedeemCdkeyJobsApiUrl(state, 'cancel');
+    }
+
+    function buildUpiRedeemCdkeyJobsRetryApiUrl(state = {}) {
+      return buildUpiRedeemCdkeyJobsApiUrl(state, 'retry');
     }
 
     function normalizeUpiSubscriptionApiBaseUrl(value = '') {
@@ -567,6 +585,10 @@
           remoteStatus: normalizeString(entry.remoteStatus),
           remoteMessage: normalizeString(entry.remoteMessage),
           remoteCheckedAt: Math.max(0, Math.floor(Number(entry.remoteCheckedAt) || 0)),
+          canCancel: normalizeBoolean(entry.canCancel ?? entry.can_cancel),
+          canRetry: normalizeBoolean(entry.canRetry ?? entry.can_retry),
+          canReuseToken: normalizeBoolean(entry.canReuseToken ?? entry.can_reuse_token),
+          hasAccessToken: normalizeBoolean(entry.hasAccessToken ?? entry.has_access_token),
           retryCount: Math.max(0, Math.floor(Number(entry.retryCount) || 0)),
           lastRetryAt: Math.max(0, Math.floor(Number(entry.lastRetryAt) || 0)),
           retrying: entry.retrying === true,
@@ -698,6 +720,10 @@
         remoteStatus: normalizeString(nextEntry.remoteStatus),
         remoteMessage: normalizeString(nextEntry.remoteMessage),
         remoteCheckedAt: Math.max(0, Math.floor(Number(nextEntry.remoteCheckedAt) || 0)),
+        canCancel: normalizeBoolean(nextEntry.canCancel ?? nextEntry.can_cancel),
+        canRetry: normalizeBoolean(nextEntry.canRetry ?? nextEntry.can_retry),
+        canReuseToken: normalizeBoolean(nextEntry.canReuseToken ?? nextEntry.can_reuse_token),
+        hasAccessToken: normalizeBoolean(nextEntry.hasAccessToken ?? nextEntry.has_access_token),
         retryCount: Math.max(0, Math.floor(Number(nextEntry.retryCount) || 0)),
         lastRetryAt: Math.max(0, Math.floor(Number(nextEntry.lastRetryAt) || 0)),
         retrying: nextEntry.retrying === true,
@@ -767,6 +793,10 @@
         remoteStatus: 'dispatching',
         remoteMessage: normalizeString(message) || '正在提交到兑换后端，等待远端接收',
         remoteCheckedAt: timestamp,
+        canCancel: false,
+        canRetry: false,
+        canReuseToken: false,
+        hasAccessToken: Boolean(normalizeString(accessToken || entry.accessToken || entry.access_token || entry.upiRedeemAccessToken)),
         retrying: false,
         retryError: '',
       }));
@@ -799,6 +829,10 @@
         remoteStatus: 'not_found',
         remoteMessage: `${releaseReason} CDK 已释放，可重新提交。`,
         remoteCheckedAt: timestamp,
+        canCancel: false,
+        canRetry: false,
+        canReuseToken: false,
+        hasAccessToken: false,
         retrying: false,
         retryError: '',
       }));
@@ -813,6 +847,30 @@
       }
       const normalized = normalizeString(value).toLowerCase();
       return ['1', 'true', 'yes', 'y', 'ok', 'active', 'success'].includes(normalized);
+    }
+
+    function getUpiRedeemRemoteJobCapabilities(item = {}) {
+      return {
+        canCancel: normalizeBoolean(item?.can_cancel ?? item?.canCancel),
+        canRetry: normalizeBoolean(item?.can_retry ?? item?.canRetry),
+        canReuseToken: normalizeBoolean(item?.can_reuse_token ?? item?.canReuseToken),
+        hasAccessToken: normalizeBoolean(item?.has_access_token ?? item?.hasAccessToken),
+      };
+    }
+
+    function getUpiRedeemJobResultCdkey(item = {}) {
+      return normalizeString(item?.cdkey || item?.cdk || item?.cd_key || item?.cdkey_code || item?.cdkeyCode);
+    }
+
+    function getUpiRedeemJobResultReason(item = {}, fallback = '') {
+      return normalizeString(
+        item?.reason
+        || item?.message
+        || item?.error
+        || item?.error_message
+        || item?.errorMessage
+        || fallback
+      );
     }
 
     function normalizeSubscriptionPlanType(value = '') {
@@ -1416,6 +1474,21 @@
 
     function normalizeUpiRedeemRemoteStatus(status = '') {
       const normalized = normalizeString(status).toLowerCase().replace(/[\s-]+/g, '_');
+      switch (normalized) {
+        case 'pending_dispatch':
+        case 'dispatched':
+        case 'running':
+        case 'success':
+        case 'failed':
+        case 'timeout':
+        case 'not_found':
+          return normalized;
+        case 'cancelled':
+        case 'canceled':
+          return 'canceled';
+        default:
+          break;
+      }
       if (normalized === 'approve_blocked') {
         return 'approve_blocked';
       }
@@ -1873,17 +1946,21 @@
         const payload = await readResponseBody(response);
         if (!response?.ok) {
           const payloadError = getPayloadError(payload);
-          throw new Error(`UPI 会员状态接口请求失败（HTTP ${response?.status || 0}）${payloadError ? `：${payloadError}` : ''}`);
+          throw new Error(`UPI 会员状态接口请求失败（HTTP ${response?.status || 0}）：${apiUrl}${payloadError ? `。后端：${payloadError}` : ''}`);
         }
         if (isHtmlResponsePayload(response, payload)) {
-          throw new Error('UPI 会员状态接口返回了 HTML 页面，可能订阅 API 地址填错，或后端没有 /api/v1/subscription 路由。');
+          throw new Error(`UPI 会员状态接口返回了 HTML 页面，可能订阅 API 地址填错，或后端没有 /api/v1/subscription 路由：${apiUrl}`);
         }
         return payload && typeof payload === 'object' && !Array.isArray(payload)
           ? payload
           : { ok: false, reason: 'invalid-response' };
       } catch (error) {
         if (error?.name === 'AbortError') {
-          throw new Error('UPI 会员状态接口请求超时。');
+          throw new Error(`UPI 会员状态接口请求超时：${apiUrl}`);
+        }
+        const message = normalizeString(error?.message || error);
+        if (/failed\s*to\s*fetch|networkerror|load failed/i.test(message)) {
+          throw new Error(`UPI 会员状态接口网络请求失败：${apiUrl}。请检查订阅 API 地址、网络/代理、证书或扩展是否已重新加载。原始错误：${message || 'Failed to fetch'}`);
         }
         throw error;
       } finally {
@@ -2092,6 +2169,7 @@
         const currentEntry = nextUsage[cdkey] || { usedAt: 0, lastAttemptAt: 0, lastError: '', enabled: true };
         const remoteStatus = normalizeUpiRedeemRemoteStatus(item?.status || item?.state || item?.result);
         const remoteMessage = getRemoteStatusMessage(item, remoteStatus);
+        const remoteJobCapabilities = getUpiRedeemRemoteJobCapabilities(item);
         const approveBlocked = isApproveBlockedRemoteResult(item, remoteStatus, remoteMessage);
         if (approveBlocked) {
           const releasedEmail = getRemoteResultEmail(item, currentEntry.email);
@@ -2108,6 +2186,7 @@
             remoteStatus: 'unused',
             remoteMessage: `${releaseReason}；邮箱不可用，已释放 CDK`,
             remoteCheckedAt: checkedAt,
+            ...remoteJobCapabilities,
             retryCount: 0,
             lastRetryAt: 0,
             retrying: false,
@@ -2129,6 +2208,7 @@
             remoteStatus: 'not_found',
             remoteMessage: `${releaseMessage}；后端无兑换记录，CDK 可重新提交`,
             remoteCheckedAt: checkedAt,
+            ...remoteJobCapabilities,
             retryCount: Math.max(0, Math.floor(Number(currentEntry.retryCount) || 0)),
             lastRetryAt: Math.max(0, Math.floor(Number(currentEntry.lastRetryAt) || 0)),
             retrying: false,
@@ -2155,9 +2235,10 @@
             lastFailedEmail: '',
             lastFailedAt: 0,
             lastFailedReason: '',
-            remoteStatus: 'unused',
-            remoteMessage: `${remoteMessage || '后端已手动取消兑换'}；后端已取消，CDK 已回到可用池`,
+            remoteStatus: 'canceled',
+            remoteMessage: `${remoteMessage || '后端已手动取消兑换'}；后端已取消，CDK 可重新提交`,
             remoteCheckedAt: checkedAt,
+            ...remoteJobCapabilities,
             retrying: false,
             retryError: '',
           };
@@ -2187,6 +2268,7 @@
             remoteStatus,
             remoteMessage: `${remoteMessage || '远端确认兑换失败'}；CDK 已回到可用池，等待其他账号匹配`,
             remoteCheckedAt: checkedAt,
+            ...remoteJobCapabilities,
             retrying: false,
             retryError: '',
           };
@@ -2212,6 +2294,7 @@
           remoteStatus,
           remoteMessage,
           remoteCheckedAt: checkedAt,
+          ...remoteJobCapabilities,
           retrying: false,
           retryError: success ? '' : normalizeString(currentEntry.retryError),
         };
@@ -2236,6 +2319,155 @@
         items,
         updates,
       };
+    }
+
+    async function operateUpiRedeemCdkeyJobs(inputState = {}, action = '') {
+      const normalizedAction = normalizeString(action).toLowerCase();
+      const runtimeState = await getMergedState(inputState);
+      const jobUrl = buildUpiRedeemCdkeyJobsApiUrl(runtimeState, normalizedAction);
+      const externalApiKey = normalizeString(getUpiRedeemStateValue(runtimeState, 'upiRedeemExternalApiKey'));
+      if (!externalApiKey) {
+        throw new Error('UPI External API Key 未配置，请先在侧边栏填写 UPI 外部 API Key。');
+      }
+      const clientId = await resolveUpiRedeemClientId(runtimeState);
+      const rawCdkeys = Array.isArray(inputState?.cdkeys)
+        ? inputState.cdkeys
+        : parseCdkeyPoolText(getUpiRedeemStateValue(runtimeState, 'upiRedeemCdkeyPoolText'));
+      const cdkeys = parseCdkeyPoolText(rawCdkeys.join('\n'));
+      if (!cdkeys.length) {
+        throw new Error('没有可操作的 CDK，请先选择或导入 CDK。');
+      }
+
+      const usage = normalizeUpiRedeemCdkeyUsage(getUpiRedeemStateValue(runtimeState, 'upiRedeemCdkeyUsage') || {});
+      const checkedAt = Math.max(1, Math.floor(Number(now()) || Date.now()));
+      const items = [];
+      for (const chunk of chunkArray(cdkeys, 100)) {
+        const payload = await postUPIJson({
+          apiUrl: jobUrl,
+          externalApiKey,
+          clientId,
+          body: { cdkeys: chunk },
+        });
+        items.push(...getPayloadItems(payload));
+      }
+
+      const nextUsage = { ...usage };
+      const resultItems = items.map((item = {}) => {
+        const cdkey = getUpiRedeemJobResultCdkey(item);
+        const found = item?.found === undefined ? true : normalizeBoolean(item.found);
+        const succeeded = normalizedAction === 'cancel'
+          ? normalizeBoolean(item?.cancelled ?? item?.canceled ?? item?.ok ?? item?.success)
+          : normalizeBoolean(item?.retried ?? item?.retry ?? item?.ok ?? item?.success);
+        const reason = getUpiRedeemJobResultReason(
+          item,
+          found ? '' : '后端未找到该 CDK 任务'
+        );
+        const capabilities = getUpiRedeemRemoteJobCapabilities(item);
+        if (cdkey) {
+          const currentEntry = nextUsage[cdkey] || { usedAt: 0, lastAttemptAt: 0, lastError: '', enabled: true };
+          if (!found) {
+            nextUsage[cdkey] = {
+              ...currentEntry,
+              lastError: reason || '后端未找到该 CDK 任务',
+              remoteStatus: 'not_found',
+              remoteMessage: reason || '后端未找到该 CDK 任务',
+              remoteCheckedAt: checkedAt,
+              canCancel: false,
+              canRetry: false,
+              canReuseToken: false,
+              hasAccessToken: false,
+              retrying: false,
+              retryError: '',
+            };
+          } else if (succeeded && normalizedAction === 'cancel') {
+            nextUsage[cdkey] = {
+              ...currentEntry,
+              usedAt: 0,
+              lastError: reason || '后端已取消任务',
+              enabled: currentEntry.enabled !== false,
+              email: '',
+              accessToken: '',
+              accessTokenMasked: '',
+              accessTokenUpdatedAt: 0,
+              releasedEmail: '',
+              releaseReason: '',
+              releasedAt: 0,
+              lastFailedEmail: '',
+              lastFailedAt: 0,
+              lastFailedReason: '',
+              remoteStatus: 'canceled',
+              remoteMessage: reason || '后端已取消任务，CDK 可重新提交',
+              remoteCheckedAt: checkedAt,
+              canCancel: false,
+              canRetry: false,
+              canReuseToken: false,
+              hasAccessToken: false,
+              retrying: false,
+              retryError: '',
+            };
+            delete nextUsage[cdkey].subscriptionActive;
+            delete nextUsage[cdkey].subscriptionPlanType;
+            delete nextUsage[cdkey].subscriptionCheckedAt;
+            delete nextUsage[cdkey].subscriptionReason;
+          } else if (succeeded && normalizedAction === 'retry') {
+            nextUsage[cdkey] = {
+              ...currentEntry,
+              lastError: '',
+              remoteStatus: 'pending_dispatch',
+              remoteMessage: reason || '后端已复用已绑定 access_token 重新入列，等待远端结果',
+              remoteCheckedAt: checkedAt,
+              canCancel: false,
+              canRetry: false,
+              canReuseToken: false,
+              hasAccessToken: true,
+              retryCount: Math.max(0, Math.floor(Number(currentEntry.retryCount) || 0)) + 1,
+              lastRetryAt: checkedAt,
+              retrying: false,
+              retryError: '',
+            };
+          } else {
+            nextUsage[cdkey] = {
+              ...currentEntry,
+              ...capabilities,
+              lastError: normalizedAction === 'cancel' ? (reason || currentEntry.lastError || '') : normalizeString(currentEntry.lastError),
+              remoteCheckedAt: checkedAt,
+              retrying: false,
+              retryError: normalizedAction === 'retry' ? (reason || '后端未接受重试任务') : normalizeString(currentEntry.retryError),
+            };
+          }
+        }
+        return {
+          cdkey,
+          found,
+          ...(normalizedAction === 'cancel' ? { cancelled: succeeded } : { retried: succeeded }),
+          reason,
+          ...capabilities,
+          raw: item,
+        };
+      });
+
+      const updates = {
+        cdkUsage: nextUsage,
+        upiRedeemCdkUsage: nextUsage,
+        upiRedeemCdkeyUsage: nextUsage,
+      };
+      await setState(updates);
+      return {
+        jobUrl,
+        action: normalizedAction,
+        checkedAt,
+        checkedCount: cdkeys.length,
+        items: resultItems,
+        updates,
+      };
+    }
+
+    function cancelUpiRedeemCdkeyJobs(inputState = {}) {
+      return operateUpiRedeemCdkeyJobs(inputState, 'cancel');
+    }
+
+    function retryUpiRedeemCdkeyJobs(inputState = {}) {
+      return operateUpiRedeemCdkeyJobs(inputState, 'retry');
     }
 
     async function checkUpiRedeemSubscriptionStatuses(inputState = {}) {
@@ -3492,12 +3724,16 @@
       checkUpiRedeemAccessTokenEligibility,
       checkRegistrationUpiTrialEligibility,
       buildUpiRedeemApiUrl,
+      buildUpiRedeemCdkeyJobsCancelApiUrl,
+      buildUpiRedeemCdkeyJobsRetryApiUrl,
       executeUpiRedeem,
       isSupportedChatGptSessionUrl,
       normalizeUpiRedeemCdkeyUsage,
       parseCdkeyPoolText,
+      cancelUpiRedeemCdkeyJobs,
       redeemUpiCredentialWithAccessToken,
       refreshUpiRedeemCdkeyStatuses,
+      retryUpiRedeemCdkeyJobs,
     };
   }
 
@@ -3505,6 +3741,3 @@
     createUpiRedeemExecutor,
   };
 });
-
-
-

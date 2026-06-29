@@ -84,23 +84,34 @@
       return count > 0 ? count : 0;
     }
 
-    function normalizeUpiRedeemAdditionalRoundCount(value, fallback = 3) {
-      const fallbackCount = Math.floor(Number(fallback) || 3);
-      const count = Math.floor(Number(value) || fallbackCount);
+    function normalizeUpiRedeemConfiguredRoundCount(value, fallback = 3) {
+      const fallbackNumber = Math.floor(Number(fallback));
+      const fallbackCount = Number.isFinite(fallbackNumber)
+        ? Math.max(0, Math.min(20, fallbackNumber))
+        : 3;
+      const rawValue = String(value ?? '').trim();
+      if (!rawValue) {
+        return fallbackCount;
+      }
+      const count = Math.floor(Number(rawValue));
+      if (!Number.isFinite(count)) {
+        return fallbackCount;
+      }
       return Math.max(0, Math.min(20, count));
     }
 
     function normalizeUpiRedeemTotalRoundLimit(value, fallback = 3) {
-      return 1 + normalizeUpiRedeemAdditionalRoundCount(value, fallback);
+      const configuredRoundCount = normalizeUpiRedeemConfiguredRoundCount(value, fallback);
+      return configuredRoundCount > 0 ? configuredRoundCount : 1;
     }
 
     function getUpiCredentialMembershipFailureLimit(row = {}) {
       const latest = state.getLatestState();
-      const rowLimit = Math.floor(Number(row.redeemFailureLimit) || 0);
-      if (rowLimit > 0) {
-        return rowLimit;
+      if (latest && Object.prototype.hasOwnProperty.call(latest, 'upiRedeemFailedAccountRetryLimit')) {
+        return normalizeUpiRedeemTotalRoundLimit(latest.upiRedeemFailedAccountRetryLimit, 3);
       }
-      return normalizeUpiRedeemTotalRoundLimit(latest?.upiRedeemFailedAccountRetryLimit, 3);
+      const rowLimit = Math.floor(Number(row.redeemFailureLimit) || 0);
+      return rowLimit > 0 ? rowLimit : normalizeUpiRedeemTotalRoundLimit(undefined, 3);
     }
 
     function isPreSubmitUpiCredentialMembershipBlockedReason(message = '') {
@@ -392,6 +403,21 @@
 
     function normalizeUpiRedeemRemoteStatus(status = '') {
       const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      switch (normalized) {
+        case 'pending_dispatch':
+        case 'dispatched':
+        case 'running':
+        case 'success':
+        case 'failed':
+        case 'timeout':
+        case 'not_found':
+          return normalized;
+        case 'cancelled':
+        case 'canceled':
+          return 'canceled';
+        default:
+          break;
+      }
       if (normalized === 'approve_blocked') {
         return 'approve_blocked';
       }
@@ -930,6 +956,7 @@
         redeemCompleted: Math.max(0, Math.floor(Number(raw.redeemCompleted) || 0)),
         flowStage: String(raw.flowStage || '').trim().toLowerCase(),
         flowStageEmail: normalizeUpiCredentialMembershipEmail(raw.flowStageEmail || ''),
+        flowMode: String(raw.flowMode || '').trim().toLowerCase(),
         paidCount: items.filter((item) => item?.status === 'paid').length,
         freeCount: items.filter((item) => item?.status === 'free').length,
         failedCount: items.filter((item) => item?.status === 'failed').length,
@@ -955,9 +982,9 @@
       return normalized || '-';
     }
 
-    function getUpiCredentialMembershipFlowTitle(stepKey = '') {
+    function getUpiCredentialMembershipFlowTitle(stepKey = '', results = getUpiCredentialMembershipCheckResults()) {
       const normalized = String(stepKey || '').trim().toLowerCase();
-      return UPI_CREDENTIAL_MEMBERSHIP_FLOW_STEPS.find((step) => step.key === normalized)?.title || '处理中';
+      return getUpiCredentialMembershipFlowSteps(results).find((step) => step.key === normalized)?.title || '处理中';
     }
 
     function compactMembershipReason(value = '', maxLength = 42) {
@@ -1165,7 +1192,7 @@
         return {
           className: 'pending',
           label: '登录中',
-          detail: '正在登录并刷新 AT',
+          detail: '正在登录',
         };
       }
       if (upiCredentialMembershipCheckingEmail && rowEmail === upiCredentialMembershipCheckingEmail) {
@@ -1452,19 +1479,44 @@
       { key: 'subscription-check', title: '查询会员资格' },
     ];
 
-    function getUpiCredentialMembershipFlowStepIndex(stepKey = '') {
-      return UPI_CREDENTIAL_MEMBERSHIP_FLOW_STEPS.findIndex((step) => step.key === stepKey);
+    const UPI_CREDENTIAL_MEMBERSHIP_LOGIN_ONLY_FLOW_STEPS = [
+      { key: 'open-chatgpt', title: '打开 ChatGPT' },
+      { key: 'login', title: '登录' },
+      { key: 'done', title: '完成' },
+    ];
+
+    function isUpiCredentialMembershipLoginOnlyFlow(results = getUpiCredentialMembershipCheckResults()) {
+      return String(results?.flowMode || '').trim().toLowerCase() === 'login-only';
     }
 
-    function normalizeUpiCredentialMembershipFlowStage(value = '') {
+    function getUpiCredentialMembershipFlowSteps(results = getUpiCredentialMembershipCheckResults()) {
+      return isUpiCredentialMembershipLoginOnlyFlow(results)
+        ? UPI_CREDENTIAL_MEMBERSHIP_LOGIN_ONLY_FLOW_STEPS
+        : UPI_CREDENTIAL_MEMBERSHIP_FLOW_STEPS;
+    }
+
+    function getUpiCredentialMembershipFlowStepIndex(stepKey = '', results = getUpiCredentialMembershipCheckResults()) {
+      return getUpiCredentialMembershipFlowSteps(results).findIndex((step) => step.key === stepKey);
+    }
+
+    function normalizeUpiCredentialMembershipFlowStage(value = '', results = getUpiCredentialMembershipCheckResults()) {
       const stage = String(value || '').trim().toLowerCase();
+      if (isUpiCredentialMembershipLoginOnlyFlow(results)) {
+        if (stage === 'open-chatgpt' || stage === 'import') {
+          return 'open-chatgpt';
+        }
+        if (stage === 'login' || stage === 'totp' || stage === 'token' || stage === 'subscription-check') {
+          return 'login';
+        }
+        return getUpiCredentialMembershipFlowStepIndex(stage, results) >= 0 ? stage : '';
+      }
       if (stage === 'upi-redeem-plus' || stage === 'confirm-plus') {
         return 'subscription-check';
       }
       if (stage === 'open-chatgpt' || stage === 'login' || stage === 'totp') {
         return 'token';
       }
-      return getUpiCredentialMembershipFlowStepIndex(stage) >= 0 ? stage : '';
+      return getUpiCredentialMembershipFlowStepIndex(stage, results) >= 0 ? stage : '';
     }
 
     function getUpiCredentialMembershipFlowStatus(stepKey = '', results = getUpiCredentialMembershipCheckResults(), rows = []) {
@@ -1473,6 +1525,7 @@
       let isRunning = results.running === true;
       const isRedeeming = results.redeeming === true;
       const source = String(results.source || '').trim().toLowerCase();
+      const loginOnlyFlow = isUpiCredentialMembershipLoginOnlyFlow(results);
       const currentFlowEmail = normalizeUpiCredentialMembershipEmail(results.flowStageEmail);
       const currentFlowItem = currentFlowEmail
         ? items.find((item) => normalizeUpiCredentialMembershipEmail(item?.email) === currentFlowEmail)
@@ -1488,19 +1541,19 @@
       }
       const isStopped = !isRunning && !isRedeeming && Boolean(results.stoppedAt || results.redeemStoppedAt);
       const activeStage = (isRunning || isRedeeming)
-        ? normalizeUpiCredentialMembershipFlowStage(results.flowStage)
+        ? normalizeUpiCredentialMembershipFlowStage(results.flowStage, results)
         : '';
       const stoppedStage = isStopped
-        ? normalizeUpiCredentialMembershipFlowStage(results.flowStage)
-          || 'subscription-check'
+        ? normalizeUpiCredentialMembershipFlowStage(results.flowStage, results)
+          || (loginOnlyFlow ? 'login' : 'subscription-check')
         : '';
       const fallbackActiveStage = !activeStage && (isRunning || isRedeeming)
-        ? (!hasRows ? 'import' : 'subscription-check')
+        ? (!hasRows ? (loginOnlyFlow ? 'open-chatgpt' : 'import') : (loginOnlyFlow ? 'login' : 'subscription-check'))
         : '';
       const runningStage = activeStage || fallbackActiveStage;
       if (runningStage) {
-        const activeIndex = getUpiCredentialMembershipFlowStepIndex(runningStage);
-        const stepIndex = getUpiCredentialMembershipFlowStepIndex(stepKey);
+        const activeIndex = getUpiCredentialMembershipFlowStepIndex(runningStage, results);
+        const stepIndex = getUpiCredentialMembershipFlowStepIndex(stepKey, results);
         if (stepIndex < 0 || activeIndex < 0) {
           return 'pending';
         }
@@ -1509,8 +1562,8 @@
         return 'pending';
       }
       if (stoppedStage) {
-        const stoppedIndex = getUpiCredentialMembershipFlowStepIndex(stoppedStage);
-        const stepIndex = getUpiCredentialMembershipFlowStepIndex(stepKey);
+        const stoppedIndex = getUpiCredentialMembershipFlowStepIndex(stoppedStage, results);
+        const stepIndex = getUpiCredentialMembershipFlowStepIndex(stepKey, results);
         if (stepIndex < 0 || stoppedIndex < 0) {
           return 'pending';
         }
@@ -1523,6 +1576,10 @@
         || rows.some((row) => normalizeUpiCredentialMembershipText(row?.accessToken || row?.accessTokenMasked));
       const hasRedeemAttempt = items.some((item) => String(item?.redeemStatus || '').trim());
       const importedFreeOnly = String(results.source || '').trim().toLowerCase() === 'txt-free' && !hasCheckedItems && !hasRedeemAttempt;
+
+      if (loginOnlyFlow) {
+        return hasRows ? 'completed' : 'pending';
+      }
 
       if (stepKey === 'import') {
         return hasRows ? 'completed' : 'pending';
@@ -1576,9 +1633,10 @@
 
     function renderUpiCredentialMembershipFlow(results = getUpiCredentialMembershipCheckResults(), rows = []) {
       const detail = getUpiCredentialMembershipFlowDetail(results);
+      const flowSteps = getUpiCredentialMembershipFlowSteps(results);
       return `
         <div class="upi-membership-flow-list" aria-label="UPI 备份会员核验流程">
-          ${UPI_CREDENTIAL_MEMBERSHIP_FLOW_STEPS.map((step, index) => {
+          ${flowSteps.map((step, index) => {
             const status = getUpiCredentialMembershipFlowStatus(step.key, results, rows);
             const statusLabel = getUpiCredentialMembershipFlowStatusLabel(status);
             return `
@@ -1698,7 +1756,7 @@
                 </label>
                 <button class="upi-membership-check-email upi-membership-check-email-action mono" type="button" data-upi-membership-check-one="${escapeHtml(email)}" ${disableSingleCheck ? 'disabled' : ''} title="${escapeHtml(singleActionTitle)}">${escapeHtml(email)}</button>
                 <button class="icloud-tag upi-membership-check-status-action ${escapeHtml(meta.className)}" type="button" data-upi-membership-check-one="${escapeHtml(email)}" ${disableSingleCheck ? 'disabled' : ''} aria-label="${escapeHtml(singleActionAria)}" title="${escapeHtml(singleActionTitle)}">${escapeHtml(meta.label)}</button>
-                <button class="icloud-tag upi-membership-check-login-action" type="button" data-upi-membership-login="${escapeHtml(email)}" ${disableLogin ? 'disabled' : ''} title="登录并刷新 AT">登录</button>
+                <button class="icloud-tag upi-membership-check-login-action" type="button" data-upi-membership-login="${escapeHtml(email)}" ${disableLogin ? 'disabled' : ''} title="登录">登录</button>
                 <button class="icloud-tag upi-membership-check-move-action" type="button" data-upi-membership-move-group="${escapeHtml(email)}" data-upi-membership-move-target="${escapeHtml(targetMoveStatus)}" ${mutatingBusy ? 'disabled' : ''}>${escapeHtml(moveLabel)}</button>
                 <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" ${mutatingBusy ? 'disabled' : ''}>删除</button>
               </div>
@@ -3040,6 +3098,7 @@
           payload: {
             email: normalizedEmail,
             source: 'row-login',
+            readAccessToken: false,
             credential: buildUpiCredentialMembershipActionCredential(row),
             settings: getMembershipCheckSettingsPayload(),
           },
@@ -3055,7 +3114,7 @@
         if (response?.item) {
           mergeUpiCredentialMembershipResultItem(response.item);
         }
-        helpers.showToast?.(`${normalizedEmail} 登录完成，已刷新 AT。`, 'success', 2200);
+        helpers.showToast?.(`${normalizedEmail} 登录完成。`, 'success', 2200);
       } catch (error) {
         helpers.showToast?.(`登录 ${normalizedEmail} 失败：${error.message}`, 'error');
       } finally {
@@ -3831,5 +3890,3 @@
     createAccountRecordsManager,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
-
-

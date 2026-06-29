@@ -879,6 +879,7 @@ let SKIPPABLE_STEPS = new Set(STEP_IDS);
 let NODE_IDS = workflowNodes.map((node) => String(node.nodeId || '').trim()).filter(Boolean);
 let NODE_DEFAULT_STATUSES = Object.fromEntries(NODE_IDS.map((nodeId) => [nodeId, 'pending']));
 let SKIPPABLE_NODES = new Set(NODE_IDS);
+const INDEPENDENT_EXECUTE_NODES = new Set(['enable-totp-mfa']);
 const AUTO_DELAY_MIN_MINUTES = 1;
 const AUTO_DELAY_MAX_MINUTES = 1440;
 const AUTO_DELAY_DEFAULT_MINUTES = 30;
@@ -3089,6 +3090,18 @@ function normalizeUpiRedeemSubscriptionPlanType(value = '') {
   return normalized;
 }
 
+function normalizeUpiRedeemJobCapabilityValue(value) {
+  if (value === true) {
+    return true;
+  }
+  if (value === false || value === null || value === undefined) {
+    return false;
+  }
+  return ['1', 'true', 'yes', 'y', 'ok', 'active', 'success'].includes(
+    String(value || '').trim().toLowerCase()
+  );
+}
+
 function normalizeUpiRedeemCdkeyUsageValue(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -3114,6 +3127,10 @@ function normalizeUpiRedeemCdkeyUsageValue(value = {}) {
       remoteStatus: String(item.remoteStatus || '').trim(),
       remoteMessage: String(item.remoteMessage || '').trim(),
       remoteCheckedAt: Math.max(0, Number(item.remoteCheckedAt) || 0),
+      canCancel: normalizeUpiRedeemJobCapabilityValue(item.canCancel ?? item.can_cancel),
+      canRetry: normalizeUpiRedeemJobCapabilityValue(item.canRetry ?? item.can_retry),
+      canReuseToken: normalizeUpiRedeemJobCapabilityValue(item.canReuseToken ?? item.can_reuse_token),
+      hasAccessToken: normalizeUpiRedeemJobCapabilityValue(item.hasAccessToken ?? item.has_access_token),
       retryCount: Math.max(0, Math.floor(Number(item.retryCount) || 0)),
       lastRetryAt: Math.max(0, Number(item.lastRetryAt) || 0),
       retrying: item.retrying === true,
@@ -3161,7 +3178,7 @@ function buildCdkPoolStatePatch(poolText = '', usage = {}) {
 
 const UPI_REDEEM_REMOTE_STATUS_LABELS = Object.freeze({
   pending: '等待处理',
-  pending_dispatch: '待兑换',
+  pending_dispatch: '等待兑换',
   dispatched: '已派发',
   dispatching: '派发中',
   running: '兑换中',
@@ -3174,11 +3191,11 @@ const UPI_REDEEM_REMOTE_STATUS_LABELS = Object.freeze({
   success: '兑换成功',
   failed: '兑换失败',
   timeout: '兑换超时',
-  not_found: '后端无记录',
+  not_found: '未找到',
   rejected: '提交失败',
   approve_blocked: '审核阻塞',
   canceled: '已取消',
-  cancelled: '充值失败',
+  cancelled: '已取消',
   unused: '可用',
   available: '可用',
   new: '可用',
@@ -3225,6 +3242,21 @@ function isUpiRedeemDuplicateCdkeyMessage(message = '') {
 
 function normalizeUpiRedeemRemoteStatusValue(status = '') {
   const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  switch (normalized) {
+    case 'pending_dispatch':
+    case 'dispatched':
+    case 'running':
+    case 'success':
+    case 'failed':
+    case 'timeout':
+    case 'not_found':
+      return normalized;
+    case 'cancelled':
+    case 'canceled':
+      return 'canceled';
+    default:
+      break;
+  }
   if (normalized === 'approve_blocked') {
     return 'approve_blocked';
   }
@@ -3353,20 +3385,25 @@ function getUpiRedeemRemoteStatusClass(status = '', used = false, enabled = true
   return enabled ? 'active' : '';
 }
 
-function getRestartableCanceledUpiRedeemCdkeyDisplay(entry = {}, used = false) {
+function canCancelUpiRedeemCdkeyJob(entry = {}, used = false) {
   if (used || entry?.enabled === false || entry?.subscriptionActive === true) {
-    return null;
+    return false;
+  }
+  return entry?.canCancel === true;
+}
+
+function canRetryUpiRedeemCdkeyJob(entry = {}, used = false) {
+  if (used || entry?.enabled === false || entry?.subscriptionActive === true) {
+    return false;
   }
   const remoteStatus = normalizeUpiRedeemRemoteStatusValue(entry?.remoteStatus);
   const remoteMessageStatus = normalizeUpiRedeemRemoteStatusValue(entry?.remoteMessage);
-  if (remoteStatus !== 'canceled' && remoteMessageStatus !== 'canceled') {
-    return null;
+  if (remoteStatus === 'canceled' || remoteStatus === 'not_found' || remoteMessageStatus === 'canceled' || remoteMessageStatus === 'not_found') {
+    return false;
   }
-  return {
-    label: '可重启',
-    className: 'active',
-    title: '后端已取消，可通过“一键兑换 CDK”重新发起兑换',
-  };
+  return entry?.canRetry === true
+    && entry?.canReuseToken === true
+    && entry?.hasAccessToken === true;
 }
 
 function getUpiRedeemSubscriptionPlanLabel(value = '') {
@@ -3481,6 +3518,10 @@ function getDefaultUpiRedeemCdkeyUsageEntry() {
     remoteStatus: '',
     remoteMessage: '',
     remoteCheckedAt: 0,
+    canCancel: false,
+    canRetry: false,
+    canReuseToken: false,
+    hasAccessToken: false,
     retryCount: 0,
     lastRetryAt: 0,
     retrying: false,
@@ -3500,9 +3541,20 @@ function getUpiRedeemCdkeyUsageEntry(usage = {}, cdkey = '') {
   };
 }
 
+function isUpiRedeemCdkeyPoolMutationLocked() {
+  return (typeof isAutoRunLockedPhase === 'function' && isAutoRunLockedPhase())
+    || (typeof isAutoRunPausedPhase === 'function' && isAutoRunPausedPhase())
+    || (typeof isAutoRunScheduledPhase === 'function' && isAutoRunScheduledPhase());
+}
+
 function updateUpiRedeemCdkeyEnabled(cdkey = '', enabled = true) {
   const normalizedCdkey = String(cdkey || '').trim();
   if (!normalizedCdkey) {
+    return;
+  }
+  if (isUpiRedeemCdkeyPoolMutationLocked()) {
+    showToast('自动流程运行中只能追加导入 CDK，不能修改已保存 CDK 状态。', 'warn', 2200);
+    renderUpiRedeemCdkeyStatusList(latestState);
     return;
   }
   const usage = getStoredCdkUsage(latestState);
@@ -3526,6 +3578,11 @@ function markUpiRedeemCdkeyUnused(cdkey = '') {
   if (!normalizedCdkey) {
     return;
   }
+  if (isUpiRedeemCdkeyPoolMutationLocked()) {
+    showToast('自动流程运行中只能追加导入 CDK，不能重置已保存 CDK。', 'warn', 2200);
+    renderUpiRedeemCdkeyStatusList(latestState);
+    return;
+  }
   const usage = getStoredCdkUsage(latestState);
   const currentEntry = getUpiRedeemCdkeyUsageEntry(usage, normalizedCdkey);
   const nextUsage = {
@@ -3537,6 +3594,10 @@ function markUpiRedeemCdkeyUnused(cdkey = '') {
       remoteStatus: '',
       remoteMessage: '',
       remoteCheckedAt: 0,
+      canCancel: false,
+      canRetry: false,
+      canReuseToken: false,
+      hasAccessToken: false,
       retryCount: 0,
       lastRetryAt: 0,
       retrying: false,
@@ -3559,6 +3620,11 @@ function deleteUpiRedeemCdkey(cdkey = '') {
   if (!normalizedCdkey) {
     return;
   }
+  if (isUpiRedeemCdkeyPoolMutationLocked()) {
+    showToast('自动流程运行中只能追加导入 CDK，不能删除已保存 CDK。', 'warn', 2200);
+    renderUpiRedeemCdkeyStatusList(latestState);
+    return;
+  }
   const currentPoolText = getStoredCdkPoolText(latestState);
   const nextCdkeys = parseUpiRedeemCdkeyPoolTextValue(currentPoolText)
     .filter((item) => item !== normalizedCdkey);
@@ -3573,6 +3639,11 @@ function deleteUpiRedeemCdkey(cdkey = '') {
 }
 
 async function deleteAllUpiRedeemCdkeys() {
+  if (isUpiRedeemCdkeyPoolMutationLocked()) {
+    showToast('自动流程运行中只能追加导入 CDK，不能删除 CDK 池。', 'warn', 2200);
+    updateUpiRedeemCdkeyPoolSummary(latestState, { skipRender: true });
+    return;
+  }
   const currentCdkeys = parseUpiRedeemCdkeyPoolTextValue(getStoredCdkPoolText(latestState));
   if (!currentCdkeys.length) {
     showToast('当前没有已保存的 CDK。', 'info', 1800);
@@ -3684,8 +3755,15 @@ function getCurrentUpiRedeemClientId() {
   ).trim();
 }
 
-function isUpiRedeemCdkeyStatusAutoRefreshVisible() {
+function isDocumentVisibleForUpiRedeemCdkeyAutoRefresh() {
   if (typeof document !== 'undefined' && document.hidden) {
+    return false;
+  }
+  return true;
+}
+
+function isUpiRedeemCdkeyStatusAutoRefreshVisible() {
+  if (!isDocumentVisibleForUpiRedeemCdkeyAutoRefresh()) {
     return false;
   }
   const selectedUpiPayment = Boolean(inputPlusModeEnabled?.checked)
@@ -3698,9 +3776,30 @@ function isUpiRedeemCdkeyStatusAutoRefreshVisible() {
   return selectedUpiPayment && cdkeyRowVisible;
 }
 
+function hasPendingUpiRedeemMembershipStatusRefresh(state = latestState) {
+  const items = Array.isArray(state?.upiCredentialMembershipCheckResults?.items)
+    ? state.upiCredentialMembershipCheckResults.items
+    : [];
+  return items.some((item) => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+    const cdkey = String(item.upiRedeemCdkey || item.cdkey || '').trim();
+    if (!cdkey) {
+      return false;
+    }
+    return isUpiRedeemRemoteActiveStatus(item.redeemStatus)
+      || isUpiRedeemRemoteActiveStatus(item.remoteStatus)
+      || isUpiRedeemRemoteActiveStatus(item.redeemReason);
+  });
+}
+
 function shouldAutoRefreshUpiRedeemCdkeyStatuses() {
+  const refreshVisible = isUpiRedeemCdkeyStatusAutoRefreshVisible();
+  const pendingMembershipRefresh = isDocumentVisibleForUpiRedeemCdkeyAutoRefresh()
+    && hasPendingUpiRedeemMembershipStatusRefresh(latestState);
   return Boolean(
-    isUpiRedeemCdkeyStatusAutoRefreshVisible()
+    (refreshVisible || pendingMembershipRefresh)
     && getCurrentUpiRedeemCdkeys().length
     && getCurrentUpiRedeemExternalApiKey()
   );
@@ -3783,6 +3882,7 @@ async function refreshUpiRedeemCdkeyStatuses(options = {}) {
           latestState?.upiRedeemFailedAccountRetryLimit
         ),
         autoRefresh: Boolean(options.autoRefresh),
+        skipAutoRetry: Boolean(options.skipAutoRetry),
         cdkPoolText: getStoredCdkPoolText(latestState),
         upiRedeemCdkPoolText: getStoredCdkPoolText(latestState),
         upiRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
@@ -3797,11 +3897,14 @@ async function refreshUpiRedeemCdkeyStatuses(options = {}) {
     renderUpiRedeemCdkeyStatusList(latestState);
     updateUpiRedeemCdkeyPoolSummary(latestState, { skipRender: true });
     if (!silent) {
-      const autoRetrySubmitted = Math.max(0, Math.floor(Number(response?.autoRetry?.submitted) || 0));
-      const autoRetryAttempted = Math.max(0, Math.floor(Number(response?.autoRetry?.attempted) || 0));
-      const autoRetryText = autoRetrySubmitted || autoRetryAttempted
-        ? `失败账号已按队列换卡处理 ${autoRetrySubmitted || autoRetryAttempted} 个。`
-        : '';
+      const backendRetrySubmitted = Math.max(0, Math.floor(Number(response?.autoRetry?.backendJobRetry?.submitted) || 0));
+      const localRetrySubmitted = Math.max(0, Math.floor(Number(response?.autoRetry?.localRetry?.submitted) || 0));
+      const localRetryAttempted = Math.max(0, Math.floor(Number(response?.autoRetry?.localRetry?.attempted) || 0));
+      const autoRetryParts = [
+        backendRetrySubmitted ? `后端重试重新入列 ${backendRetrySubmitted} 个` : '',
+        localRetrySubmitted || localRetryAttempted ? `换卡续兑 ${localRetrySubmitted || localRetryAttempted} 个` : '',
+      ].filter(Boolean);
+      const autoRetryText = autoRetryParts.length ? `${autoRetryParts.join('，')}。` : '';
       showToast(`CDK 状态已刷新：${response?.checkedCount || cdkeys.length} 条。${autoRetryText}`, 'success');
     }
     return response || {};
@@ -3831,6 +3934,75 @@ async function refreshUpiRedeemCdkeyStatuses(options = {}) {
   }
 }
 
+function getUpiRedeemCdkeyJobOperationResultItem(response = {}, cdkey = '') {
+  const normalizedCdkey = String(cdkey || '').trim().toLowerCase();
+  return (Array.isArray(response?.items) ? response.items : [])
+    .find((item) => String(item?.cdkey || item?.cdk || '').trim().toLowerCase() === normalizedCdkey)
+    || null;
+}
+
+async function operateUpiRedeemCdkeyJob(cdkey = '', action = '') {
+  const normalizedCdkey = String(cdkey || '').trim();
+  const normalizedAction = String(action || '').trim().toLowerCase();
+  if (!normalizedCdkey || !['cancel', 'retry'].includes(normalizedAction)) {
+    return;
+  }
+  if (isUpiRedeemCdkeyPoolMutationLocked()) {
+    showToast('自动流程运行中不能手动取消或重试 CDK 任务。', 'warn', 2200);
+    renderUpiRedeemCdkeyStatusList(latestState);
+    return;
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    type: normalizedAction === 'cancel'
+      ? 'CANCEL_UPI_REDEEM_CDKEY_JOBS'
+      : 'RETRY_UPI_REDEEM_CDKEY_JOBS',
+    source: 'sidepanel',
+    payload: {
+      cdkeys: [normalizedCdkey],
+      upiRedeemExternalApiKey: getCurrentUpiRedeemExternalApiKey(),
+      upiRedeemClientId: getCurrentUpiRedeemClientId(),
+      cdkPoolText: getStoredCdkPoolText(latestState),
+      upiRedeemCdkPoolText: getStoredCdkPoolText(latestState),
+      upiRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
+    },
+  });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+  if (response?.updates) {
+    syncLatestState(response.updates);
+  }
+  renderUpiRedeemCdkeyStatusList(latestState);
+  updateUpiRedeemCdkeyPoolSummary(latestState, { skipRender: true });
+
+  const resultItem = getUpiRedeemCdkeyJobOperationResultItem(response, normalizedCdkey);
+  const succeeded = normalizedAction === 'cancel'
+    ? resultItem?.cancelled === true
+    : resultItem?.retried === true;
+  const reason = String(resultItem?.reason || '').trim();
+  if (succeeded) {
+    showToast(
+      normalizedAction === 'cancel'
+        ? `CDK ${normalizedCdkey} 已提交取消。`
+        : `CDK ${normalizedCdkey} 已复用后端 access_token 重新入列。`,
+      'success'
+    );
+  } else {
+    showToast(
+      `${normalizedAction === 'cancel' ? '取消' : '重试'}未完成：${reason || '后端未返回成功结果。'}`,
+      'warn'
+    );
+  }
+
+  await refreshUpiRedeemCdkeyStatuses({
+    cdkeys: [normalizedCdkey],
+    silent: true,
+    skipAutoRetry: true,
+  });
+  scheduleUpiRedeemCdkeyStatusAutoRefresh();
+}
+
 function restoreScrollTopAfterRender(node, scrollTop = 0) {
   if (!node || scrollTop <= 0) {
     return;
@@ -3852,6 +4024,7 @@ function renderUpiRedeemCdkeyStatusList(state = latestState) {
   const poolText = getStoredCdkPoolText(state);
   const cdkeys = parseUpiRedeemCdkeyPoolTextValue(poolText);
   const usage = getStoredCdkUsage(state);
+  const mutationLocked = isUpiRedeemCdkeyPoolMutationLocked();
   const previousScrollTop = upiRedeemCdkeyStatusList.scrollTop || 0;
   upiRedeemCdkeyStatusList.textContent = '';
   if (!cdkeys.length) {
@@ -3873,7 +4046,6 @@ function renderUpiRedeemCdkeyStatusList(state = latestState) {
     const remoteStatus = String(entry.remoteStatus || '').trim().toLowerCase();
     const remoteLabel = getUpiRedeemRemoteStatusLabel(remoteStatus);
     const subscriptionDisplay = getUpiRedeemCdkeySubscriptionDisplay(entry);
-    const restartableCanceledDisplay = getRestartableCanceledUpiRedeemCdkeyDisplay(entry, used);
     const duplicateCdkeyStatusDisplay = (
       isUpiRedeemDuplicateCdkeyMessage(remoteStatus)
       || isUpiRedeemDuplicateCdkeyMessage(entry.remoteMessage)
@@ -3894,11 +4066,13 @@ function renderUpiRedeemCdkeyStatusList(state = latestState) {
 
     const label = document.createElement('label');
     label.className = 'toggle-switch upi-redeem-cdkey-enabled-toggle';
-    label.title = '控制该 CDK 是否参与自动兑换；已兑换或处理中 CDK 不会再次提交';
+    label.title = mutationLocked
+      ? '自动流程运行中不能修改已保存 CDK 状态'
+      : '控制该 CDK 是否参与自动兑换；已兑换或处理中 CDK 不会再次提交';
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.checked = enabled;
-    checkbox.disabled = false;
+    checkbox.disabled = mutationLocked;
     checkbox.setAttribute('aria-label', `启用 CDK ${cdkey}`);
     const track = document.createElement('span');
     track.className = 'toggle-switch-track';
@@ -3913,30 +4087,71 @@ function renderUpiRedeemCdkeyStatusList(state = latestState) {
     cdkeyText.textContent = cdkey;
 
     const status = document.createElement(used ? 'button' : 'span');
-    status.className = `icloud-tag ${duplicateCdkeyStatusDisplay?.className || restartableCanceledDisplay?.className || statusSubscriptionDisplay?.className || getUpiRedeemRemoteStatusClass(remoteStatus, used, enabled)}${used ? ' upi-redeem-cdkey-status-action' : ''}`;
+    status.className = `icloud-tag ${duplicateCdkeyStatusDisplay?.className || statusSubscriptionDisplay?.className || getUpiRedeemRemoteStatusClass(remoteStatus, used, enabled)}${used ? ' upi-redeem-cdkey-status-action' : ''}`;
     status.textContent = duplicateCdkeyStatusDisplay?.label
-      || restartableCanceledDisplay?.label
       || statusSubscriptionDisplay?.label
       || remoteLabel
       || (used ? '已使用' : enabled ? '启用' : '停用');
     status.title = duplicateCdkeyStatusDisplay?.title
-      || restartableCanceledDisplay?.title
       || statusSubscriptionDisplay?.title
       || remoteStatusTitle
       || (used ? '点击清除旧的已用标记；已确认兑换的 CDK 不会再次提交' : '远端状态');
     if (used) {
       status.type = 'button';
+      status.disabled = mutationLocked;
       status.setAttribute('aria-label', `将 CDK ${cdkey} 设为未用`);
       status.addEventListener('click', () => {
         markUpiRedeemCdkeyUnused(cdkey);
       });
     }
 
+    const actionCell = document.createElement('div');
+    actionCell.className = 'upi-redeem-cdkey-actions';
+    if (!mutationLocked && canCancelUpiRedeemCdkeyJob(entry, used)) {
+      const cancelButton = document.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.className = 'btn btn-ghost btn-xs upi-redeem-cdkey-job-action';
+      cancelButton.textContent = '取消';
+      cancelButton.title = '调用后端 cdkey-jobs/cancel 取消该 CDK 任务';
+      cancelButton.setAttribute('aria-label', `取消 CDK 任务 ${cdkey}`);
+      cancelButton.addEventListener('click', () => {
+        cancelButton.disabled = true;
+        operateUpiRedeemCdkeyJob(cdkey, 'cancel').catch((error) => {
+          showToast(`取消 CDK 任务失败：${error.message}`, 'error');
+        }).finally(() => {
+          if (cancelButton.isConnected) {
+            cancelButton.disabled = false;
+          }
+        });
+      });
+      actionCell.appendChild(cancelButton);
+    }
+    if (!mutationLocked && canRetryUpiRedeemCdkeyJob(entry, used)) {
+      const retryButton = document.createElement('button');
+      retryButton.type = 'button';
+      retryButton.className = 'btn btn-primary btn-xs upi-redeem-cdkey-job-action';
+      retryButton.textContent = '重试';
+      retryButton.title = '调用后端 cdkey-jobs/retry，复用已绑定的 access_token 重新入列';
+      retryButton.setAttribute('aria-label', `重试 CDK 任务 ${cdkey}`);
+      retryButton.addEventListener('click', () => {
+        retryButton.disabled = true;
+        operateUpiRedeemCdkeyJob(cdkey, 'retry').catch((error) => {
+          showToast(`重试 CDK 任务失败：${error.message}`, 'error');
+        }).finally(() => {
+          if (retryButton.isConnected) {
+            retryButton.disabled = false;
+          }
+        });
+      });
+      actionCell.appendChild(retryButton);
+    }
+
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
-    deleteButton.className = 'icloud-tag danger upi-redeem-cdkey-delete-action';
+    deleteButton.className = 'btn btn-danger btn-xs upi-redeem-cdkey-delete-action';
     deleteButton.textContent = '删除';
-    deleteButton.title = '点击删除该 CDK';
+    deleteButton.disabled = mutationLocked;
+    deleteButton.title = mutationLocked ? '自动流程运行中不能删除已保存 CDK' : '点击删除该 CDK';
     deleteButton.setAttribute('aria-label', `删除 CDK ${cdkey}`);
     deleteButton.addEventListener('click', () => {
       deleteUpiRedeemCdkey(cdkey);
@@ -3949,7 +4164,8 @@ function renderUpiRedeemCdkeyStatusList(state = latestState) {
     item.appendChild(label);
     item.appendChild(cdkeyText);
     item.appendChild(status);
-    item.appendChild(deleteButton);
+    actionCell.appendChild(deleteButton);
+    item.appendChild(actionCell);
     upiRedeemCdkeyStatusList.appendChild(item);
   });
   restoreScrollTopAfterRender(upiRedeemCdkeyStatusList, previousScrollTop);
@@ -3972,8 +4188,22 @@ function updateUpiRedeemCdkeyPoolSummary(state = latestState, options = {}) {
     return isUpiRedeemCdkeySelectableForRedeem(entry);
   }).length;
   upiRedeemCdkeyPoolSummary.textContent = `总数 ${cdkeys.length} / 启用 ${enabledCount} / 可用 ${availableCount}`;
+  const mutationLocked = isUpiRedeemCdkeyPoolMutationLocked();
+  if (inputUpiRedeemCdkeyPool) {
+    inputUpiRedeemCdkeyPool.disabled = false;
+    inputUpiRedeemCdkeyPool.title = mutationLocked
+      ? '自动流程运行中允许追加导入新的 CDK'
+      : '';
+  }
+  if (btnImportCdkPool) {
+    btnImportCdkPool.disabled = false;
+    btnImportCdkPool.title = mutationLocked
+      ? '自动流程运行中允许追加导入新的 CDK'
+      : '';
+  }
   if (btnDeleteAllCdkPool) {
-    btnDeleteAllCdkPool.disabled = cdkeys.length === 0;
+    btnDeleteAllCdkPool.disabled = mutationLocked || cdkeys.length === 0;
+    btnDeleteAllCdkPool.title = mutationLocked ? '自动流程运行中不能删除 CDK 池' : '';
   }
   if (!options.skipRender) {
     renderUpiRedeemCdkeyStatusList(state);
@@ -13762,9 +13992,11 @@ function setSettingsCardLocked(locked) {
   settingsCard.classList.toggle('is-locked', locked);
   settingsCard.toggleAttribute('inert', false);
   Array.from(settingsCard.children).forEach((child) => {
-    const keepInteractive = child?.id === 'row-custom-email-pool';
+    const keepInteractive = child?.id === 'row-custom-email-pool'
+      || child?.id === 'row-upi-redeem-cdkey-pool';
     child.toggleAttribute('inert', Boolean(locked && !keepInteractive));
   });
+  updateUpiRedeemCdkeyPoolSummary(latestState, { skipRender: true });
 }
 
 function setFreePhoneReuseControlsLocked(locked) {
@@ -17561,6 +17793,10 @@ function updateProgressCounter() {
   stepsProgress.textContent = `${completed} / ${STEP_IDS.length}`;
 }
 
+function canExecuteNodeWithoutPreviousNode(nodeId = '') {
+  return INDEPENDENT_EXECUTE_NODES.has(String(nodeId || '').trim());
+}
+
 function updateButtonStates() {
   const statuses = getNodeStatuses();
   const anyRunning = Object.values(statuses).some(s => s === 'running');
@@ -17584,7 +17820,13 @@ function updateButtonStates() {
       const prevNodeId = currentIndex > 0 ? NODE_IDS[currentIndex - 1] : null;
       const prevStatus = prevNodeId === null ? 'completed' : statuses[prevNodeId];
       const currentStatus = statuses[nodeId];
-      btn.disabled = !(isDoneStatus(prevStatus) || currentStatus === 'failed' || isDoneStatus(currentStatus) || currentStatus === 'stopped');
+      btn.disabled = !(
+        canExecuteNodeWithoutPreviousNode(nodeId)
+        || isDoneStatus(prevStatus)
+        || currentStatus === 'failed'
+        || isDoneStatus(currentStatus)
+        || currentStatus === 'stopped'
+      );
     }
   }
 
@@ -23170,7 +23412,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
       }
       if (
-        message.payload.cdkPoolText !== undefined
+        message.payload.upiCredentialMembershipCheckResults !== undefined
+        || message.payload.cdkPoolText !== undefined
         || message.payload.cdkUsage !== undefined
         || message.payload.upiRedeemCdkPoolText !== undefined
         || message.payload.upiRedeemCdkUsage !== undefined
@@ -24119,10 +24362,3 @@ void restoreState().then(async () => {
 }).catch((err) => {
   console.error('Failed to initialize sidepanel state:', err);
 });
-
-
-
-
-
-
-

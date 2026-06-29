@@ -44,6 +44,14 @@
     return String(value || '').trim();
   }
 
+  function normalizeBoolean(value) {
+    if (value === true) return true;
+    if (value === false || value === null || value === undefined) return false;
+    return ['1', 'true', 'yes', 'y', 'ok', 'active', 'success'].includes(
+      normalizeString(value).toLowerCase()
+    );
+  }
+
   function normalizeFlowStage(value = '') {
     const stage = normalizeString(value).toLowerCase();
     return FLOW_STAGE_KEYS.has(stage) ? stage : '';
@@ -142,6 +150,10 @@
         lastFailedEmail: normalizeEmail(entry.lastFailedEmail),
         lastFailedAt: Math.max(0, Math.floor(Number(entry.lastFailedAt) || 0)),
         lastFailedReason: normalizeString(entry.lastFailedReason),
+        canCancel: normalizeBoolean(entry.canCancel ?? entry.can_cancel),
+        canRetry: normalizeBoolean(entry.canRetry ?? entry.can_retry),
+        canReuseToken: normalizeBoolean(entry.canReuseToken ?? entry.can_reuse_token),
+        hasAccessToken: normalizeBoolean(entry.hasAccessToken ?? entry.has_access_token),
       }];
     }).filter(([cdkey]) => Boolean(cdkey)));
   }
@@ -202,6 +214,21 @@
 
   function normalizeUpiRedeemRemoteStatus(status = '') {
     const normalized = normalizeString(status).toLowerCase().replace(/[\s-]+/g, '_');
+    switch (normalized) {
+      case 'pending_dispatch':
+      case 'dispatched':
+      case 'running':
+      case 'success':
+      case 'failed':
+      case 'timeout':
+      case 'not_found':
+        return normalized;
+      case 'cancelled':
+      case 'canceled':
+        return 'canceled';
+      default:
+        break;
+    }
     if (normalized === 'approve_blocked') return 'approve_blocked';
     if (/兑换成功|成功|已兑换|已使用|已用/.test(normalized)) return 'success';
     if (/提交失败|兑换失败|充值失败|失败|超时|拒绝|已拒绝|取消|已取消/.test(normalized)) {
@@ -312,15 +339,16 @@
     return Math.max(0, Math.min(UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX, numeric));
   }
 
-  function normalizeRedeemAdditionalRoundCount(value, fallback = DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT) {
+  function normalizeRedeemConfiguredRoundCount(value, fallback = DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT) {
     return normalizeFailedAccountRetryLimit(value, fallback);
   }
 
-  function getRedeemTotalRoundLimit(additionalRoundCount = 0) {
-    return 1 + Math.max(0, Math.min(
+  function getRedeemTotalRoundLimit(configuredRoundCount = 0) {
+    const roundCount = Math.max(0, Math.min(
       UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX,
-      Math.floor(Number(additionalRoundCount) || 0)
+      Math.floor(Number(configuredRoundCount) || 0)
     ));
+    return roundCount > 0 ? roundCount : 1;
   }
 
   function getRedeemRoundLabel(roundNumber = 1, totalRoundLimit = 1) {
@@ -647,6 +675,9 @@
       redeemStoppedAt: normalizeString(source.redeemStoppedAt),
       flowStage: normalizeFlowStage(source.flowStage),
       flowStageEmail: normalizeEmail(source.flowStageEmail),
+      flowMode: normalizeString(source.flowMode) === 'login-only' && normalizeString(source.source) === 'row-login'
+        ? 'login-only'
+        : '',
       source: normalizeString(source.source),
       total: Math.max(0, Math.floor(Number(source.total) || items.length || 0)),
       completed: Math.max(0, Math.floor(Number(source.completed) || items.length || 0)),
@@ -902,6 +933,10 @@
         remoteStatus: normalizeString(nextEntry.remoteStatus),
         remoteMessage: normalizeString(nextEntry.remoteMessage),
         remoteCheckedAt: Math.max(0, Math.floor(Number(nextEntry.remoteCheckedAt) || 0)),
+        canCancel: normalizeBoolean(nextEntry.canCancel ?? nextEntry.can_cancel),
+        canRetry: normalizeBoolean(nextEntry.canRetry ?? nextEntry.can_retry),
+        canReuseToken: normalizeBoolean(nextEntry.canReuseToken ?? nextEntry.can_reuse_token),
+        hasAccessToken: normalizeBoolean(nextEntry.hasAccessToken ?? nextEntry.has_access_token),
         retryCount: normalizeRetryCount(nextEntry.retryCount),
         lastRetryAt: Math.max(0, Math.floor(Number(nextEntry.lastRetryAt) || 0)),
         retrying: nextEntry.retrying === true,
@@ -2097,6 +2132,7 @@
 
     async function submitLoginTotpOrYieldToSessionRead(tabId, totpCode, credential, options = {}) {
       const throwIfStopRequested = resolveStopChecker(options, 'check');
+      const membershipLogLabel = normalizeString(options.membershipLogLabel || '获取/确认 AT') || '获取/确认 AT';
       try {
         const codeResult = await sendAuthMessage(tabId, {
           type: 'FILL_CODE',
@@ -2107,7 +2143,7 @@
             purpose: 'login',
             loginIdentifierType: 'email',
             membershipCheck: true,
-            membershipLogLabel: '获取/确认 AT',
+            membershipLogLabel,
           },
         }, {
           timeoutMs: 45000,
@@ -2138,6 +2174,8 @@
     async function loginAndReadAccessToken(credential, state, options = {}) {
       const throwIfStopRequested = resolveStopChecker(options, 'check');
       const allowSessionMismatchRetry = options.sessionMismatchRetry !== false;
+      const shouldReadAccessToken = options.readAccessToken !== false;
+      const membershipLogLabel = shouldReadAccessToken ? '获取/确认 AT' : '登录';
       const reportStage = async (stage) => {
         throwIfStopRequested();
         if (typeof options.onStage === 'function') {
@@ -2146,8 +2184,10 @@
         throwIfStopRequested();
       };
       await reportStage('open-chatgpt');
-      const existingSession = await tryReadExistingCredentialSession(credential, { throwIfStopRequested });
-      if (hasChatGptSessionPayload(existingSession?.session || existingSession)) {
+      const existingSession = shouldReadAccessToken
+        ? await tryReadExistingCredentialSession(credential, { throwIfStopRequested })
+        : null;
+      if (shouldReadAccessToken && hasChatGptSessionPayload(existingSession?.session || existingSession)) {
         await reportStage('token');
         await addLog(
           `UPI 备份核验：${credential.email} 获取/确认 AT：复用现有 ChatGPT session：session字段 ${getChatGptSessionFieldCount(existingSession?.session || existingSession)}。`,
@@ -2169,7 +2209,7 @@
         password: credential.password,
         loginIdentifierType: 'email',
         membershipCheck: true,
-        membershipLogLabel: '获取/确认 AT',
+        membershipLogLabel,
       };
       const executeLoginNode = () => sendAuthMessage(tabId, {
         type: 'EXECUTE_NODE',
@@ -2202,11 +2242,13 @@
         throw new Error(loginResult.message || buildLoginFailureReason(loginChallenge, '登录未进入验证码页'));
       }
       if (loginNeedsCode) {
-        const currentSession = await tryReadCredentialSessionFromTab(tabId, credential, {
-          message: `UPI 备份核验：${credential.email} 已进入 ChatGPT 登录态，跳过提交 2FA。`,
-          throwIfStopRequested,
-        });
-        if (hasChatGptSessionPayload(currentSession?.session || currentSession)) {
+        const currentSession = shouldReadAccessToken
+          ? await tryReadCredentialSessionFromTab(tabId, credential, {
+            message: `UPI 备份核验：${credential.email} 已进入 ChatGPT 登录态，跳过提交 2FA。`,
+            throwIfStopRequested,
+          })
+          : null;
+        if (shouldReadAccessToken && hasChatGptSessionPayload(currentSession?.session || currentSession)) {
           await reportStage('token');
           await addLog(
             `UPI 备份核验：${credential.email} 获取/确认 AT：已从当前登录态读取 ChatGPT session：session字段 ${getChatGptSessionFieldCount(currentSession?.session || currentSession)}。`,
@@ -2248,8 +2290,19 @@
           if (isEmailVerificationChallenge(latestChallenge)) {
             throw new Error('登录需要邮箱一次性验证码，不能使用 2FA 动态码；请先在网页完成登录验证或换用不触发邮箱验证码的环境后重试。');
           }
-          await submitLoginTotpOrYieldToSessionRead(tabId, totp.code, credential, { throwIfStopRequested });
+          await submitLoginTotpOrYieldToSessionRead(tabId, totp.code, credential, {
+            throwIfStopRequested,
+            membershipLogLabel,
+          });
         }
+      }
+
+      if (!shouldReadAccessToken) {
+        await addLog(`UPI 账号登录：${credential.email} 已完成网页登录。`, 'ok');
+        return {
+          tabId,
+          loggedIn: true,
+        };
       }
 
       await reportStage('token');
@@ -2334,7 +2387,9 @@
         throw new Error(`${email} 缺少 2FA，无法登录。`);
       }
 
-      const source = normalizeString(input.source || currentResults.source || 'row-login');
+      const source = normalizeString(input.source || 'row-login') || 'row-login';
+      const readAccessToken = input.readAccessToken !== false && input.refreshAccessToken !== false;
+      const flowMode = readAccessToken ? '' : 'login-only';
       const saveLoginProgress = async (stage = 'login', reason = '') => {
         items = upsertResultItem(items, {
           ...baseItem,
@@ -2350,6 +2405,7 @@
           stoppedAt: '',
           flowStage: stage,
           flowStageEmail: email,
+          flowMode,
           source,
           total: Math.max(currentResults.total || 0, items.length),
           completed: Math.max(currentResults.completed || 0, items.length),
@@ -2371,12 +2427,39 @@
               'open-chatgpt': '正在打开 ChatGPT 官网',
               login: '正在登录邮箱密码',
               totp: '正在提交 2FA 验证',
-              token: '正在读取 accessToken',
+              token: readAccessToken ? '正在读取 accessToken' : '正在确认登录',
             };
             await saveLoginProgress(stage, reasonMap[stage] || '正在登录');
           },
           throwIfStopRequested: () => throwIfMembershipStopRequested('check'),
+          readAccessToken,
         });
+        if (!readAccessToken) {
+          const finishedAt = new Date().toISOString();
+          items = upsertResultItem(items, {
+            ...baseItem,
+            reason: '网页登录完成',
+          });
+          const results = await saveResults({
+            ...currentResults,
+            items,
+            running: false,
+            updatedAt: finishedAt,
+            finishedAt,
+            stoppedAt: '',
+            flowStage: '',
+            flowStageEmail: '',
+            flowMode,
+            source,
+            total: Math.max(currentResults.total || 0, items.length),
+            completed: Math.max(currentResults.completed || 0, items.length),
+          });
+          await addLog(`UPI 账号登录：${email} 已登录。`, 'ok');
+          return {
+            item: results.items.find((item) => normalizeEmail(item?.email) === email) || null,
+            results,
+          };
+        }
         const accessToken = normalizeString(session.accessToken || getChatGptSessionAccessToken(session.session || session));
         const finishedAt = new Date().toISOString();
         items = upsertResultItem(items, {
@@ -2395,6 +2478,7 @@
           stoppedAt: '',
           flowStage: '',
           flowStageEmail: '',
+          flowMode: '',
           source,
           total: Math.max(currentResults.total || 0, items.length),
           completed: Math.max(currentResults.completed || 0, items.length),
@@ -2419,6 +2503,7 @@
           stoppedAt: isMembershipStopError(error) ? failedAt : currentResults.stoppedAt,
           flowStage: '',
           flowStageEmail: '',
+          flowMode,
           source,
           total: Math.max(currentResults.total || 0, items.length),
           completed: Math.max(currentResults.completed || 0, items.length),
@@ -2855,10 +2940,11 @@
       const deleteBackups = input.deleteBackups !== false;
       const redeemAutoDeletedEmails = [];
       const runtimeSettings = sanitizeUpiRedeemRuntimeSettings(input.settings);
-      const redeemFailureLimit = normalizeFailedAccountRetryLimit(
+      const configuredRoundCount = normalizeFailedAccountRetryLimit(
         getUpiRedeemStateValue(runtimeSettings, 'upiRedeemFailedAccountRetryLimit'),
         DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT
       );
+      const redeemFailureLimit = getRedeemTotalRoundLimit(configuredRoundCount);
       const credentials = filterRedeemableCredentialsForCurrentResults(requestedCredentials, {
         ...currentResults,
         items,
@@ -3582,11 +3668,11 @@
       let items = mergeCredentialsIntoResultItems(currentResults.items, requestedCredentials);
       const source = normalizeString(input.source || currentResults.source || 'free-selected');
       const runtimeSettings = sanitizeUpiRedeemRuntimeSettings(input.settings);
-      const additionalRoundCount = normalizeRedeemAdditionalRoundCount(
+      const configuredRoundCount = normalizeRedeemConfiguredRoundCount(
         getUpiRedeemStateValue(runtimeSettings, 'upiRedeemFailedAccountRetryLimit'),
         DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT
       );
-      const totalRoundLimit = getRedeemTotalRoundLimit(additionalRoundCount);
+      const totalRoundLimit = getRedeemTotalRoundLimit(configuredRoundCount);
       const lookup = {};
       items.forEach((item) => {
         const email = normalizeEmail(item?.email);
@@ -3683,7 +3769,7 @@
 
         let roundQueue = credentials;
         await addLog(
-          `UPI Free 分组 CDK 兑换：开始处理 ${credentials.length} 个账号；失败账号后续轮数 ${additionalRoundCount}，总轮数 ${totalRoundLimit}。`,
+          `UPI Free 分组 CDK 兑换：开始处理 ${credentials.length} 个账号；配置总轮数 ${configuredRoundCount}，实际总轮数 ${totalRoundLimit}。`,
           'info'
         );
 
@@ -4419,13 +4505,13 @@
       }
 
       const initialState = await getFreshUpiRedeemRuntimeState(input);
-      const additionalRoundCount = normalizeRedeemAdditionalRoundCount(
+      const configuredRoundCount = normalizeRedeemConfiguredRoundCount(
         input.upiRedeemFailedAccountRetryLimit ?? getUpiRedeemStateValue(initialState, 'upiRedeemFailedAccountRetryLimit'),
         DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT
       );
-      const totalRoundLimit = getRedeemTotalRoundLimit(additionalRoundCount);
+      const totalRoundLimit = getRedeemTotalRoundLimit(configuredRoundCount);
       summary.limit = totalRoundLimit;
-      if (additionalRoundCount <= 0) {
+      if (configuredRoundCount <= 0) {
         return {
           ...summary,
           skipped: true,

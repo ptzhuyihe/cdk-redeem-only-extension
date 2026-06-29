@@ -3992,13 +3992,112 @@ function buildSettingsExportFilename(date = new Date()) {
   return `${SETTINGS_EXPORT_FILENAME_PREFIX}-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}.json`;
 }
 
+function normalizeSettingsRuntimeObject(value, fallback = {}) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : fallback;
+}
+
+function normalizeSettingsRuntimeEmail(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeSettingsRuntimeMembershipResults(value = null) {
+  const source = normalizeSettingsRuntimeObject(value, null);
+  if (!source) {
+    return null;
+  }
+  const items = (Array.isArray(source.items) ? source.items : [])
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({ ...item }));
+  const paidCount = items.filter((item) => String(item?.status || '').trim().toLowerCase() === 'paid').length;
+  const freeCount = items.filter((item) => String(item?.status || '').trim().toLowerCase() === 'free').length;
+  const failedCount = items.filter((item) => String(item?.status || '').trim().toLowerCase() === 'failed').length;
+  return {
+    ...source,
+    items,
+    running: false,
+    redeeming: false,
+    flowStage: '',
+    flowStageEmail: '',
+    flowMode: '',
+    total: Math.max(items.length, Math.floor(Number(source.total) || 0)),
+    completed: Math.max(items.length, Math.floor(Number(source.completed) || 0)),
+    paidCount,
+    freeCount,
+    failedCount,
+    updatedAt: String(source.updatedAt || '') || new Date().toISOString(),
+  };
+}
+
+function normalizeSettingsRuntimeCredentialBackups(value = null) {
+  const source = normalizeSettingsRuntimeObject(value, null);
+  if (!source) {
+    return null;
+  }
+  return Object.fromEntries(Object.entries(source)
+    .map(([rawKey, rawRecord]) => {
+      const record = normalizeSettingsRuntimeObject(rawRecord, null);
+      if (!record) {
+        return null;
+      }
+      const email = normalizeSettingsRuntimeEmail(record.email || rawKey);
+      if (!email) {
+        return null;
+      }
+      return [email, {
+        ...record,
+        email,
+      }];
+    })
+    .filter(Boolean));
+}
+
+async function getSettingsRuntimeDataForExport() {
+  const stored = await chrome.storage.local.get([
+    UPI_ACCOUNT_CREDENTIAL_BACKUPS_STORAGE_KEY,
+    UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY,
+  ]).catch(() => ({}));
+  return {
+    upiCredentialMembershipCheckResults: normalizeSettingsRuntimeMembershipResults(
+      stored?.[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]
+    ) || DEFAULT_STATE.upiCredentialMembershipCheckResults,
+    upiAccountCredentialBackups: normalizeSettingsRuntimeCredentialBackups(
+      stored?.[UPI_ACCOUNT_CREDENTIAL_BACKUPS_STORAGE_KEY]
+    ) || {},
+  };
+}
+
+function buildSettingsRuntimeDataImportUpdates(configBundle = {}) {
+  const runtimeData = normalizeSettingsRuntimeObject(configBundle.runtimeData, {});
+  const membershipResults = normalizeSettingsRuntimeMembershipResults(
+    runtimeData.upiCredentialMembershipCheckResults
+    || configBundle.upiCredentialMembershipCheckResults
+  );
+  const credentialBackups = normalizeSettingsRuntimeCredentialBackups(
+    runtimeData.upiAccountCredentialBackups
+    || configBundle.upiAccountCredentialBackups
+  );
+  const updates = {};
+  if (membershipResults) {
+    updates[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY] = membershipResults;
+  }
+  if (credentialBackups) {
+    updates[UPI_ACCOUNT_CREDENTIAL_BACKUPS_STORAGE_KEY] = credentialBackups;
+  }
+  return updates;
+}
+
 async function exportSettingsBundle() {
-  const settings = await getPersistedSettings();
+  const [settings, runtimeData] = await Promise.all([
+    getPersistedSettings(),
+    getSettingsRuntimeDataForExport(),
+  ]);
   const bundle = {
     schemaVersion: SETTINGS_EXPORT_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
+    containsSensitiveRuntimeData: true,
     settings,
+    runtimeData,
   };
 
   return {
@@ -4054,9 +4153,16 @@ async function importSettingsBundle(configBundle) {
   }
 
   await setPersistentSettings(importedSettings);
+  const runtimeDataUpdates = buildSettingsRuntimeDataImportUpdates(configBundle);
+  if (Object.keys(runtimeDataUpdates).length > 0) {
+    await chrome.storage.local.set(runtimeDataUpdates);
+  }
 
   const sessionUpdates = {
     ...importedSettings,
+    ...(runtimeDataUpdates[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]
+      ? { upiCredentialMembershipCheckResults: runtimeDataUpdates[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY] }
+      : {}),
     currentHotmailAccountId: null,
     email: null,
     registrationEmailState: { ...DEFAULT_REGISTRATION_EMAIL_STATE },
@@ -4065,6 +4171,7 @@ async function importSettingsBundle(configBundle) {
   await setState(sessionUpdates);
   broadcastDataUpdate({
     ...importedSettings,
+    ...runtimeDataUpdates,
     currentHotmailAccountId: null,
     ...(sessionUpdates.email !== undefined ? { email: sessionUpdates.email } : {}),
     registrationEmailState: sessionUpdates.registrationEmailState,
@@ -15465,7 +15572,9 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   testCheckoutConversionProxy: null,
   fetchGeneratedEmail,
   refreshCardHelperCardBalance: null,
+  cancelUpiRedeemCdkeyJobs: (...args) => upiRedeemExecutor.cancelUpiRedeemCdkeyJobs(...args),
   refreshUpiRedeemCdkeyStatuses: (...args) => upiRedeemExecutor.refreshUpiRedeemCdkeyStatuses(...args),
+  retryUpiRedeemCdkeyJobs: (...args) => upiRedeemExecutor.retryUpiRedeemCdkeyJobs(...args),
   checkUpiRedeemSubscriptionStatuses: (...args) => upiRedeemExecutor.checkUpiRedeemSubscriptionStatuses(...args),
   refreshOAuthTimeoutWindowAfterCheckoutSuccess: null,
   finalizePhoneActivationAfterSuccessfulFlow: null,
@@ -17699,8 +17808,6 @@ restoreAutoRunTimerIfNeeded().catch((err) => {
 disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
   handleBackgroundStartupError('disable legacy IP proxy feature', err);
 });
-
-
 
 
 
