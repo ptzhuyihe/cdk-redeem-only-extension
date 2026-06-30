@@ -493,7 +493,7 @@
 
     function isRecoverableTotpEnableError(error) {
       const message = getErrorMessage(error).toLowerCase();
-      return /request timeout|timed out|\btimeout\b|mfa_info\s+http\s+5\d\d|http\s*(?:429|500|502|503|504)|fetch-error|server-error|network|abort/i.test(message);
+      return /failed\s+to\s+fetch|fetch\s+failed|load\s+failed|request timeout|timed out|\btimeout\b|mfa_info\s+http\s+5\d\d|http\s*(?:429|500|502|503|504)|fetch-error|server-error|network|abort/i.test(message);
     }
 
     function isRecentAuthRequiredTotpEnableError(error) {
@@ -1320,4 +1320,3 @@
     normalizeTotpSecret,
   };
 });
-

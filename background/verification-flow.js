@@ -8,6 +8,9 @@
   const DEFAULT_SIGNUP_VERIFICATION_CODE_WAIT_SECONDS = 10;
   const MAX_SIGNUP_VERIFICATION_CODE_WAIT_SECONDS = 300;
   const ASSURIVO_VERIFICATION_FILTER_SKEW_MS = 5000;
+  const POST_SUBMIT_CONFIRM_TIMEOUT_MS = 60000;
+  const POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS = 1000;
+  const STEP4_STUCK_VERIFICATION_RESUBMIT_LIMIT = 2;
 
   function createVerificationFlowHelpers(deps = {}) {
     const {
@@ -347,9 +350,27 @@
       if (!text.trim()) {
         return [];
       }
+      const verificationKeywordPattern = [
+        'openai',
+        'chatgpt',
+        'verification',
+        'verify',
+        'one[-\\s]*time',
+        'temporary',
+        'code',
+        '验证码',
+        '一次性',
+        '認証コード',
+        '認證コード',
+        '検証コード',
+        '確認コード',
+        '一時(?:的な)?(?:認証|検証)コード',
+        '一時(?:認証|検証)コード',
+        'コード',
+      ].join('|');
       const contextualPatterns = [
-        /(?:openai|chatgpt|verification|verify|one[-\s]*time|temporary|code|验证码|一次性)[^0-9]{0,60}((?:\d[\s-]*){6})/gi,
-        /((?:\d[\s-]*){6})[^0-9]{0,60}(?:openai|chatgpt|verification|verify|one[-\s]*time|temporary|code|验证码|一次性)/gi,
+        new RegExp(`(?:${verificationKeywordPattern})[^0-9]{0,80}((?:\\d[\\s-]*){6})`, 'gi'),
+        new RegExp(`((?:\\d[\\s-]*){6})[^0-9]{0,80}(?:${verificationKeywordPattern})`, 'gi'),
       ];
       const codes = [];
       for (const pattern of contextualPatterns) {
@@ -418,7 +439,7 @@
       }
       const searchable = htmlToVerificationSearchText(text);
       return /(?:openai|chatgpt)/i.test(searchable)
-        && /(?:verification|verify|temporary|one[-\s]*time|code|验证码|一次性)/i.test(searchable);
+        && /(?:verification|verify|temporary|one[-\s]*time|code|验证码|一次性|認証コード|認證コード|検証コード|確認コード|一時(?:的な)?(?:認証|検証)コード|一時(?:認証|検証)コード|コード)/i.test(searchable);
     }
 
     function extractCodeFromText(value = '', options = {}) {
@@ -503,9 +524,12 @@
         /enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
         /temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
         /your\s+temporary\s+chatgpt\s+(?:login|verification)\s+code[\s\S]{0,1200}?enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:この|次の)?\s*一時(?:的な)?(?:認証|検証)コード(?:を)?(?:入力して)?(?:続行|確認|ログイン)?(?:してください)?[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:認証コード|認證コード|検証コード|確認コード)[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /((?:\d[\s-]*){6})[\s\S]{0,160}?(?:このメールは無視してください|ChatGPT\s*アカウントを作成|ChatGPT\s*チーム|OpenAI)/gi,
       ];
       const codes = [];
-      let matchedPrompt = /enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue|your\s+temporary\s+chatgpt\s+(?:login|verification)\s+code/i.test(text);
+      let matchedPrompt = /enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue|your\s+temporary\s+chatgpt\s+(?:login|verification)\s+code|一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード/i.test(text);
       for (const pattern of patterns) {
         let match = pattern.exec(text);
         while (match) {
@@ -952,9 +976,34 @@
       }
     }
 
+    function isPhoneVerificationOrAddPhonePageUrl(rawUrl) {
+      const url = String(rawUrl || '').trim();
+      if (!url) return false;
+
+      try {
+        const parsed = new URL(url);
+        const host = String(parsed.hostname || '').toLowerCase();
+        if (!['auth.openai.com', 'auth0.openai.com', 'accounts.openai.com'].includes(host)) {
+          return false;
+        }
+        return /\/(?:add-phone|phone-verification|contact-verification)(?:[/?#]|$)/i.test(String(parsed.pathname || ''));
+      } catch {
+        return false;
+      }
+    }
+
+    function isStep4PendingVerificationSubmitResult(result = {}) {
+      if (!result?.invalidCode) {
+        return false;
+      }
+      const text = String(result.errorText || '').trim();
+      return /提交后仍停留在验证码页面|仍停留在验证码页面|still\s+on\s+(?:the\s+)?verification/i.test(text)
+        && !/代码不正确|验证码不正确|验证码错误|不正确|错误|invalid|incorrect|try\s+again/i.test(text);
+    }
+
     async function detectStep4PostSubmitFallback(tabId, options = {}) {
-      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
-      const pollIntervalMs = Math.max(100, Number(options.pollIntervalMs) || 250);
+      const timeoutMs = Math.max(1000, Number(options.timeoutMs) || POST_SUBMIT_CONFIRM_TIMEOUT_MS);
+      const pollIntervalMs = Math.max(100, Number(options.pollIntervalMs) || POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS);
       const startedAt = Date.now();
       let lastUrl = '';
 
@@ -994,6 +1043,16 @@
               url: currentUrl,
             };
           }
+
+          if (isPhoneVerificationOrAddPhonePageUrl(currentUrl)) {
+            return {
+              success: true,
+              reason: 'phone_verification',
+              addPhonePage: true,
+              skipProfileStep: false,
+              url: currentUrl,
+            };
+          }
         } catch {
           // Keep polling until timeout; tab may be mid-navigation.
         }
@@ -1006,6 +1065,33 @@
         reason: 'unknown',
         skipProfileStep: false,
         url: lastUrl,
+      };
+    }
+
+    function getStep4FallbackLabel(fallback = {}) {
+      switch (fallback.reason) {
+        case 'chatgpt_home':
+          return 'ChatGPT 已登录首页';
+        case 'signup_profile':
+          return '注册资料页';
+        case 'passkey_enrollment':
+          return '通行密钥页';
+        case 'phone_verification':
+          return '手机号验证页';
+        default:
+          return '后续页面';
+      }
+    }
+
+    function buildStep4FallbackSubmitSuccess(fallback = {}) {
+      return {
+        success: true,
+        assumed: true,
+        transportRecovered: true,
+        addPhonePage: Boolean(fallback.addPhonePage),
+        passkeyEnrollmentRequired: Boolean(fallback.passkeyEnrollmentRequired),
+        skipProfileStep: Boolean(fallback.skipProfileStep),
+        url: fallback.url || '',
       };
     }
 
@@ -1953,7 +2039,64 @@
       };
       let result;
       const shouldAvoidReplaySubmit = step === 8;
-      if (typeof sendToContentScriptResilient === 'function' && !shouldAvoidReplaySubmit) {
+      const recoverStep4AfterSlowSubmit = async () => {
+        const fallback = await detectStep4PostSubmitFallback(signupTabId, {
+          timeoutMs: POST_SUBMIT_CONFIRM_TIMEOUT_MS,
+          pollIntervalMs: POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS,
+        });
+        if (!fallback.success) {
+          return null;
+        }
+        await addLog(`步骤 4：验证码提交后页面已切换到${getStep4FallbackLabel(fallback)}，按提交成功继续。`, 'warn');
+        return buildStep4FallbackSubmitSuccess(fallback);
+      };
+      const sendStep4VerificationCode = async () => {
+        for (let replayAttempt = 0; replayAttempt <= STEP4_STUCK_VERIFICATION_RESUBMIT_LIMIT; replayAttempt += 1) {
+          let response = null;
+          try {
+            response = await sendToContentScriptResilient('signup-page', message, {
+              timeoutMs: Math.max(baseResponseTimeoutMs + 15000, 30000),
+              retryDelayMs: 700,
+              responseTimeoutMs: baseResponseTimeoutMs,
+              logMessage: '认证页正在切换，等待页面重新就绪后继续确认验证码提交结果...',
+              logStep: completionStep,
+              logStepKey: 'fetch-signup-code',
+            });
+          } catch (err) {
+            if (isRetryableVerificationTransportError(err)) {
+              const recovered = await recoverStep4AfterSlowSubmit();
+              if (recovered) {
+                return recovered;
+              }
+            }
+            throw err;
+          }
+
+          if (response?.error) {
+            throw new Error(response.error);
+          }
+          if (!isStep4PendingVerificationSubmitResult(response)) {
+            return response || {};
+          }
+
+          const recovered = await recoverStep4AfterSlowSubmit();
+          if (recovered) {
+            return recovered;
+          }
+          if (replayAttempt < STEP4_STUCK_VERIFICATION_RESUBMIT_LIMIT) {
+            await addLog(
+              `步骤 4：验证码提交后仍未确认跳转且页面没有明确错误，正在重提同一个验证码（${replayAttempt + 1}/${STEP4_STUCK_VERIFICATION_RESUBMIT_LIMIT}）。`,
+              'warn'
+            );
+            continue;
+          }
+          return response;
+        }
+        return {};
+      };
+      if (step === 4 && typeof sendToContentScriptResilient === 'function') {
+        result = await sendStep4VerificationCode();
+      } else if (typeof sendToContentScriptResilient === 'function' && !shouldAvoidReplaySubmit) {
         try {
           result = await sendToContentScriptResilient('signup-page', message, {
             timeoutMs: Math.max(baseResponseTimeoutMs + 15000, 30000),
@@ -1966,21 +2109,12 @@
         } catch (err) {
           if (step === 4 && isRetryableVerificationTransportError(err)) {
             const fallback = await detectStep4PostSubmitFallback(signupTabId, {
-              timeoutMs: 9000,
-              pollIntervalMs: 300,
+              timeoutMs: POST_SUBMIT_CONFIRM_TIMEOUT_MS,
+              pollIntervalMs: POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS,
             });
             if (fallback.success) {
-              const fallbackLabel = fallback.reason === 'chatgpt_home'
-                ? 'ChatGPT 已登录首页'
-                : '注册资料页';
-              await addLog(`步骤 4：验证码提交后页面已切换到${fallbackLabel}，按提交成功继续。`, 'warn');
-              return {
-                success: true,
-                assumed: true,
-                transportRecovered: true,
-                skipProfileStep: Boolean(fallback.skipProfileStep),
-                url: fallback.url,
-              };
+              await addLog(`步骤 4：验证码提交后页面已切换到${getStep4FallbackLabel(fallback)}，按提交成功继续。`, 'warn');
+              return buildStep4FallbackSubmitSuccess(fallback);
             }
           }
           if (step === 8 && isRetryableVerificationTransportError(err)) {

@@ -3,11 +3,11 @@
 const STATUS_ICONS = {
   pending: '',
   running: '',
-  completed: '\u2713',  // ✓
-  failed: '\u2717',     // ✗
-  stopped: '\u25A0',    // ■
-  manual_completed: '跳',
-  skipped: '跳',
+  completed: '完成',
+  failed: '失败',
+  stopped: '停止',
+  manual_completed: '跳过',
+  skipped: '跳过',
 };
 
 const logArea = document.getElementById('log-area');
@@ -3170,9 +3170,11 @@ function buildCdkPoolStatePatch(poolText = '', usage = {}) {
     cdkPoolText: normalizedPoolText,
     upiRedeemCdkPoolText: normalizedPoolText,
     upiRedeemCdkeyPoolText: normalizedPoolText,
+    pixRedeemCdkeyPoolText: normalizedPoolText,
     cdkUsage: normalizedUsage,
     upiRedeemCdkUsage: normalizedUsage,
     upiRedeemCdkeyUsage: normalizedUsage,
+    pixRedeemCdkeyUsage: normalizedUsage,
   };
 }
 
@@ -3886,6 +3888,7 @@ async function refreshUpiRedeemCdkeyStatuses(options = {}) {
         cdkPoolText: getStoredCdkPoolText(latestState),
         upiRedeemCdkPoolText: getStoredCdkPoolText(latestState),
         upiRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
+        pixRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
       },
     });
     if (response?.error) {
@@ -3965,6 +3968,7 @@ async function operateUpiRedeemCdkeyJob(cdkey = '', action = '') {
       cdkPoolText: getStoredCdkPoolText(latestState),
       upiRedeemCdkPoolText: getStoredCdkPoolText(latestState),
       upiRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
+      pixRedeemCdkeyPoolText: getStoredCdkPoolText(latestState),
     },
   });
   if (response?.error) {
@@ -7387,9 +7391,11 @@ function collectSettingsPayload() {
     cdkPoolText: cdkPoolTextForSave,
     upiRedeemCdkPoolText: cdkPoolTextForSave,
     upiRedeemCdkeyPoolText: cdkPoolTextForSave,
+    pixRedeemCdkeyPoolText: cdkPoolTextForSave,
     cdkUsage: cdkUsageForSave,
     upiRedeemCdkUsage: cdkUsageForSave,
     upiRedeemCdkeyUsage: cdkUsageForSave,
+    pixRedeemCdkeyUsage: cdkUsageForSave,
     legacyWalletEmail: String(currentLegacyWalletAccount?.email || latestState?.legacyWalletEmail || '').trim(),
     legacyWalletPassword: String(currentLegacyWalletAccount?.password || latestState?.legacyWalletPassword || ''),
     currentLegacyWalletAccountId: String(latestState?.currentLegacyWalletAccountId || '').trim(),
@@ -14619,13 +14625,15 @@ async function saveSettings(options = {}) {
       throw new Error(response.error);
     }
 
-    if (response?.state && saveRevision === settingsSaveRevision) {
+    if (saveRevision !== settingsSaveRevision) {
+      return;
+    }
+
+    if (response?.state) {
       applySettingsState(preserveHotmailAccountsForSettingsSaveResponse(response.state, payload));
     } else {
       syncLatestState(payload);
-      if (saveRevision === settingsSaveRevision) {
-        markSettingsDirty(false);
-      }
+      markSettingsDirty(false);
       updatePanelModeUI();
       updateMailProviderUI();
       updateButtonStates();
@@ -14835,7 +14843,7 @@ function initializeManualStepActions() {
     manualBtn.dataset.nodeId = nodeId;
     manualBtn.title = '跳过此节点';
     manualBtn.setAttribute('aria-label', `跳过节点 ${nodeId || step}`);
-    manualBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>';
+    manualBtn.textContent = '跳过';
     manualBtn.addEventListener('click', async (event) => {
       event.stopPropagation();
       try {

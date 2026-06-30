@@ -17,6 +17,8 @@
     const CHATGPT_SESSION_API_URL = 'https://chatgpt.com/api/auth/session';
     const DEFAULT_UPI_REDEEM_API_BASE_URL = 'https://chong.nerver.cc';
     const DEFAULT_UPI_SUBSCRIPTION_API_BASE_URL = 'https://cha.nerver.cc';
+    const UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS = 3;
+    const UPI_ELIGIBILITY_CHECK_RETRY_DELAYS_MS = [3000, 7000];
 
   function createUpiRedeemExecutor(deps = {}) {
     const {
@@ -1669,6 +1671,12 @@
       return normalizeString(error?.message || error).startsWith(UPI_ACCOUNT_INELIGIBLE_ERROR_PREFIX);
     }
 
+    function isRecoverableUpiEligibilityError(error) {
+      const rawMessage = normalizeString(error?.message || error);
+      const message = normalizeString(getErrorMessage(error) || rawMessage);
+      return /failed\s+to\s+fetch|fetch\s+failed|load\s+failed|network\s*error|request\s+timeout|timed\s+out|\btimeout\b|abort|econnreset|etimedout|enotfound|eai_again|http\s*(?:429|5\d\d)/i.test(message);
+    }
+
     function getRemoteStatusMessage(item = {}, status = '') {
       return normalizeString(
         item?.message
@@ -2770,11 +2778,44 @@
       );
 
       try {
-        const eligibility = await checkUpiRedeemAccessTokenEligibility({
-          state: runtimeState,
-          session: chatGptSession,
-          accessToken,
-        });
+        let eligibility = null;
+        let lastEligibilityError = null;
+        for (let attempt = 1; attempt <= UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS; attempt += 1) {
+          try {
+            if (attempt > 1) {
+              await addStepLog(
+                visibleStep,
+                `UPI 注册后试用资格检查：正在第 ${attempt}/${UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS} 次复核临时网络失败。`,
+                'warn'
+              );
+            }
+            eligibility = await checkUpiRedeemAccessTokenEligibility({
+              state: runtimeState,
+              session: chatGptSession,
+              accessToken,
+            });
+            break;
+          } catch (eligibilityError) {
+            lastEligibilityError = eligibilityError;
+            if (isUpiAccountIneligibleError(eligibilityError)) {
+              throw eligibilityError;
+            }
+            const message = getErrorMessage(eligibilityError) || 'UPI 试用资格检测失败。';
+            if (!isRecoverableUpiEligibilityError(eligibilityError) || attempt >= UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS) {
+              throw eligibilityError;
+            }
+            const retryDelayMs = UPI_ELIGIBILITY_CHECK_RETRY_DELAYS_MS[Math.min(attempt - 1, UPI_ELIGIBILITY_CHECK_RETRY_DELAYS_MS.length - 1)] || 3000;
+            await addStepLog(
+              visibleStep,
+              `UPI 注册后试用资格检查遇到临时网络异常：${message}，${Math.round(retryDelayMs / 1000)} 秒后复核（${attempt + 1}/${UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS}）。`,
+              'warn'
+            );
+            await sleepWithStop(retryDelayMs);
+          }
+        }
+        if (!eligibility) {
+          throw lastEligibilityError || new Error('UPI 注册后试用资格检查未返回结果。');
+        }
         const reason = normalizeString(eligibility?.item?.message || eligibility?.item?.reason)
           || '账号有试用资格，已进入 Free 分组';
         if (typeof upsertTrialEligibleFreeCredential === 'function') {

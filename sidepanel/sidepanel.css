@@ -2225,6 +2225,11 @@ header {
   color: var(--green);
 }
 
+.icloud-tag.warn {
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+
 .icloud-tag.danger {
   background: var(--red-soft);
   color: var(--red);
@@ -3240,7 +3245,8 @@ header {
 }
 
 .step-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 92px;
   align-items: center;
   gap: 8px;
   padding: 1px 0;
@@ -3268,6 +3274,16 @@ header {
   transition: color var(--transition);
 }
 
+.step-row.pending .step-indicator {
+  background: transparent;
+  border-color: var(--border-subtle);
+  opacity: 0.72;
+}
+
+.step-row.pending .step-num {
+  color: var(--text-muted);
+}
+
 .step-row.running .step-indicator { border-color: var(--orange); background: var(--orange-soft); }
 .step-row.running .step-num { color: var(--orange); }
 .step-row.running .step-indicator { animation: pulse 1.5s ease-in-out infinite; }
@@ -3288,7 +3304,7 @@ header {
 
 /* Step Button */
 .step-btn {
-  flex: 1;
+  min-width: 0;
   padding: 8px 12px;
   font-family: inherit;
   font-size: 13px;
@@ -3299,11 +3315,41 @@ header {
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: all var(--transition);
   box-shadow: var(--shadow-sm);
 }
 .step-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--blue); }
 .step-btn:disabled { color: var(--text-muted); background: var(--bg-base); border-color: var(--border-subtle); cursor: not-allowed; opacity: 0.45; box-shadow: none; }
+
+.step-row.pending .step-btn {
+  background: color-mix(in srgb, var(--bg-base) 82%, var(--bg-surface));
+  border-color: var(--border-subtle);
+  box-shadow: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.step-row.pending .step-btn:not(:disabled) {
+  opacity: 0.76;
+}
+
+.step-row.pending .step-btn:hover:not(:disabled),
+.step-row.pending .step-btn:focus-visible {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--blue) 42%, var(--border));
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.step-row.pending .step-btn:disabled {
+  background: transparent;
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.32;
+}
 
 .step-row.running .step-btn { border-color: var(--orange); color: var(--orange); }
 .step-row.completed .step-btn { border-color: var(--border-subtle); color: var(--text-secondary); opacity: 0.7; }
@@ -3317,14 +3363,14 @@ header {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  width: 48px;
-  flex-shrink: 0;
+  width: 92px;
+  min-width: 92px;
 }
 
 .step-manual-btn {
-  width: 20px;
-  height: 20px;
-  padding: 0;
+  min-width: 40px;
+  height: 22px;
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3333,6 +3379,9 @@ header {
   background: var(--bg-surface);
   color: var(--text-muted);
   cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
   transition: all var(--transition);
 }
 .step-manual-btn:hover:not(:disabled) {
@@ -3349,17 +3398,45 @@ header {
 }
 
 .step-status {
-  width: 20px;
+  min-width: 38px;
+  height: 22px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 700;
-  flex-shrink: 0;
+  line-height: 1;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  white-space: nowrap;
 }
-.step-row.completed .step-status { color: var(--green); }
-.step-row.failed .step-status { color: var(--red); }
-.step-row.stopped .step-status { color: var(--cyan); }
+.step-status:empty {
+  display: none;
+}
+.step-row.completed .step-status {
+  color: var(--green);
+  border-color: rgba(22, 163, 74, 0.22);
+  background: var(--green-soft);
+}
+.step-row.failed .step-status {
+  color: var(--red);
+  border-color: rgba(220, 38, 38, 0.22);
+  background: var(--red-soft);
+}
+.step-row.stopped .step-status {
+  color: var(--cyan);
+  border-color: rgba(8, 145, 178, 0.22);
+  background: rgba(8, 145, 178, 0.08);
+}
 .step-row.manual_completed .step-status,
-.step-row.skipped .step-status { color: var(--blue); }
+.step-row.skipped .step-status {
+  color: var(--blue);
+  border-color: rgba(37, 99, 235, 0.22);
+  background: var(--blue-soft);
+}
 
 /* ============================================================
    Log / Console Section
@@ -4104,12 +4181,17 @@ header {
 
 .upi-membership-check-status-header {
   display: grid;
-  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(0, 1fr) 124px 58px 96px 64px);
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 64px 64px);
   gap: 8px;
   align-items: center;
   color: var(--text-muted);
   font-size: 11px;
   margin-bottom: 6px;
+}
+
+.upi-membership-check-status-header span:nth-child(n + 3) {
+  justify-self: center;
+  text-align: center;
 }
 
 .upi-membership-check-section .upi-membership-check-status-header {
@@ -4136,7 +4218,7 @@ header {
 
 .upi-membership-check-item {
   display: grid;
-  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(0, 1fr) 124px 58px 96px 64px);
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 64px 64px);
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border);
@@ -4174,7 +4256,8 @@ header {
   cursor: default;
 }
 
-.upi-membership-check-delete-action {
+.upi-membership-check-delete-action,
+.upi-membership-check-cancel-redeem-action {
   border: 0;
   cursor: pointer;
   font-family: inherit;
@@ -4184,20 +4267,31 @@ header {
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  justify-self: start;
+  justify-self: center;
   min-width: 70px;
   justify-content: center;
   white-space: nowrap;
 }
 
 .upi-membership-check-login-action,
-.upi-membership-check-move-action {
+.upi-membership-check-move-action,
+.upi-membership-check-action-placeholder {
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  justify-self: start;
+  justify-self: center;
   justify-content: center;
   white-space: nowrap;
+}
+
+.upi-membership-check-delete-action,
+.upi-membership-check-cancel-redeem-action {
+  justify-self: center;
+}
+
+.upi-membership-check-action-placeholder {
+  min-height: 1px;
+  cursor: default;
 }
 
 .upi-membership-check-status-action:hover:not(:disabled) {
@@ -4547,7 +4641,3 @@ header {
     transition-duration: 0.01ms !important;
   }
 }
-
-
-
-

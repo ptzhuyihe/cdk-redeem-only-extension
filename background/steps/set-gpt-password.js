@@ -13,8 +13,13 @@
   const PASSWORD_SUBMIT_POLL_TIMEOUT_MS = 10000;
   const PASSWORD_SUBMIT_POLL_INTERVAL_MS = 500;
   const PASSWORD_SUBMIT_POLL_STATE_TIMEOUT_MS = 1500;
+  const PASSWORD_SUBMIT_CONFIRM_TIMEOUT_MS = 60000;
+  const PASSWORD_SUBMIT_CONFIRM_POLL_INTERVAL_MS = 1000;
   const TRANSPORT_LOSS_CONFIRM_TIMEOUT_MS = 5000;
   const TRANSPORT_LOSS_STABLE_MS = 500;
+  const SET_PASSWORD_RESET_NAVIGATION_TIMEOUT_MS = 45000;
+  const SET_PASSWORD_RESET_PREPARE_WAIT_MS = 8000;
+  const SET_PASSWORD_RESET_PREPARE_RETRY_DELAY_MS = 1000;
 
   function normalizeString(value = '') {
     return String(value || '').trim();
@@ -50,6 +55,20 @@
       return /\/reset-password\/new-password(?:[/?#]|$)/i.test(parsed.pathname || '');
     } catch {
       return /\/reset-password\/new-password(?:[/?#]|$)/i.test(String(url || ''));
+    }
+  }
+
+  function isLikelyChatGptLoggedInAfterPasswordUrl(url = '') {
+    try {
+      const parsed = new URL(String(url || ''));
+      const host = String(parsed.hostname || '').toLowerCase();
+      if (!['chatgpt.com', 'www.chatgpt.com', 'chat.openai.com'].includes(host)) {
+        return false;
+      }
+      const path = String(parsed.pathname || '');
+      return !/^\/(?:auth\/|reset-password\/|create-account\/|email-verification|log-in|login|add-phone)(?:[/?#]|$)/i.test(path);
+    } catch {
+      return /^https?:\/\/(?:www\.)?(?:chatgpt\.com|chat\.openai\.com)(?:[/?#]|$)/i.test(String(url || ''));
     }
   }
 
@@ -174,6 +193,12 @@
           passwordAccountIdentifier: accountIdentity.accountIdentifier || '',
         });
       }
+    }
+
+    function isSetGptPasswordPrepareNavigationPendingError(error) {
+      const message = normalizeString(typeof error === 'string' ? error : error?.message || '');
+      return isRetryableContentScriptTransportError(error)
+        || /未进入\s*OpenAI\s*设置密码邮箱验证页或新密码页|当前状态\s+unknown|设置密码页面正在切换|页面正在切换/i.test(message);
     }
 
     async function ensureGptPassword(state = {}, visibleStep = 6) {
@@ -492,12 +517,56 @@
         '设置 GPT 密码：检测到 OpenAI 认证超时页，正在点击 Try again 恢复后继续提交密码。',
         'warn'
       );
-      const recoverResult = await sendSetPasswordPageMessage(
-        'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE',
-        {},
-        visibleStep,
-        20000
-      );
+
+      async function resolveRecoveredPageState(recoverResult = {}) {
+        const recoveredState = normalizeString(recoverResult?.state || recoverResult?.pageState);
+        if (['new_password_page', 'new_password_loading'].includes(recoveredState)) {
+          return {
+            state: recoveredState,
+            url: normalizeString(recoverResult?.url || snapshot?.url),
+            errorText: normalizeString(recoverResult?.errorText),
+          };
+        }
+        return await readSetPasswordPageState(tabId, visibleStep, {
+          timeoutMs: 3000,
+        }).catch(() => null);
+      }
+
+      let recoverResult = {};
+      try {
+        recoverResult = await sendSetPasswordPageMessage(
+          'RECOVER_SET_GPT_PASSWORD_AUTH_RETRY_PAGE',
+          {},
+          visibleStep,
+          20000
+        );
+      } catch (error) {
+        const recoveredPageState = await resolveRecoveredPageState();
+        if (recoveredPageState?.state === 'left_new_password_page' || (recoveredPageState?.url && !isSetGptPasswordNewPasswordUrl(recoveredPageState.url))) {
+          await addStepLog(visibleStep, '设置 GPT 密码：Try again 恢复消息异常，但页面已离开新密码页，按密码设置成功继续。', 'success');
+          return createPasswordSubmitSuccess(recoveredPageState, {
+            recoveredAuthRetryPage: true,
+            recoveredAfterRecoverMessageError: true,
+          });
+        }
+        if (['new_password_page', 'new_password_loading'].includes(recoveredPageState?.state)) {
+          await addStepLog(visibleStep, '设置 GPT 密码：Try again 后已回到新密码页，将重新填写并提交 GPT 密码。', 'warn');
+          if (tabId && recoveredPageState.state !== 'new_password_loading') {
+            await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+          }
+          return {
+            success: false,
+            retryPasswordSubmit: true,
+            recoveredAuthRetryPage: true,
+            recoveredAfterRecoverMessageError: true,
+            pageState: recoveredPageState.state,
+            url: recoveredPageState.url || snapshot?.url,
+            errorText: recoveredPageState.errorText,
+          };
+        }
+        throw error;
+      }
+
       const currentUrl = normalizeString(recoverResult?.url) || await getCurrentAuthTabUrl(tabId);
       if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
         await addStepLog(visibleStep, '设置 GPT 密码：Try again 后已离开新密码页，按密码设置成功继续。', 'success');
@@ -507,6 +576,27 @@
           recoveredAuthRetryPage: true,
           pageState: 'auth_retry_page',
           url: currentUrl,
+        };
+      }
+      const recoveredPageState = await resolveRecoveredPageState(recoverResult);
+      if (recoveredPageState?.state === 'left_new_password_page' || (recoveredPageState?.url && !isSetGptPasswordNewPasswordUrl(recoveredPageState.url))) {
+        await addStepLog(visibleStep, '设置 GPT 密码：Try again 后页面状态确认已离开新密码页，按密码设置成功继续。', 'success');
+        return createPasswordSubmitSuccess(recoveredPageState, {
+          recoveredAuthRetryPage: true,
+        });
+      }
+      if (['new_password_page', 'new_password_loading'].includes(recoveredPageState?.state)) {
+        await addStepLog(visibleStep, '设置 GPT 密码：Try again 后已回到新密码页，将重新填写并提交 GPT 密码。', 'warn');
+        if (tabId && recoveredPageState.state !== 'new_password_loading') {
+          await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
+        }
+        return {
+          success: false,
+          retryPasswordSubmit: true,
+          recoveredAuthRetryPage: true,
+          pageState: recoveredPageState.state,
+          url: recoveredPageState.url || currentUrl || snapshot?.url,
+          errorText: recoveredPageState.errorText,
         };
       }
       await ensureSetPasswordContentScriptReady(tabId, visibleStep, 'OpenAI 新密码页');
@@ -628,18 +718,113 @@
       };
     }
 
-    async function waitForPasswordSubmitOutcomeFromBackground(tabId, visibleStep) {
+    async function readChatGptSessionForPasswordConfirmation(tabId, visibleStep, confirmState = {}) {
+      await ensureContentScriptReadyOnTab(AUTH_SOURCE, tabId, {
+        inject: SIGNUP_PAGE_INJECT_FILES,
+        injectSource: AUTH_SOURCE,
+        timeoutMs: 12000,
+        logMessage: `步骤 ${visibleStep}：正在复核 ChatGPT 登录会话以确认 GPT 密码已设置...`,
+        logStep: visibleStep,
+        logStepKey: 'set-gpt-password',
+      });
+      const sessionResult = await sendSetPasswordPageMessage(
+        'READ_CHATGPT_SESSION_EXPORT_DATA',
+        {},
+        visibleStep,
+        12000
+      );
+      const sessionEmail = resolveSessionEmail(sessionResult);
+      confirmState.lastSessionEmail = sessionEmail || '';
+      confirmState.lastSessionFieldCount = Math.max(0, Number(sessionResult?.fieldCount || sessionResult?.sessionFieldCount) || 0);
+      return {
+        sessionEmail,
+        sessionResult,
+      };
+    }
+
+    async function confirmPasswordSubmitSuccessFromUrl(tabId, visibleStep, url, expectedEmail = '', confirmState = {}) {
+      const currentUrl = normalizeString(url);
+      if (!currentUrl || isSetGptPasswordNewPasswordUrl(currentUrl)) {
+        return null;
+      }
+      confirmState.lastUrl = currentUrl;
+      if (!isLikelyChatGptLoggedInAfterPasswordUrl(currentUrl)) {
+        return createPasswordSubmitSuccess({
+          state: 'left_new_password_page',
+          url: currentUrl,
+        }, {
+          confirmedByTabUrl: true,
+        });
+      }
+
+      try {
+        const { sessionEmail } = await readChatGptSessionForPasswordConfirmation(tabId, visibleStep, confirmState);
+        const normalizedExpectedEmail = normalizeEmail(expectedEmail);
+        const normalizedSessionEmail = normalizeEmail(sessionEmail);
+        if (normalizedExpectedEmail && normalizedSessionEmail && normalizedExpectedEmail !== normalizedSessionEmail) {
+          throw new Error(`步骤 ${visibleStep}：GPT 密码提交后进入 ChatGPT 首页，但 session 邮箱不匹配。期望 ${normalizedExpectedEmail}，实际 ${normalizedSessionEmail}。`);
+        }
+        if (normalizedSessionEmail || !normalizedExpectedEmail) {
+          await addStepLog(visibleStep, `设置 GPT 密码：已进入 ChatGPT 首页并确认登录会话${normalizedSessionEmail ? `（${normalizedSessionEmail}）` : ''}，按密码设置成功继续。`, 'success');
+          return createPasswordSubmitSuccess({
+            state: 'chatgpt_logged_in_home',
+            url: currentUrl,
+          }, {
+            confirmedByChatGptSession: true,
+            sessionEmail: normalizedSessionEmail,
+          });
+        }
+        confirmState.sessionReadError = 'ChatGPT session 未返回邮箱。';
+      } catch (error) {
+        const message = normalizeString(error?.message || error);
+        if (/session 邮箱不匹配/.test(message)) {
+          throw error;
+        }
+        confirmState.sessionReadError = message;
+      }
+      return null;
+    }
+
+    async function waitForPasswordSubmitOutcomeFromBackground(tabId, visibleStep, expectedEmail = '') {
       const startedAt = Date.now();
       let lastState = { state: 'unknown', url: '' };
+      const confirmState = {};
 
-      while (Date.now() - startedAt < PASSWORD_SUBMIT_POLL_TIMEOUT_MS) {
+      while (Date.now() - startedAt < PASSWORD_SUBMIT_CONFIRM_TIMEOUT_MS) {
         throwIfStopped();
+        const currentTabUrlBeforeProbe = await getCurrentAuthTabUrl(tabId).catch(() => '');
+        const urlSuccessBeforeProbe = await confirmPasswordSubmitSuccessFromUrl(
+          tabId,
+          visibleStep,
+          currentTabUrlBeforeProbe,
+          expectedEmail,
+          confirmState
+        );
+        if (urlSuccessBeforeProbe) {
+          return urlSuccessBeforeProbe;
+        }
+
         const pageState = await readSetPasswordPageState(tabId, visibleStep, {
           ensureReady: false,
           timeoutMs: PASSWORD_SUBMIT_POLL_STATE_TIMEOUT_MS,
           waitForUrlAfterError: false,
         });
         lastState = pageState;
+
+        const currentTabUrlAfterProbe = await getCurrentAuthTabUrl(tabId).catch(() => '');
+        const urlSuccessAfterProbe = await confirmPasswordSubmitSuccessFromUrl(
+          tabId,
+          visibleStep,
+          currentTabUrlAfterProbe,
+          expectedEmail,
+          confirmState
+        );
+        if (urlSuccessAfterProbe) {
+          return {
+            ...urlSuccessAfterProbe,
+            pageState: urlSuccessAfterProbe.pageState || pageState.state,
+          };
+        }
 
         if (pageState.state === 'auth_retry_page') {
           return recoverSetPasswordAuthRetryPageFromBackground(tabId, visibleStep, pageState);
@@ -666,7 +851,22 @@
           throw new Error(`步骤 ${visibleStep}：设置 GPT 密码失败：${errorText}`);
         }
 
-        await sleepWithStop(PASSWORD_SUBMIT_POLL_INTERVAL_MS);
+        await sleepWithStop(PASSWORD_SUBMIT_CONFIRM_POLL_INTERVAL_MS);
+      }
+
+      const finalUrl = await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId).catch(() => '');
+      const finalUrlSuccess = await confirmPasswordSubmitSuccessFromUrl(
+        tabId,
+        visibleStep,
+        finalUrl,
+        expectedEmail,
+        confirmState
+      );
+      if (finalUrlSuccess) {
+        return {
+          ...finalUrlSuccess,
+          confirmedByFinalTabUrl: true,
+        };
       }
 
       return {
@@ -674,8 +874,9 @@
         retryPasswordSubmit: true,
         pollTimedOut: true,
         pageState: lastState.state || 'unknown',
-        url: lastState.url || '',
-        errorText: lastState.errorText || '',
+        url: finalUrl || lastState.url || confirmState.lastUrl || '',
+        errorText: lastState.errorText || confirmState.sessionReadError || '',
+        sessionEmail: confirmState.lastSessionEmail || '',
       };
     }
 
@@ -703,6 +904,68 @@
         throw new Error(result.error);
       }
       return result || {};
+    }
+
+    async function prepareSetPasswordFlowWithRetry(tabId, visibleStep, options = {}) {
+      const timeoutMs = Math.max(5000, Math.floor(Number(options.timeoutMs) || SET_PASSWORD_RESET_NAVIGATION_TIMEOUT_MS));
+      const startedAt = Date.now();
+      let attempt = 0;
+      let lastError = null;
+      let lastResult = null;
+      let loggedWaiting = false;
+
+      while (Date.now() - startedAt < timeoutMs) {
+        throwIfStopped();
+        attempt += 1;
+        const elapsedMs = Date.now() - startedAt;
+        const remainingMs = Math.max(1000, timeoutMs - elapsedMs);
+        const waitTimeoutMs = Math.max(
+          2000,
+          Math.min(SET_PASSWORD_RESET_PREPARE_WAIT_MS, remainingMs - 1000)
+        );
+        const messageTimeoutMs = Math.max(12000, (waitTimeoutMs * 2) + 3000);
+
+        try {
+          if (attempt > 1) {
+            await ensureContentScriptReadyOnTab(AUTH_SOURCE, tabId, {
+              inject: SIGNUP_PAGE_INJECT_FILES,
+              injectSource: AUTH_SOURCE,
+              timeoutMs: 15000,
+            }).catch(() => {});
+          }
+
+          const result = await sendSetPasswordPageMessage('PREPARE_SET_GPT_PASSWORD', {
+            waitTimeoutMs,
+            fallbackWaitTimeoutMs: waitTimeoutMs,
+          }, visibleStep, Math.min(messageTimeoutMs, Math.max(3000, remainingMs)));
+          lastResult = result;
+          if (result?.ready) {
+            return result;
+          }
+        } catch (error) {
+          lastError = error;
+          if (!isSetGptPasswordPrepareNavigationPendingError(error)) {
+            throw error;
+          }
+        }
+
+        if (!loggedWaiting) {
+          loggedWaiting = true;
+          await addStepLog(
+            visibleStep,
+            '设置 GPT 密码：点击密码入口后页面仍在跳转到 OpenAI 邮箱验证码页，继续等待并重新探测。',
+            'warn'
+          );
+        }
+        await sleepWithStop(Math.min(SET_PASSWORD_RESET_PREPARE_RETRY_DELAY_MS, remainingMs));
+      }
+
+      const currentUrl = await getCurrentAuthTabUrl(tabId).catch(() => '');
+      if (lastError) {
+        const reason = normalizeString(lastError?.message || lastError);
+        throw new Error(`步骤 ${visibleStep}：点击密码入口后等待 OpenAI 邮箱验证码页超时。URL: ${currentUrl || ''}；最后错误：${reason}`);
+      }
+      throw new Error(`步骤 ${visibleStep}：点击密码入口后等待 OpenAI 邮箱验证码页超时。URL: ${currentUrl || lastResult?.url || ''}；当前状态 ${lastResult?.state || 'unknown'}。`);
     }
 
     async function resolveLoggedInAccountEmailFromSession(visibleStep = 6) {
@@ -789,7 +1052,7 @@
       if (prepareResult?.resetTriggered) {
         if (typeof waitForTabStableComplete === 'function') {
           await waitForTabStableComplete(authTabId, {
-            timeoutMs: 60000,
+            timeoutMs: 15000,
             retryDelayMs: 300,
             stableMs: 800,
             initialDelayMs: 500,
@@ -798,12 +1061,16 @@
         await ensureContentScriptReadyOnTab(AUTH_SOURCE, authTabId, {
           inject: SIGNUP_PAGE_INJECT_FILES,
           injectSource: AUTH_SOURCE,
-          timeoutMs: 30000,
+            timeoutMs: 30000,
+          });
+        prepareResult = await prepareSetPasswordFlowWithRetry(authTabId, visibleStep, {
+          timeoutMs: SET_PASSWORD_RESET_NAVIGATION_TIMEOUT_MS,
         });
-        prepareResult = await sendSetPasswordPageMessage('PREPARE_SET_GPT_PASSWORD', {}, visibleStep, 30000);
       }
       if (!prepareResult?.ready) {
-        prepareResult = await sendSetPasswordPageMessage('PREPARE_SET_GPT_PASSWORD', {}, visibleStep, 30000);
+        prepareResult = await prepareSetPasswordFlowWithRetry(authTabId, visibleStep, {
+          timeoutMs: 30000,
+        });
       }
       if (prepareResult?.emailAlreadyVerified || prepareResult?.requiresNewPasswordNavigation) {
         await addStepLog(visibleStep, '设置 GPT 密码：邮箱已验证，正在直接打开新密码页。', 'info');
@@ -921,7 +1188,7 @@
           if (submitAck?.success || submitAck?.gptPasswordSet) {
             passwordResult = submitAck;
           } else {
-            passwordResult = await waitForPasswordSubmitOutcomeFromBackground(authTabId, visibleStep);
+            passwordResult = await waitForPasswordSubmitOutcomeFromBackground(authTabId, visibleStep, email);
           }
         } catch (error) {
           if (!isPasswordSubmitStateProbeError(error)) {
@@ -984,8 +1251,9 @@
       if (!passwordResult?.success && !passwordResult?.gptPasswordSet) {
         const finalState = passwordResult || lastPasswordSubmitState || {};
         const stateDetail = finalState.pageState ? ` 页面状态：${finalState.pageState}。` : '';
+        const sessionDetail = finalState.sessionEmail ? ` session邮箱：${finalState.sessionEmail}。` : '';
         const detail = finalState.errorText ? ` 原因：${finalState.errorText}` : '';
-        throw new Error(`步骤 ${visibleStep}：GPT 密码提交后未确认成功。${stateDetail}URL: ${finalState.url || ''}${detail}`);
+        throw new Error(`步骤 ${visibleStep}：GPT 密码提交后未确认成功。${stateDetail}${sessionDetail}URL: ${finalState.url || ''}${detail}`);
       }
 
       const gptPasswordSetAt = new Date().toISOString();

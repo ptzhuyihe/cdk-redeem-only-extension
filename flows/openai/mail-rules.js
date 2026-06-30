@@ -18,6 +18,10 @@
       source: '(?:verification\\s+code|temporary\\s+verification\\s+code|your\\s+chatgpt\\s+code|code(?:\\s+is)?)[^0-9]{0,16}(\\d{6})',
       flags: 'i',
     }),
+    Object.freeze({
+      source: '(?:一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード|コード)[^0-9]{0,40}(\\d{6})',
+      flags: 'i',
+    }),
   ]);
   const OPENAI_REQUIRED_KEYWORDS = Object.freeze([
     'openai',
@@ -27,6 +31,11 @@
     'confirm',
     '验证码',
     '代码',
+    '認証コード',
+    '認證コード',
+    '検証コード',
+    '確認コード',
+    'コード',
   ]);
 
   function buildTargetEmailHints(targetEmail = '') {
@@ -100,8 +109,8 @@
           ? ['openai', 'noreply', 'verify', 'auth', 'duckduckgo', 'forward']
           : ['openai', 'noreply', 'verify', 'auth', 'chatgpt', 'duckduckgo', 'forward'],
         subjectFilters: signupStep
-          ? ['verify', 'verification', 'code', '验证码', 'confirm']
-          : ['verify', 'verification', 'code', '验证码', 'confirm', 'login'],
+          ? ['verify', 'verification', 'code', '验证码', 'confirm', '認証コード', '認證コード', '検証コード', '確認コード', 'コード']
+          : ['verify', 'verification', 'code', '验证码', 'confirm', 'login', '認証コード', '認證コード', '検証コード', '確認コード', 'コード'],
         targetEmail,
         targetEmailHints: buildTargetEmailHints(targetEmail),
         mail2925MatchTargetEmail: shouldMatchMail2925TargetEmail(state),

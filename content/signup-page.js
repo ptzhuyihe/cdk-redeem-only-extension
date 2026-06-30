@@ -339,7 +339,7 @@ function getFallbackVerificationCodeInput() {
   const verificationText = getPageTextSnapshot();
   const pageLooksLikeVerification = LOGIN_TOTP_VERIFICATION_PATTERN.test(verificationText)
     || ONE_TIME_CODE_LOGIN_PATTERN.test(verificationText)
-    || /verify\s+your\s+identity|one[-\s]*time\s+(?:code|password|passcode)|verification\s+code|动态码|验证码|身份验证/i.test(verificationText);
+    || /verify\s+your\s+identity|one[-\s]*time\s+(?:code|password|passcode)|verification\s+code|动态码|验证码|身份验证|受信箱を確認|受信トレイ|認証コード|検証コード|確認コード|コードを入力/i.test(verificationText);
   if (!pageLooksLikeVerification) {
     return null;
   }
@@ -358,7 +358,7 @@ function getFallbackVerificationCodeInput() {
   }
 
   const labeledCandidate = candidates.find((input) => (
-    /one[-\s]*time\s*(?:code|password|passcode)|verification\s*code|authenticator|authentication\s*app|totp|otp|2fa|mfa|动态码|验证码|身份验证/i
+    /one[-\s]*time\s*(?:code|password|passcode)|verification\s*code|authenticator|authentication\s*app|totp|otp|2fa|mfa|动态码|验证码|身份验证|認証コード|検証コード|確認コード|コード/i
       .test(getAssociatedInputText(input))
   ));
   if (labeledCandidate) {
@@ -2926,7 +2926,7 @@ async function fillSignupPasswordPageAndSubmit(snapshot, password, options = {})
 
   const submitBtn = activeSnapshot.submitButton
     || getSignupPasswordSubmitButton({ allowDisabled: true })
-    || await waitForElementByText('button', /continue|sign\s*up|submit|注册|创建|create/i, 5000).catch(() => null);
+    || await waitForElementByText('button', /continue|sign\s*up|submit|注册|创建|create|続行|登録|作成/i, 5000).catch(() => null);
 
   if (!submitBtn) {
     logSignupPasswordDiagnostics(`${contextLabel}：未找到可提交的密码页按钮`);
@@ -3051,17 +3051,17 @@ async function step3_fillEmailPassword(payload) {
 // Fill Verification Code (used by step 4 and step 7)
 // ============================================================
 
-const INVALID_VERIFICATION_CODE_PATTERN = /代码不正确|验证码不正确|验证码错误|code\s+(?:is\s+)?incorrect|invalid\s+code|incorrect\s+code|try\s+again/i;
-const EMAIL_ALREADY_VERIFIED_PATTERN = /email\s+verified|already\s+been\s+verified|邮箱已验证|电子邮件已验证|已经验证/i;
-const VERIFICATION_PAGE_PATTERN = /检查您的收件箱|输入我们刚刚向|重新发送电子邮件|重新发送验证码|代码不正确|email\s+verification|check\s+your\s+inbox|enter\s+the\s+code|we\s+just\s+sent|we\s+emailed|resend/i;
+const INVALID_VERIFICATION_CODE_PATTERN = /代码不正确|验证码不正确|验证码错误|コードが正しくありません|確認コードが正しくありません|認証コードが正しくありません|code\s+(?:is\s+)?incorrect|invalid\s+code|incorrect\s+code|try\s+again/i;
+const EMAIL_ALREADY_VERIFIED_PATTERN = /email\s+verified|already\s+been\s+verified|邮箱已验证|电子邮件已验证|已经验证|メール(?:アドレス)?は確認済み|確認済み/i;
+const VERIFICATION_PAGE_PATTERN = /检查您的收件箱|输入我们刚刚向|重新发送电子邮件|重新发送验证码|代码不正确|受信トレイ|メールを確認|コードを入力|確認コード|認証コード|メールを再送信|コードを再送信|email\s+verification|check\s+your\s+inbox|enter\s+the\s+code|we\s+just\s+sent|we\s+emailed|resend/i;
 const OAUTH_CONSENT_PAGE_PATTERN = /使用\s*ChatGPT\s*登录到\s*Codex|sign\s+in\s+to\s+codex(?:\s+with\s+chatgpt)?|login\s+to\s+codex|log\s+in\s+to\s+codex|authorize|授权/i;
 const OAUTH_CONSENT_FORM_SELECTOR = 'form[action*="/sign-in-with-chatgpt/" i][action*="/consent" i]';
-const CONTINUE_ACTION_PATTERN = /继续|continue/i;
+const CONTINUE_ACTION_PATTERN = /继续|続行|続ける|continue/i;
 const ADD_PHONE_PAGE_PATTERN = /add[\s-]*(?:a\s+)?phone|添加(?:手机|手机号|电话号码)|绑定(?:手机|手机号|电话号码)|验证(?:你的|您)?(?:手机|手机号|电话号码)|需要(?:手机|手机号|电话号码)|提供(?:手机|手机号|电话号码)|provide\s+(?:a\s+)?phone\s+number|phone\s+number\s+(?:required|verification)|verify\s+(?:your\s+)?phone|confirm\s+(?:your\s+)?phone/i;
 const ADD_EMAIL_PAGE_PATTERN = /add[\s-]*email|添加(?:电子邮件|邮箱)|要求提供(?:电子邮件|邮箱)地址|提供(?:电子邮件|邮箱)地址|provide\s+(?:an?\s+)?email\s+address|email\s+address\s+required/i;
-const STEP5_SUBMIT_ERROR_PATTERN = /无法根据该信息创建帐户|请重试|unable\s+to\s+create\s+(?:your\s+)?account|couldn'?t\s+create\s+(?:your\s+)?account|something\s+went\s+wrong|invalid\s+(?:birthday|birth|date)|生日|出生日期/i;
-const AUTH_TIMEOUT_ERROR_TITLE_PATTERN = /糟糕，出错了|something\s+went\s+wrong|oops/i;
-const AUTH_TIMEOUT_ERROR_DETAIL_PATTERN = /operation\s+timed\s+out|timed\s+out|请求超时|操作超时|failed\s+to\s+fetch|network\s+error|fetch\s+failed/i;
+const STEP5_SUBMIT_ERROR_PATTERN = /无法根据该信息创建帐户|请重试|アカウントを作成できません|作成できません|やり直してください|もう一度お試しください|エラーが発生しました|生年月日|誕生日|年齢|unable\s+to\s+create\s+(?:your\s+)?account|couldn'?t\s+create\s+(?:your\s+)?account|something\s+went\s+wrong|invalid\s+(?:birthday|birth|date)|生日|出生日期/i;
+const AUTH_TIMEOUT_ERROR_TITLE_PATTERN = /糟糕，出错了|エラーが発生しました|問題が発生しました|something\s+went\s+wrong|oops/i;
+const AUTH_TIMEOUT_ERROR_DETAIL_PATTERN = /operation\s+timed\s+out|timed\s+out|タイムアウト|時間切れ|请求超时|操作超时|failed\s+to\s+fetch|network\s+error|fetch\s+failed/i;
 const AUTH_ROUTE_ERROR_PATTERN = /405\s+method\s+not\s+allowed|route\s+error.*405|did\s+not\s+provide\s+an?\s+[`'"]?action|post\s+request\s+to\s+["']?\/email-verification/i;
 const STEP4_405_RECOVERY_ERROR_PREFIX = 'STEP4_405_RECOVERY_LIMIT::';
 const STEP4_405_RECOVERY_LIMIT = 3;
@@ -3208,7 +3208,19 @@ function getSignupPasswordFieldErrorText() {
 
 function isStep5Ready() {
   return Boolean(
-    document.querySelector('input[name="name"], input[autocomplete="name"], input[name="birthday"], input[name="age"], [role="spinbutton"][data-type="year"]')
+    document.querySelector([
+      'input[name="name"]',
+      'input[autocomplete="name"]',
+      'input[name="birthday"]',
+      'input[name="age"]',
+      'input[placeholder*="氏名"]',
+      'input[placeholder*="名前"]',
+      'input[placeholder*="年齢"]',
+      'input[aria-label*="氏名"]',
+      'input[aria-label*="名前"]',
+      'input[aria-label*="年齢"]',
+      '[role="spinbutton"][data-type="year"]',
+    ].join(', '))
   );
 }
 
@@ -3931,7 +3943,7 @@ function getSignupPasswordSubmitButton({ allowDisabled = false } = {}) {
   return Array.from(candidates).find((el) => {
     if (!isVisibleElement(el) || (!allowDisabled && !isActionEnabled(el))) return false;
     const text = getActionText(el);
-    return /继续|continue|submit|创建|create/i.test(text);
+    return /继续|続行|続ける|登録|作成|完了|continue|submit|创建|create/i.test(text);
   }) || null;
 }
 
@@ -3949,7 +3961,7 @@ function getAuthRetryButton({ allowDisabled = false } = {}) {
   return Array.from(candidates).find((el) => {
     if (!isVisibleElement(el) || (!allowDisabled && !isActionEnabled(el))) return false;
     const text = getActionText(el);
-    return /重试|try\s+again/i.test(text);
+    return /重试|再试|もう一度試す|再試行|やり直す|try\s+again/i.test(text);
   }) || null;
 }
 
@@ -4047,6 +4059,7 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       };
   const {
     flow = 'auth',
+    isRecovered = null,
     logLabel = '',
     maxClickAttempts = 5,
     pathPatterns = null,
@@ -4059,8 +4072,23 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
   const resolvedPathPatterns = Array.isArray(pathPatterns)
     ? pathPatterns
     : getAuthRetryPathPatternsForFlow(flow);
+  async function getCustomRecoverySnapshot() {
+    if (typeof isRecovered !== 'function') {
+      return null;
+    }
+    try {
+      const result = await isRecovered();
+      if (!result) {
+        return null;
+      }
+      return typeof result === 'object' ? result : { recovered: true };
+    } catch {
+      return null;
+    }
+  }
   if (authPageRecovery?.recoverAuthRetryPage) {
     return authPageRecovery.recoverAuthRetryPage({
+      isRecovered,
       logLabel,
       maxClickAttempts,
       pathPatterns: resolvedPathPatterns,
@@ -4078,6 +4106,17 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
   let idlePollCount = 0;
   while (clickCount < maxClickAttempts) {
     throwIfStopped();
+    const customRecovery = await getCustomRecoverySnapshot();
+    if (customRecovery) {
+      return {
+        ...customRecovery,
+        recovered: true,
+        clickCount,
+        customRecovered: true,
+        url: customRecovery.url || location.href,
+      };
+    }
+
     const retryState = getAuthTimeoutErrorPageState({ pathPatterns: resolvedPathPatterns });
     if (!retryState) {
       return {
@@ -4104,6 +4143,16 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       const settleStart = Date.now();
       while (Date.now() - settleStart < waitAfterClickMs) {
         throwIfStopped();
+        const settledRecovery = await getCustomRecoverySnapshot();
+        if (settledRecovery) {
+          return {
+            ...settledRecovery,
+            recovered: true,
+            clickCount,
+            customRecovered: true,
+            url: settledRecovery.url || location.href,
+          };
+        }
         if (!getAuthTimeoutErrorPageState({ pathPatterns: resolvedPathPatterns })) {
           return {
             recovered: true,
@@ -4125,6 +4174,16 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
   }
 
   const finalRetryState = getAuthTimeoutErrorPageState({ pathPatterns: resolvedPathPatterns });
+  const customRecovery = await getCustomRecoverySnapshot();
+  if (customRecovery) {
+    return {
+      ...customRecovery,
+      recovered: true,
+      clickCount,
+      customRecovered: true,
+      url: customRecovery.url || location.href,
+    };
+  }
   if (!finalRetryState) {
     return {
       recovered: clickCount > 0,
@@ -5829,7 +5888,7 @@ function getVerificationSubmitButtonForTarget(codeInput, options = {}) {
     return Array.from(textCandidates).find((element) => {
       if (!isUsableAction(element)) return false;
       const text = getActionText(element);
-      return /verify|confirm|submit|continue|确认|验证|继续/i.test(text);
+      return /verify|confirm|submit|continue|确认|验证|继续|続行|確認|認証|送信/i.test(text);
     }) || null;
   };
 
@@ -5893,9 +5952,33 @@ function getSetGptPasswordAuthRetryPageState() {
   });
 }
 
+function isSetGptPasswordEmailVerificationPage() {
+  if (isEmailVerificationPage()) {
+    return true;
+  }
+  const pageText = getPageTextSnapshot();
+  return /check\s+your\s+inbox|enter\s+the\s+code|we\s+just\s+sent|email\s+verification|resend|检查您的收件箱|输入我们刚刚向|重新发送|验证码|受信箱を確認|受信トレイ|お送りした検証コード|検証コードを入力|認証コード|確認コード|メールを再送信/i.test(pageText);
+}
+
+function getSetGptPasswordRecoveredAuthRetrySnapshot() {
+  if (!isResetPasswordNewPasswordPage()) {
+    return null;
+  }
+  const resetInputs = getResetPasswordInputs();
+  if (!resetInputs.passwordInput || !resetInputs.confirmInput) {
+    return null;
+  }
+  return {
+    state: 'new_password_page',
+    url: location.href,
+    passwordInputCount: resetInputs.inputs.length,
+  };
+}
+
 async function recoverSetGptPasswordAuthRetryPage(visibleStep = 6, contextLabel = '设置 GPT 密码') {
   return recoverCurrentAuthRetryPage({
     flow: 'set_gpt_password',
+    isRecovered: getSetGptPasswordRecoveredAuthRetrySnapshot,
     logLabel: `步骤 ${visibleStep}：${contextLabel}检测到认证超时页，正在点击“重试”恢复`,
     maxClickAttempts: 3,
     pathPatterns: getSetGptPasswordAuthRetryPathPatterns(),
@@ -5991,6 +6074,33 @@ function isResetPasswordReuseErrorText(value = '') {
 }
 
 function getSetGptPasswordPageState() {
+  const resetInputs = getResetPasswordInputs();
+  if (isResetPasswordNewPasswordPage()) {
+    if (resetInputs.passwordInput && resetInputs.confirmInput) {
+      return {
+        state: 'new_password_page',
+        url: location.href,
+        passwordInputCount: resetInputs.inputs.length,
+        errorText: getResetPasswordFieldErrorText(),
+      };
+    }
+    const retryState = getSetGptPasswordAuthRetryPageState();
+    if (retryState) {
+      return {
+        state: 'auth_retry_page',
+        url: retryState.url || location.href,
+        retryEnabled: Boolean(retryState.retryEnabled),
+        maxCheckAttemptsBlocked: Boolean(retryState.maxCheckAttemptsBlocked),
+        userAlreadyExistsBlocked: Boolean(retryState.userAlreadyExistsBlocked),
+      };
+    }
+    return {
+      state: 'new_password_loading',
+      url: location.href,
+      passwordInputCount: resetInputs.inputs.length,
+      errorText: getResetPasswordFieldErrorText(),
+    };
+  }
   const retryState = getSetGptPasswordAuthRetryPageState();
   if (retryState) {
     return {
@@ -6001,16 +6111,6 @@ function getSetGptPasswordPageState() {
       userAlreadyExistsBlocked: Boolean(retryState.userAlreadyExistsBlocked),
     };
   }
-
-  const resetInputs = getResetPasswordInputs();
-  if (isResetPasswordNewPasswordPage()) {
-    return {
-      state: resetInputs.passwordInput && resetInputs.confirmInput ? 'new_password_page' : 'new_password_loading',
-      url: location.href,
-      passwordInputCount: resetInputs.inputs.length,
-      errorText: getResetPasswordFieldErrorText(),
-    };
-  }
   if (isEmailAlreadyVerifiedPage()) {
     return {
       state: 'email_already_verified_page',
@@ -6018,7 +6118,7 @@ function getSetGptPasswordPageState() {
       emailAlreadyVerified: true,
     };
   }
-  if (isEmailVerificationPage()) {
+  if (isSetGptPasswordEmailVerificationPage()) {
     return {
       state: getVerificationCodeTarget() ? 'email_verification_page' : 'email_verification_loading',
       url: location.href,
@@ -6029,6 +6129,14 @@ function getSetGptPasswordPageState() {
     state: 'unknown',
     url: location.href,
   };
+}
+
+function normalizeSetGptPasswordPrepareWaitMs(value, fallback = 15000) {
+  const numeric = Math.floor(Number(value) || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+  return Math.max(2000, Math.min(45000, numeric));
 }
 
 async function waitForSetGptPasswordPageState(predicate, timeout = 15000) {
@@ -6185,10 +6293,15 @@ async function startSetGptPasswordResetFlow(payload = {}) {
 
 async function prepareSetGptPasswordFlow(payload = {}) {
   const visibleStep = resolveVisibleStep(payload, 6);
+  const waitTimeoutMs = normalizeSetGptPasswordPrepareWaitMs(payload.waitTimeoutMs, 15000);
+  const fallbackWaitTimeoutMs = normalizeSetGptPasswordPrepareWaitMs(
+    payload.fallbackWaitTimeoutMs,
+    waitTimeoutMs
+  );
   const readySnapshot = await waitForSetGptPasswordInteractiveReady(
     visibleStep,
     `步骤 ${visibleStep}：设置 GPT 密码页`,
-    15000,
+    waitTimeoutMs,
     ['email_verification_page', 'new_password_page', 'email_already_verified_page']
   );
   const snapshot = ['email_verification_page', 'new_password_page', 'email_already_verified_page'].includes(readySnapshot.state)
@@ -6197,7 +6310,7 @@ async function prepareSetGptPasswordFlow(payload = {}) {
         (state) => state.state === 'email_verification_page'
           || state.state === 'new_password_page'
           || state.state === 'email_already_verified_page',
-        15000
+        fallbackWaitTimeoutMs
       );
 
   if (snapshot.state === 'new_password_page') {
@@ -8256,7 +8369,7 @@ function getStep5SubmitButton() {
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim();
-    return /完成|创建|create|continue|finish|done|agree/i.test(text);
+    return /完成|创建|アカウントの作成を完了する|アカウントを作成|作成を完了|完了|作成|続行|同意|create|continue|finish|done|agree/i.test(text);
   }) || null;
 }
 
@@ -8756,7 +8869,16 @@ async function step5_fillNameBirthday(payload) {
   let nameInput = null;
   try {
     nameInput = await waitForElement(
-      'input[name="name"], input[placeholder*="全名"], input[autocomplete="name"]',
+      [
+        'input[name="name"]',
+        'input[placeholder*="全名"]',
+        'input[placeholder*="氏名"]',
+        'input[placeholder*="名前"]',
+        'input[aria-label*="全名"]',
+        'input[aria-label*="氏名"]',
+        'input[aria-label*="名前"]',
+        'input[autocomplete="name"]',
+      ].join(', '),
       10000
     );
   } catch {
@@ -8786,7 +8908,15 @@ async function step5_fillNameBirthday(payload) {
     monthSpinner = document.querySelector('[role="spinbutton"][data-type="month"]');
     daySpinner = document.querySelector('[role="spinbutton"][data-type="day"]');
     hiddenBirthday = document.querySelector('input[name="birthday"]');
-    ageInput = document.querySelector('input[name="age"]');
+    ageInput = document.querySelector([
+      'input[name="age"]',
+      'input[placeholder*="年龄"]',
+      'input[placeholder*="年齡"]',
+      'input[placeholder*="年齢"]',
+      'input[aria-label*="年龄"]',
+      'input[aria-label*="年齡"]',
+      'input[aria-label*="年齢"]',
+    ].join(', '));
     yearReactSelect = findBirthdayReactAriaSelect('年');
     monthReactSelect = findBirthdayReactAriaSelect('月');
     dayReactSelect = findBirthdayReactAriaSelect('天');
@@ -8964,7 +9094,7 @@ async function step5_fillNameBirthday(payload) {
   // Click "完成帐户创建" button
   await sleep(500);
   const completeBtn = await waitForStep5SubmitButton(5000)
-    || await waitForElementByText('button', /完成|create|continue|finish|done|agree/i, 5000).catch(() => null);
+    || await waitForElementByText('button', /完成|アカウントの作成を完了する|アカウントを作成|作成を完了|完了|作成|続行|同意|create|continue|finish|done|agree/i, 5000).catch(() => null);
   if (!completeBtn) {
     throw new Error('未找到“完成帐户创建”按钮。URL: ' + location.href);
   }

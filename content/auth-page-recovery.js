@@ -43,7 +43,7 @@
           return false;
         }
         const text = typeof getActionText === 'function' ? getActionText(element) : '';
-        return /重试|try\s+again/i.test(text);
+        return /重试|try\s+again|もう一度試す|再試行|やり直す/i.test(text);
       }) || null;
     }
 
@@ -92,8 +92,24 @@
       };
     }
 
+    async function getCustomRecoverySnapshot(isRecovered) {
+      if (typeof isRecovered !== 'function') {
+        return null;
+      }
+      try {
+        const result = await isRecovered();
+        if (!result) {
+          return null;
+        }
+        return typeof result === 'object' ? result : { recovered: true };
+      } catch {
+        return null;
+      }
+    }
+
     async function waitForRetryPageRecoveryAfterClick(options = {}) {
       const {
+        isRecovered = null,
         pathPatterns = [],
         pollIntervalMs = 250,
         settleAfterClickMs = 3000,
@@ -103,6 +119,16 @@
       while (Date.now() - startedAt < settleAfterClickMs) {
         if (typeof throwIfStopped === 'function') {
           throwIfStopped();
+        }
+
+        const customRecovery = await getCustomRecoverySnapshot(isRecovered);
+        if (customRecovery) {
+          return {
+            ...customRecovery,
+            recovered: true,
+            customRecovered: true,
+            elapsedMs: Date.now() - startedAt,
+          };
         }
 
         const retryState = getAuthTimeoutErrorPageState({ pathPatterns });
@@ -130,6 +156,7 @@
       const {
         logLabel = '',
         maxClickAttempts = 5,
+        isRecovered = null,
         pathPatterns = [],
         pollIntervalMs = 250,
         step = null,
@@ -145,6 +172,17 @@
       while (clickCount < maxClickAttempts) {
         if (typeof throwIfStopped === 'function') {
           throwIfStopped();
+        }
+
+        const customRecovery = await getCustomRecoverySnapshot(isRecovered);
+        if (customRecovery) {
+          return {
+            ...customRecovery,
+            recovered: true,
+            clickCount,
+            customRecovered: true,
+            url: customRecovery.url || location.href,
+          };
         }
 
         const retryState = getAuthTimeoutErrorPageState({ pathPatterns });
@@ -184,13 +222,15 @@
           const recoveryResult = await waitForRetryPageRecoveryAfterClick({
             pathPatterns,
             pollIntervalMs,
+            isRecovered,
             settleAfterClickMs: waitAfterClickMs,
           });
           if (recoveryResult.recovered) {
             return {
+              ...recoveryResult,
               recovered: true,
               clickCount,
-              url: location.href,
+              url: recoveryResult.url || location.href,
             };
           }
           continue;
@@ -204,6 +244,17 @@
         }
 
         await sleep(pollIntervalMs);
+      }
+
+      const customRecovery = await getCustomRecoverySnapshot(isRecovered);
+      if (customRecovery) {
+        return {
+          ...customRecovery,
+          recovered: true,
+          clickCount,
+          customRecovered: true,
+          url: customRecovery.url || location.href,
+        };
       }
 
       const finalRetryState = getAuthTimeoutErrorPageState({ pathPatterns });

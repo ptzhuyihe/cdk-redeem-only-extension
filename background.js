@@ -388,6 +388,53 @@ function buildStatePatchWithRuntimeState(currentState = {}, updates = {}) {
   return updates;
 }
 
+function alignUpiRedeemCdkeyAliasStatePatch(patch = {}) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return patch;
+  }
+
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(patch, key);
+  const pickAliasValue = (keys) => {
+    for (const key of keys) {
+      if (hasOwn(key)) {
+        return patch[key];
+      }
+    }
+    return undefined;
+  };
+
+  const cdkeyPoolAliasKeys = [
+    'upiRedeemCdkeyPoolText',
+    'cdkPoolText',
+    'upiRedeemCdkPoolText',
+    'pixRedeemCdkeyPoolText',
+  ];
+  const cdkeyUsageAliasKeys = [
+    'upiRedeemCdkeyUsage',
+    'cdkUsage',
+    'upiRedeemCdkUsage',
+    'pixRedeemCdkeyUsage',
+  ];
+
+  const poolText = pickAliasValue(cdkeyPoolAliasKeys);
+  if (poolText !== undefined) {
+    patch.upiRedeemCdkeyPoolText = poolText;
+    patch.cdkPoolText = poolText;
+    patch.upiRedeemCdkPoolText = poolText;
+    patch.pixRedeemCdkeyPoolText = poolText;
+  }
+
+  const usage = pickAliasValue(cdkeyUsageAliasKeys);
+  if (usage !== undefined) {
+    patch.upiRedeemCdkeyUsage = usage;
+    patch.cdkUsage = usage;
+    patch.upiRedeemCdkUsage = usage;
+    patch.pixRedeemCdkeyUsage = usage;
+  }
+
+  return patch;
+}
+
 function statePatchHasChanges(state = {}, patch = {}) {
   return Object.keys(patch).some((key) => JSON.stringify(state?.[key] ?? null) !== JSON.stringify(patch[key] ?? null));
 }
@@ -3929,10 +3976,10 @@ async function setState(updates) {
   console.log(LOG_PREFIX, 'storage.set:', JSON.stringify(updates).slice(0, 200));
   if (Object.keys(updates || {}).length > 0) {
     const currentSessionState = await chrome.storage.session.get(null);
-    const sessionUpdates = buildStatePatchWithRuntimeState({
+    const sessionUpdates = alignUpiRedeemCdkeyAliasStatePatch(buildStatePatchWithRuntimeState({
       ...DEFAULT_STATE,
       ...currentSessionState,
-    }, updates);
+    }, updates));
     await chrome.storage.session.set(sessionUpdates);
     const persistentAliasUpdates = {};
     if (Object.prototype.hasOwnProperty.call(sessionUpdates, 'manualAliasUsage')) {
@@ -12635,6 +12682,80 @@ async function executeStepViaCompletionSignal(step, timeoutMs = 0) {
   return executeNodeViaCompletionSignal(nodeId, timeoutMs);
 }
 
+async function runStep3PostCompletionReview(nodeId, completionPayload = {}) {
+  const latestState = await getState();
+  const visibleStep = getStepIdByNodeIdForState(nodeId, latestState) || 3;
+  const signupTabId = await getTabId('signup-page');
+  if (!signupTabId) {
+    await addLog(`步骤 ${visibleStep}：密码提交后复核跳过，未找到认证页标签页。`, 'warn', {
+      step: visibleStep,
+      stepKey: 'fill-password',
+    });
+    return null;
+  }
+
+  const password = latestState.password
+    || latestState.customPassword
+    || completionPayload.password
+    || '';
+  await addLog('自动运行：密码节点已收到完成信号，正在复核是否进入验证码页或后续页面...', 'info', {
+    step: visibleStep,
+    stepKey: 'fill-password',
+  });
+  const result = await signupFlowHelpers.finalizeSignupPasswordSubmitInTab(
+    signupTabId,
+    password,
+    visibleStep
+  );
+  if (result && typeof result === 'object') {
+    await handleNodeData(nodeId, {
+      ...(completionPayload || {}),
+      ...result,
+    });
+  }
+  return result || {};
+}
+
+async function runStep5PostCompletionReview(nodeId, completionPayload = {}) {
+  const latestState = await getState();
+  const visibleStep = getStepIdByNodeIdForState(nodeId, latestState) || 5;
+  const signupTabId = await getTabId('signup-page');
+  if (!signupTabId) {
+    await addLog(`步骤 ${visibleStep}：资料提交后复核跳过，未找到认证页标签页。`, 'warn', {
+      step: visibleStep,
+      stepKey: 'fill-profile',
+    });
+    return null;
+  }
+
+  await addLog('自动运行：填写资料节点已收到完成信号，正在复核页面跳转、重试页或慢网络停留...', 'info', {
+    step: visibleStep,
+    stepKey: 'fill-profile',
+  });
+  await waitForTabStableComplete(signupTabId, {
+    timeoutMs: 120000,
+    retryDelayMs: 300,
+    stableMs: 1000,
+    initialDelayMs: 800,
+  }).catch(() => null);
+  return validateStep5PostCompletion(signupTabId, {
+    ...(completionPayload || {}),
+    visibleStep,
+  });
+}
+
+async function runPostCompletionReview(nodeId, completionPayload = {}) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  switch (normalizedNodeId) {
+    case 'fill-password':
+      return runStep3PostCompletionReview(normalizedNodeId, completionPayload);
+    case 'fill-profile':
+      return runStep5PostCompletionReview(normalizedNodeId, completionPayload);
+    default:
+      return null;
+  }
+}
+
 function getLatestLogTimestamp(logs = [], fallback = 0) {
   if (!Array.isArray(logs) || !logs.length) {
     return Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
@@ -13200,36 +13321,24 @@ async function executeNodeAndWait(nodeId, delayAfter = 2000) {
     await executeNode(normalizedNodeId);
   }
 
-  if (normalizedNodeId === 'fill-profile') {
-    const signupTabId = await getTabId('signup-page');
-    if (signupTabId) {
-      await addLog('自动运行：填写资料节点已收到完成信号，正在等待当前页面完成加载并稳定...', 'info');
-      await waitForTabStableComplete(signupTabId, {
-        timeoutMs: 120000,
-        retryDelayMs: 300,
-        stableMs: 1000,
-        initialDelayMs: 800,
-      });
+  try {
+    await runPostCompletionReview(normalizedNodeId, completionPayload || {});
+  } catch (postCompletionError) {
+    if (isRegistrationIdentityConflictFailure(postCompletionError)) {
       try {
-        await validateStep5PostCompletion(signupTabId, completionPayload || {});
-      } catch (step5ValidationError) {
-        if (isRegistrationIdentityConflictFailure(step5ValidationError)) {
-          try {
-            await markCurrentRegistrationAccountUnavailable(await getState(), {
-              logPrefix: '检测到当前注册邮箱不可再用',
-              level: 'warn',
-              reason: isStep8EmailInUseFailure(step5ValidationError) ? 'email_in_use' : 'user_already_exists',
-              reasonLabel: isStep8EmailInUseFailure(step5ValidationError) ? '邮箱已被使用' : '账号已存在',
-            });
-          } catch (markError) {
-            console.warn(LOG_PREFIX, 'Failed to mark registration account unavailable after step 5 validation error:', getErrorMessage(markError));
-          }
-        }
-        await setNodeStatus(normalizedNodeId, 'failed');
-        await addLog(`失败：${getErrorMessage(step5ValidationError)}`, 'error', { nodeId: normalizedNodeId });
-        throw step5ValidationError;
+        await markCurrentRegistrationAccountUnavailable(await getState(), {
+          logPrefix: '检测到当前注册邮箱不可再用',
+          level: 'warn',
+          reason: isStep8EmailInUseFailure(postCompletionError) ? 'email_in_use' : 'user_already_exists',
+          reasonLabel: isStep8EmailInUseFailure(postCompletionError) ? '邮箱已被使用' : '账号已存在',
+        });
+      } catch (markError) {
+        console.warn(LOG_PREFIX, 'Failed to mark registration account unavailable after post completion review error:', getErrorMessage(markError));
       }
     }
+    await setNodeStatus(normalizedNodeId, 'failed');
+    await addLog(`失败：${getErrorMessage(postCompletionError)}`, 'error', { nodeId: normalizedNodeId });
+    throw postCompletionError;
   }
 
   // Extra delay for page transitions / DOM updates
@@ -16405,7 +16514,8 @@ function isStep5SubmitRecoverySuccessState(pageState = {}) {
   const successState = String(pageState?.successState || '').trim();
   return successState === 'logged_in_home'
     || successState === 'oauth_consent'
-    || successState === 'add_phone';
+    || successState === 'add_phone'
+    || successState === 'left_profile';
 }
 
 function buildStep5SubmitRecoveryCompletionPayload(pageState = {}) {
@@ -16597,14 +16707,25 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
     throw new Error('步骤 5：缺少有效的资料页标签页，无法确认提交后的最终状态。');
   }
 
+  const reviewTimeoutMs = Math.max(30000, Math.floor(Number(completionPayload?.postCompletionReviewTimeoutMs) || 60000));
+  const pollIntervalMs = Math.max(500, Math.floor(Number(completionPayload?.postCompletionReviewPollIntervalMs) || 1000));
   const maxAuthRetryRecoveries = Math.max(1, Number(completionPayload?.maxAuthRetryRecoveries) || 2);
   const maxPasskeySkipAttempts = Math.max(1, Number(completionPayload?.maxPasskeySkipAttempts) || 2);
+  const maxProfileSubmitRecoveries = Math.max(1, Number(completionPayload?.maxProfileSubmitRecoveries) || 3);
+  const startedAt = Date.now();
   let authRetryRecoveryCount = 0;
   let passkeySkipCount = 0;
+  let profileSubmitRecoveryCount = 0;
+  let lastPageState = null;
+  let lastUrl = '';
 
-  while (true) {
+  while (Date.now() - startedAt < reviewTimeoutMs) {
+    throwIfStopped();
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     const currentUrl = String(tab?.url || completionPayload?.url || '').trim();
+    if (currentUrl) {
+      lastUrl = currentUrl;
+    }
     if (currentUrl && isLikelyLoggedInChatgptHomeUrl(currentUrl)) {
       return {
         successState: 'logged_in_home',
@@ -16618,6 +16739,10 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
       retryDelayMs: 500,
       logMessage: '步骤 5：资料提交已触发页面跳转，正在确认最终页面状态...',
     });
+    lastPageState = pageState;
+    if (pageState?.url) {
+      lastUrl = pageState.url;
+    }
 
     if (pageState.userAlreadyExistsBlocked) {
       throw new Error('SIGNUP_USER_ALREADY_EXISTS::步骤 5：检测到 user_already_exists，当前轮将直接停止。');
@@ -16673,7 +16798,7 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
       continue;
     }
 
-    if (pageState.successState === 'logged_in_home' || pageState.successState === 'oauth_consent' || pageState.successState === 'add_phone') {
+    if (isStep5SubmitRecoverySuccessState(pageState)) {
       return pageState;
     }
 
@@ -16682,15 +16807,62 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
     }
 
     if (pageState.profileVisible) {
-      throw new Error(`步骤 5：资料提交完成信号已收到，但页面仍停留在资料页，当前流程将直接报错。URL: ${pageState.url || currentUrl || 'unknown'}`);
+      if (pageState.submitButtonClickable && profileSubmitRecoveryCount < maxProfileSubmitRecoveries) {
+        profileSubmitRecoveryCount += 1;
+        await addLog(
+          `步骤 5：资料提交完成信号后仍停留在资料页，正在自动重新提交（${profileSubmitRecoveryCount}/${maxProfileSubmitRecoveries}）...`,
+          'warn',
+          { step: 5, stepKey: 'fill-profile' }
+        );
+        const submitResult = await triggerStep5ProfileSubmitOnTab({
+          attempt: profileSubmitRecoveryCount,
+          timeoutMs: 10000,
+          responseTimeoutMs: 10000,
+          retryDelayMs: 500,
+        });
+        if (isStep5SubmitRecoverySuccessState(submitResult)) {
+          return submitResult;
+        }
+        await waitForTabStableComplete(tabId, {
+          timeoutMs: 15000,
+          retryDelayMs: 300,
+          stableMs: 800,
+          initialDelayMs: 500,
+        }).catch(() => null);
+        continue;
+      }
+
+      await addLog(
+        pageState.submitButtonClickable
+          ? `步骤 5：资料页仍停留且已达到自动重提上限，继续等待慢跳转复核。`
+          : `步骤 5：资料页仍停留但提交按钮暂不可点，继续等待页面切换。`,
+        'warn',
+        { step: 5, stepKey: 'fill-profile' }
+      );
+      await sleepWithStop(pollIntervalMs);
+      continue;
     }
 
     if (pageState.unknownAuthPage) {
-      throw new Error(`步骤 5：资料提交后进入未识别的认证页，无法确认成功。URL: ${pageState.url || currentUrl || 'unknown'}`);
+      await addLog('步骤 5：资料提交后认证页状态暂不可识别，继续复核慢跳转。', 'warn', {
+        step: 5,
+        stepKey: 'fill-profile',
+      });
+      await sleepWithStop(pollIntervalMs);
+      continue;
     }
 
-    throw new Error(`步骤 5：资料提交后未能确认最终状态。URL: ${pageState.url || currentUrl || 'unknown'}`);
+    await sleepWithStop(pollIntervalMs);
   }
+
+  const finalStateLabel = [
+    lastPageState?.successState ? `success=${lastPageState.successState}` : '',
+    lastPageState?.retryPage ? 'retry_page' : '',
+    lastPageState?.passkeyEnrollPage ? 'passkey_page' : '',
+    lastPageState?.profileVisible ? 'profile_visible' : '',
+    lastPageState?.unknownAuthPage ? 'unknown_auth_page' : '',
+  ].filter(Boolean).join(', ') || 'unknown';
+  throw new Error(`步骤 5：资料提交完成信号后复核 ${Math.round(reviewTimeoutMs / 1000)} 秒仍未确认成功。页面状态：${finalStateLabel}；已重提 ${profileSubmitRecoveryCount}/${maxProfileSubmitRecoveries} 次。URL: ${lastUrl || 'unknown'}`);
 }
 
 async function ensureStep8VerificationPageReady(options = {}) {
@@ -17808,10 +17980,6 @@ restoreAutoRunTimerIfNeeded().catch((err) => {
 disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
   handleBackgroundStartupError('disable legacy IP proxy feature', err);
 });
-
-
-
-
 
 
 

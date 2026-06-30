@@ -539,6 +539,93 @@
       ].some((status) => isActiveUpiRedeemRemoteStatus(status));
     }
 
+    function normalizeUpiCredentialMembershipCapabilityFlag(value) {
+      if (value === true) {
+        return true;
+      }
+      const normalized = String(value || '').trim().toLowerCase();
+      return normalized === 'true' || normalized === '1' || normalized === 'yes';
+    }
+
+    function getUpiRedeemCdkeyUsageEntryByCdkey(cdkey = '', currentState = state.getLatestState()) {
+      const targetCdkey = String(cdkey || '').trim();
+      if (!targetCdkey) {
+        return null;
+      }
+      const usage = getUpiRedeemCdkeyUsage(currentState);
+      if (usage[targetCdkey]) {
+        return usage[targetCdkey];
+      }
+      const targetKey = targetCdkey.toLowerCase();
+      const match = Object.entries(usage)
+        .find(([rawCdkey]) => String(rawCdkey || '').trim().toLowerCase() === targetKey);
+      return match ? match[1] : null;
+    }
+
+    function findActiveUpiRedeemCdkeyUsageEntryByEmail(email = '', currentState = state.getLatestState()) {
+      const normalizedEmail = normalizeUpiCredentialMembershipEmail(email);
+      if (!normalizedEmail) {
+        return null;
+      }
+      const usage = getUpiRedeemCdkeyUsage(currentState);
+      const match = Object.entries(usage)
+        .find(([, entry]) => {
+          const entryEmail = getUpiRedeemUsageEmail(entry);
+          return entryEmail === normalizedEmail
+            && (
+              normalizeUpiCredentialMembershipCapabilityFlag(entry?.canCancel ?? entry?.can_cancel)
+              || isActiveUpiRedeemRemoteStatus(entry?.remoteStatus)
+              || isActiveUpiRedeemRemoteStatus(entry?.remoteMessage)
+            );
+        });
+      return match ? { cdkey: match[0], entry: match[1] } : null;
+    }
+
+    function getUpiCredentialMembershipRedeemCdkey(row = {}, currentState = state.getLatestState()) {
+      const directCdkey = String(row.upiRedeemCdkey || row.cdkey || '').trim();
+      if (directCdkey) {
+        return directCdkey;
+      }
+      const match = findActiveUpiRedeemCdkeyUsageEntryByEmail(row.email, currentState);
+      return String(match?.cdkey || '').trim();
+    }
+
+    function getUpiCredentialMembershipRedeemCancelControl(row = {}, results = getUpiCredentialMembershipCheckResults()) {
+      const currentState = state.getLatestState();
+      const cdkey = getUpiCredentialMembershipRedeemCdkey(row, currentState);
+      const usageEntry = getUpiRedeemCdkeyUsageEntryByCdkey(cdkey, currentState)
+        || findActiveUpiRedeemCdkeyUsageEntryByEmail(row.email, currentState)?.entry
+        || {};
+      const active = isActiveUpiCredentialMembershipRedeemRow(row, results)
+        || isActiveUpiRedeemRemoteStatus(usageEntry.remoteStatus)
+        || isActiveUpiRedeemRemoteStatus(usageEntry.remoteMessage);
+      if (!active) {
+        return { visible: false, cdkey: '', canCancel: false, disabled: true, title: '' };
+      }
+      const canCancel = normalizeUpiCredentialMembershipCapabilityFlag(
+        row.canCancel
+        ?? row.can_cancel
+        ?? usageEntry.canCancel
+        ?? usageEntry.can_cancel
+      );
+      const autoRunBusy = isAutoRunRecordDisplayRunning(currentState);
+      const disabled = autoRunBusy || !cdkey || !canCancel;
+      const title = !cdkey
+        ? '该账号暂未绑定可取消的 CDK。'
+        : autoRunBusy
+          ? '自动注册主程序运行中不能手动取消 CDK 任务。'
+          : canCancel
+            ? `取消该账号绑定的 CDK 任务：${cdkey}`
+            : '后端暂未返回该任务可取消，请先刷新 CDK 状态。';
+      return {
+        visible: true,
+        cdkey,
+        canCancel,
+        disabled,
+        title,
+      };
+    }
+
     function isSelectableUpiRedeemCdkeyUsageEntry(entry = {}) {
       if (!entry || entry.enabled === false) {
         return false;
@@ -1746,6 +1833,7 @@
           <span>状态</span>
           <span>登录</span>
           <span>移动</span>
+          <span>兑换</span>
           <span>删除</span>
         </div>
         <div class="upi-membership-check-list" data-upi-membership-list="${escapeHtml(group)}">
@@ -1764,6 +1852,7 @@
             const deleteTitle = deleteLockedByRedeem
               ? '正在兑换或等待远端结果，不能删除；请先取消对应 CDK 任务。'
               : '删除';
+            const cancelRedeemControl = getUpiCredentialMembershipRedeemCancelControl(row, results);
             const singleActionTitle = isFreeGroup
               ? '点击重新核验该账号资格'
               : '点击检测该账号是否已开通 Plus/Pro/Team';
@@ -1786,6 +1875,9 @@
                 <button class="icloud-tag upi-membership-check-status-action ${escapeHtml(meta.className)}" type="button" data-upi-membership-check-one="${escapeHtml(email)}" ${disableSingleCheck ? 'disabled' : ''} aria-label="${escapeHtml(singleActionAria)}" title="${escapeHtml(singleActionTitle)}">${escapeHtml(meta.label)}</button>
                 <button class="icloud-tag upi-membership-check-login-action" type="button" data-upi-membership-login="${escapeHtml(email)}" ${disableLogin ? 'disabled' : ''} title="登录">登录</button>
                 <button class="icloud-tag upi-membership-check-move-action" type="button" data-upi-membership-move-group="${escapeHtml(email)}" data-upi-membership-move-target="${escapeHtml(targetMoveStatus)}" ${mutatingBusy ? 'disabled' : ''}>${escapeHtml(moveLabel)}</button>
+                ${cancelRedeemControl.visible
+                  ? `<button class="icloud-tag warn upi-membership-check-cancel-redeem-action" type="button" data-upi-membership-cancel-redeem="${escapeHtml(email)}" data-upi-membership-cancel-cdkey="${escapeHtml(cancelRedeemControl.cdkey)}" ${cancelRedeemControl.disabled ? 'disabled' : ''} title="${escapeHtml(cancelRedeemControl.title)}">取消</button>`
+                  : '<span class="upi-membership-check-action-placeholder"></span>'}
                 <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" ${disableDelete ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">删除</button>
               </div>
               ${meta.detail ? `<div class="upi-membership-check-detail">${escapeHtml(meta.detail)}</div>` : ''}
@@ -3435,6 +3527,59 @@
       }
     }
 
+    function getUpiRedeemCdkeyJobOperationResultItem(response = {}, cdkey = '') {
+      const normalizedCdkey = String(cdkey || '').trim().toLowerCase();
+      return (Array.isArray(response?.items) ? response.items : [])
+        .find((item) => String(item?.cdkey || item?.cdk || '').trim().toLowerCase() === normalizedCdkey)
+        || null;
+    }
+
+    async function cancelUpiCredentialMembershipRedeemJob(email = '', explicitCdkey = '') {
+      const normalizedEmail = normalizeUpiCredentialMembershipEmail(email);
+      const row = getUpiCredentialMembershipDisplayRowByEmail(normalizedEmail);
+      const cdkey = String(explicitCdkey || getUpiCredentialMembershipRedeemCdkey(row || {})).trim();
+      if (!normalizedEmail || !row) {
+        helpers.showToast?.(`未找到账号 ${normalizedEmail || email}`, 'warn', 1800);
+        return;
+      }
+      if (!cdkey) {
+        helpers.showToast?.(`${normalizedEmail} 暂未绑定可取消的 CDK。`, 'warn', 2200);
+        return;
+      }
+
+      try {
+        const latest = state.getLatestState();
+        const response = await runtime.sendMessage({
+          type: 'CANCEL_UPI_REDEEM_CDKEY_JOBS',
+          source: 'sidepanel',
+          payload: {
+            cdkeys: [cdkey],
+            cdkPoolText: getStoredCdkPoolText(latest),
+            upiRedeemCdkPoolText: getStoredCdkPoolText(latest),
+            upiRedeemCdkeyPoolText: getStoredCdkPoolText(latest),
+          },
+        });
+        if (response?.error) {
+          throw new Error(response.error);
+        }
+        if (response?.updates) {
+          state.syncLatestState(response.updates);
+        }
+        const resultItem = getUpiRedeemCdkeyJobOperationResultItem(response, cdkey);
+        if (resultItem?.cancelled === true || resultItem?.canceled === true) {
+          helpers.showToast?.(`${normalizedEmail} 的 CDK 任务已提交取消。`, 'success', 2200);
+        } else {
+          const reason = String(resultItem?.reason || '').trim();
+          helpers.showToast?.(`取消兑换未完成：${reason || '后端未返回成功结果。'}`, 'warn', 2600);
+        }
+        await refreshUpiCredentialMembershipCheckResults().catch(() => null);
+      } catch (error) {
+        helpers.showToast?.(`取消兑换失败：${error.message}`, 'error');
+      } finally {
+        render();
+      }
+    }
+
     async function exportUpiCredentialMembershipCheckResultTextFile(status = 'paid') {
       if (typeof helpers.downloadTextFile !== 'function') {
         helpers.showToast?.('当前环境不支持导出 TXT。', 'error');
@@ -3850,6 +3995,15 @@
       const stopRedeemNode = findClosest(event?.target, '[data-upi-membership-stop-redeem]');
       if (stopRedeemNode) {
         stopUpiCredentialMembershipRedeem();
+        return;
+      }
+
+      const cancelRedeemNode = findClosest(event?.target, '[data-upi-membership-cancel-redeem]');
+      if (cancelRedeemNode) {
+        cancelUpiCredentialMembershipRedeemJob(
+          getDatasetValue(cancelRedeemNode, 'data-upi-membership-cancel-redeem'),
+          getDatasetValue(cancelRedeemNode, 'data-upi-membership-cancel-cdkey')
+        );
         return;
       }
 
