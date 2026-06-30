@@ -16748,7 +16748,7 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
       throw new Error('SIGNUP_USER_ALREADY_EXISTS::步骤 5：检测到 user_already_exists，当前轮将直接停止。');
     }
     if (pageState.maxCheckAttemptsBlocked) {
-      throw new Error('AUTH_MAX_CHECK_ATTEMPTS::max_check_attempts on step 5 auth retry page; restart the current auth step without clicking Retry.');
+      throw new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
     }
 
     if (pageState.retryPage) {
@@ -17980,7 +17980,6 @@ restoreAutoRunTimerIfNeeded().catch((err) => {
 disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
   handleBackgroundStartupError('disable legacy IP proxy feature', err);
 });
-
 
 
 

@@ -29,6 +29,7 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'GET_LOGIN_AUTH_STATE'
       || message.type === 'SUBMIT_ADD_EMAIL'
       || message.type === 'GET_STEP5_SUBMIT_STATE'
+      || message.type === 'GET_SIGNUP_VERIFICATION_POST_SUBMIT_STATE'
       || message.type === 'SKIP_CREATE_ACCOUNT_ENROLL_PASSKEY'
       || message.type === 'PREPARE_SIGNUP_VERIFICATION'
       || message.type === 'RECOVER_AUTH_RETRY_PAGE'
@@ -164,6 +165,8 @@ async function handleCommand(message) {
       return await submitAddEmailAndContinue(message.payload);
     case 'GET_STEP5_SUBMIT_STATE':
       return getStep5SubmitState();
+    case 'GET_SIGNUP_VERIFICATION_POST_SUBMIT_STATE':
+      return getSignupVerificationPostSubmitState();
     case 'SKIP_CREATE_ACCOUNT_ENROLL_PASSKEY':
       return await skipCreateAccountEnrollPasskey(message.payload);
     case 'PREPARE_SIGNUP_VERIFICATION':
@@ -3062,12 +3065,12 @@ const ADD_EMAIL_PAGE_PATTERN = /add[\s-]*email|添加(?:电子邮件|邮箱)|要
 const STEP5_SUBMIT_ERROR_PATTERN = /无法根据该信息创建帐户|请重试|アカウントを作成できません|作成できません|やり直してください|もう一度お試しください|エラーが発生しました|生年月日|誕生日|年齢|unable\s+to\s+create\s+(?:your\s+)?account|couldn'?t\s+create\s+(?:your\s+)?account|something\s+went\s+wrong|invalid\s+(?:birthday|birth|date)|生日|出生日期/i;
 const AUTH_TIMEOUT_ERROR_TITLE_PATTERN = /糟糕，出错了|エラーが発生しました|問題が発生しました|something\s+went\s+wrong|oops/i;
 const AUTH_TIMEOUT_ERROR_DETAIL_PATTERN = /operation\s+timed\s+out|timed\s+out|タイムアウト|時間切れ|请求超时|操作超时|failed\s+to\s+fetch|network\s+error|fetch\s+failed/i;
+const AUTH_MAX_CHECK_ATTEMPTS_PATTERN = /max_check_attempts|試行回数が多すぎ|数分待ってからもう一度|too\s+many\s+(?:attempts|checks|tries)|try\s+again\s+in\s+(?:a\s+)?few\s+minutes/i;
 const AUTH_ROUTE_ERROR_PATTERN = /405\s+method\s+not\s+allowed|route\s+error.*405|did\s+not\s+provide\s+an?\s+[`'"]?action|post\s+request\s+to\s+["']?\/email-verification/i;
 const STEP4_405_RECOVERY_ERROR_PREFIX = 'STEP4_405_RECOVERY_LIMIT::';
 const STEP4_405_RECOVERY_LIMIT = 3;
 const SIGNUP_USER_ALREADY_EXISTS_ERROR_PREFIX = 'SIGNUP_USER_ALREADY_EXISTS::';
 const SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX = 'SIGNUP_PHONE_PASSWORD_MISMATCH::';
-const AUTH_MAX_CHECK_ATTEMPTS_ERROR_PREFIX = 'AUTH_MAX_CHECK_ATTEMPTS::';
 const STEP8_EMAIL_IN_USE_ERROR_PREFIX = 'STEP8_EMAIL_IN_USE::';
 const SIGNUP_EMAIL_EXISTS_PATTERN = /与此电子邮件地址相关联的帐户已存在|account\s+associated\s+with\s+this\s+email\s+address\s+already\s+exists|email\s+address.*already\s+exists/i;
 const SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN = /incorrect\s+phone\s+number\s+or\s+password|phone\s+number\s+or\s+password|与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i;
@@ -3156,7 +3159,7 @@ function createSignupPhonePasswordMismatchError(detailText = '') {
 }
 
 function createAuthMaxCheckAttemptsError() {
-  return new Error(`${AUTH_MAX_CHECK_ATTEMPTS_ERROR_PREFIX}max_check_attempts on auth retry page; restart the current auth step without clicking Retry.`);
+  return new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
 }
 
 function createStep8EmailInUseError() {
@@ -3385,6 +3388,26 @@ function getStep4PostVerificationState(options = {}) {
   }
 
   return null;
+}
+
+function getSignupVerificationPostSubmitState() {
+  const retryState = getCurrentAuthRetryPageState('signup');
+  const invalidCodeText = getVerificationErrorText();
+  const postVerificationState = getStep4PostVerificationState();
+  return {
+    url: location.href,
+    retryPage: Boolean(retryState),
+    retryEnabled: Boolean(retryState?.retryEnabled),
+    maxCheckAttemptsBlocked: Boolean(retryState?.maxCheckAttemptsBlocked),
+    userAlreadyExistsBlocked: Boolean(retryState?.userAlreadyExistsBlocked),
+    invalidCode: Boolean(invalidCodeText),
+    errorText: invalidCodeText,
+    verificationVisible: isVerificationPageStillVisible(),
+    successState: postVerificationState?.state || '',
+    skipProfileStep: Boolean(postVerificationState?.skipProfileStep),
+    passkeyEnrollmentRequired: Boolean(postVerificationState?.passkeyEnrollmentRequired),
+    addPhonePage: Boolean(postVerificationState?.addPhonePage),
+  };
 }
 
 function getPageTextSnapshot() {
@@ -3987,7 +4010,7 @@ function getAuthTimeoutErrorPageState(options = {}) {
   const detailMatched = AUTH_TIMEOUT_ERROR_DETAIL_PATTERN.test(text);
   const routeErrorMatched = AUTH_ROUTE_ERROR_PATTERN.test(text);
   const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
-  const maxCheckAttemptsBlocked = /max_check_attempts/i.test(text);
+  const maxCheckAttemptsBlocked = AUTH_MAX_CHECK_ATTEMPTS_PATTERN.test(text);
   const emailInUseBlocked = /email_in_use/i.test(text);
   const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
 
@@ -5739,6 +5762,9 @@ async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
     if (retryState?.userAlreadyExistsBlocked) {
       throw createSignupUserAlreadyExistsError();
     }
+    if (step === 4 && retryState?.maxCheckAttemptsBlocked) {
+      throw createAuthMaxCheckAttemptsError();
+    }
     if (step === 8 && retryState?.emailInUseBlocked) {
       throw createStep8EmailInUseError();
     }
@@ -5818,6 +5844,16 @@ async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
     if (signupRetryState?.userAlreadyExistsBlocked) {
       throw createSignupUserAlreadyExistsError();
     }
+    if (signupRetryState?.maxCheckAttemptsBlocked) {
+      throw createAuthMaxCheckAttemptsError();
+    }
+    if (signupRetryState) {
+      return {
+        invalidCode: true,
+        errorText: '验证码提交后仍停留在认证重试页，准备重新取码或停止当前流程。',
+        url: location.href,
+      };
+    }
 
     if (isEmailAlreadyVerifiedPage()) {
       return createEmailAlreadyVerifiedOutcome();
@@ -5860,6 +5896,14 @@ async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
     return {
       invalidCode: true,
       errorText: getVerificationErrorText() || '提交后仍停留在验证码页面，准备重新发送验证码。',
+    };
+  }
+
+  if (step === 4 && isEmailVerificationPage()) {
+    return {
+      invalidCode: true,
+      errorText: getVerificationErrorText() || '验证码提交后仍停留在邮箱验证页，未确认进入资料页。',
+      url: location.href,
     };
   }
 
@@ -8819,7 +8863,67 @@ async function waitForPasskeyEnrollmentStepState(timeout = 30000, options = {}) 
   return lastState;
 }
 
+async function waitForStep5ProfileReadyBeforeFill(timeout = 60000) {
+  const resolvedTimeout = Math.max(5000, Number(timeout) || 60000);
+  const start = Date.now();
+  let lastUrl = location.href;
+  let lastState = 'unknown';
+
+  while (Date.now() - start < resolvedTimeout) {
+    throwIfStopped();
+    lastUrl = location.href;
+
+    const retryState = getCurrentAuthRetryPageState('signup');
+    if (retryState?.maxCheckAttemptsBlocked) {
+      throw createAuthMaxCheckAttemptsError();
+    }
+    if (retryState?.userAlreadyExistsBlocked) {
+      throw createSignupUserAlreadyExistsError();
+    }
+    if (retryState) {
+      lastState = 'auth_retry_page';
+      await sleep(500);
+      continue;
+    }
+
+    if (isLikelyLoggedInChatgptHomeUrl()) {
+      return { state: 'logged_in_home', url: lastUrl };
+    }
+    if (isPasskeyEnrollmentPage()) {
+      return { state: 'passkey_enrollment', url: lastUrl };
+    }
+    if (isStep5ProfilePageUrl() || isStep5Ready()) {
+      return { state: 'step5', url: lastUrl };
+    }
+    if (isEmailVerificationPage() || isVerificationPageStillVisible()) {
+      lastState = 'email_verification_page';
+      await sleep(500);
+      continue;
+    }
+
+    lastState = 'unknown';
+    await sleep(500);
+  }
+
+  if (lastState === 'email_verification_page') {
+    throw new Error(`步骤 5：前置页面未就绪，当前仍在邮箱验证码页，未确认进入资料页。URL: ${lastUrl}`);
+  }
+  if (lastState === 'auth_retry_page') {
+    throw new Error(`步骤 5：前置页面未就绪，当前仍在认证重试页。URL: ${lastUrl}`);
+  }
+  throw new Error(`步骤 5：前置页面未就绪，未检测到资料页字段。页面状态 ${lastState}。URL: ${lastUrl}`);
+}
+
 async function step5_fillNameBirthday(payload) {
+  const readyState = await waitForStep5ProfileReadyBeforeFill(60000);
+  if (readyState.state === 'logged_in_home') {
+    return {
+      skipProfileStep: true,
+      skipProfileStepReason: 'profile_already_logged_in_home',
+      url: readyState.url || location.href,
+    };
+  }
+
   if (isPasskeyEnrollmentPage()) {
     log('步骤 5：检测到通行密钥页，正在自动点击“跳过”。', 'warn');
     await skipCreateAccountEnrollPasskey({

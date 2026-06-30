@@ -1007,6 +1007,28 @@
       const startedAt = Date.now();
       let lastUrl = '';
 
+      const inspectContentState = async () => {
+        const requestTimeoutMs = Math.max(1200, Math.min(5000, timeoutMs));
+        const request = {
+          type: 'GET_SIGNUP_VERIFICATION_POST_SUBMIT_STATE',
+          source: 'background',
+          payload: {},
+        };
+        if (typeof sendToContentScriptResilient === 'function') {
+          return sendToContentScriptResilient('signup-page', request, {
+            timeoutMs: requestTimeoutMs,
+            responseTimeoutMs: requestTimeoutMs,
+            retryDelayMs: 400,
+            logMessage: '步骤 4：验证码提交后页面正在切换，等待页面恢复并确认注册状态...',
+            logStep: 4,
+            logStepKey: 'fetch-signup-code',
+          });
+        }
+        return sendToContentScript('signup-page', request, {
+          responseTimeoutMs: requestTimeoutMs,
+        });
+      };
+
       while (Date.now() - startedAt < timeoutMs) {
         throwIfStopped();
         try {
@@ -1014,6 +1036,58 @@
           const currentUrl = String(tab?.url || '').trim();
           if (currentUrl) {
             lastUrl = currentUrl;
+          }
+
+          try {
+            const pageState = await inspectContentState();
+            if (pageState?.url) {
+              lastUrl = pageState.url;
+            }
+            if (pageState?.maxCheckAttemptsBlocked) {
+              throw new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
+            }
+            if (pageState?.userAlreadyExistsBlocked) {
+              throw new Error('SIGNUP_USER_ALREADY_EXISTS::步骤 4：检测到 user_already_exists，说明当前用户已存在，当前轮将直接停止。');
+            }
+            if (pageState?.invalidCode) {
+              return {
+                success: false,
+                reason: 'invalid_code',
+                invalidCode: true,
+                errorText: pageState.errorText || '验证码被拒绝。',
+                url: pageState.url || currentUrl,
+              };
+            }
+            if (pageState?.successState === 'logged_in_home') {
+              return {
+                success: true,
+                reason: 'chatgpt_home',
+                skipProfileStep: true,
+                url: pageState.url || currentUrl,
+              };
+            }
+            if (pageState?.successState === 'step5') {
+              return {
+                success: true,
+                reason: 'signup_profile',
+                skipProfileStep: false,
+                url: pageState.url || currentUrl,
+              };
+            }
+            if (pageState?.successState === 'passkey_enrollment') {
+              return {
+                success: true,
+                reason: 'passkey_enrollment',
+                passkeyEnrollmentRequired: true,
+                skipProfileStep: false,
+                url: pageState.url || currentUrl,
+              };
+            }
+          } catch (contentStateError) {
+            const message = String(contentStateError?.message || contentStateError || '').trim();
+            if (/^(?:CF_SECURITY_BLOCKED::|SIGNUP_USER_ALREADY_EXISTS::)/i.test(message)) {
+              throw contentStateError;
+            }
           }
 
           if (isLikelyLoggedInChatgptHomeUrl(currentUrl)) {
@@ -1053,7 +1127,11 @@
               url: currentUrl,
             };
           }
-        } catch {
+        } catch (error) {
+          const message = String(error?.message || error || '').trim();
+          if (/^(?:CF_SECURITY_BLOCKED::|SIGNUP_USER_ALREADY_EXISTS::)/i.test(message)) {
+            throw error;
+          }
           // Keep polling until timeout; tab may be mid-navigation.
         }
 
@@ -2044,6 +2122,13 @@
           timeoutMs: POST_SUBMIT_CONFIRM_TIMEOUT_MS,
           pollIntervalMs: POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS,
         });
+        if (fallback.invalidCode) {
+          return {
+            invalidCode: true,
+            errorText: fallback.errorText || '验证码被拒绝。',
+            url: fallback.url || '',
+          };
+        }
         if (!fallback.success) {
           return null;
         }

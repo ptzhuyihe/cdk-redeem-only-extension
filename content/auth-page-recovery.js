@@ -70,7 +70,7 @@
       const routeErrorMatched = routeErrorPattern instanceof RegExp
         ? routeErrorPattern.test(text)
         : false;
-      const maxCheckAttemptsBlocked = /max_check_attempts/i.test(text);
+      const maxCheckAttemptsBlocked = /max_check_attempts|試行回数が多すぎ|数分待ってからもう一度|too\s+many\s+(?:attempts|checks|tries)|try\s+again\s+in\s+(?:a\s+)?few\s+minutes/i.test(text);
       const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
       const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
 
