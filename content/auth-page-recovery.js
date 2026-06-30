@@ -54,11 +54,6 @@
         return null;
       }
 
-      const retryButton = getAuthRetryButton({ allowDisabled: true });
-      if (!retryButton) {
-        return null;
-      }
-
       const text = typeof getPageTextSnapshot === 'function' ? getPageTextSnapshot() : '';
       const title = typeof document !== 'undefined' ? String(document.title || '') : '';
       const titleMatched = titlePattern instanceof RegExp
@@ -73,8 +68,12 @@
       const maxCheckAttemptsBlocked = /max_check_attempts|試行回数が多すぎ|数分待ってからもう一度|too\s+many\s+(?:attempts|checks|tries)|try\s+again\s+in\s+(?:a\s+)?few\s+minutes/i.test(text);
       const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
       const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
+      const retryButton = getAuthRetryButton({ allowDisabled: true });
 
       if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
+        return null;
+      }
+      if (!retryButton && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
         return null;
       }
 
@@ -82,7 +81,7 @@
         path: pathname,
         url: location.href,
         retryButton,
-        retryEnabled: isActionEnabled(retryButton),
+        retryEnabled: Boolean(retryButton && isActionEnabled(retryButton)),
         titleMatched,
         detailMatched,
         routeErrorMatched,

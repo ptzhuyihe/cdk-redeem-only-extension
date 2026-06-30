@@ -2976,18 +2976,28 @@
             await setPersistentSettings({ emailPrefix: message.payload.emailPrefix });
             await setState({ emailPrefix: message.payload.emailPrefix });
           }
-          await executeNodeForManualChain(nodeId);
+          const manualEnableTotpUseCurrentSession = message.source === 'sidepanel' && nodeId === 'enable-totp-mfa';
+          if (manualEnableTotpUseCurrentSession) {
+            await setState({ manualEnableTotpUseCurrentSession: true });
+          }
+          try {
+            await executeNodeForManualChain(nodeId);
 
-          const latestExecutionState = await getState();
-          if (message.source === 'sidepanel' && shouldAutoContinueManualNode(nodeId, latestExecutionState)) {
-            const nextNodeId = getNextNodeIdForState(nodeId, latestExecutionState);
-            if (nextNodeId) {
-              await addLog(
-                `步骤 ${resolvedStep} 已完成，正在继续执行下一节点 ${nextNodeId}。`,
-                'info',
-                { step: resolvedStep, nodeId }
-              );
-              await executeNodeForManualChain(nextNodeId);
+            const latestExecutionState = await getState();
+            if (message.source === 'sidepanel' && shouldAutoContinueManualNode(nodeId, latestExecutionState)) {
+              const nextNodeId = getNextNodeIdForState(nodeId, latestExecutionState);
+              if (nextNodeId) {
+                await addLog(
+                  `步骤 ${resolvedStep} 已完成，正在继续执行下一节点 ${nextNodeId}。`,
+                  'info',
+                  { step: resolvedStep, nodeId }
+                );
+                await executeNodeForManualChain(nextNodeId);
+              }
+            }
+          } finally {
+            if (manualEnableTotpUseCurrentSession) {
+              await setState({ manualEnableTotpUseCurrentSession: null });
             }
           }
           return { ok: true };

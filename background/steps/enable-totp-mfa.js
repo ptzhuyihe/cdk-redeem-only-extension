@@ -532,6 +532,93 @@
       return sessionEmail || targetEmail;
     }
 
+    function isManualEnableTotpCurrentSessionMode(state = {}) {
+      return state?.manualEnableTotpUseCurrentSession === true;
+    }
+
+    function isPasswordTrustedForAccount(state = {}, accountEmail = '') {
+      const normalizedAccountEmail = normalizeEmail(accountEmail);
+      if (!normalizedAccountEmail) {
+        return false;
+      }
+      const passwordAccountIdentifierType = normalizeString(state.passwordAccountIdentifierType).toLowerCase();
+      const passwordAccountIdentifier = normalizeEmail(state.passwordAccountIdentifier);
+      return (!passwordAccountIdentifierType || passwordAccountIdentifierType === 'email')
+        && passwordAccountIdentifier === normalizedAccountEmail;
+    }
+
+    async function resolveExecutionAccountEmail(state = {}, session = {}, visibleStep = 7) {
+      const targetEmail = resolveTargetAccountEmail(state);
+      const sessionEmail = resolveSessionAccountEmail(session);
+      const manualCurrentSessionMode = isManualEnableTotpCurrentSessionMode(state);
+
+      if (!manualCurrentSessionMode) {
+        return {
+          accountEmail: resolveAccountEmail(state, session),
+          runtimeState: state,
+        };
+      }
+
+      if (!sessionEmail) {
+        throw new Error(`步骤 ${visibleStep}：单独执行第 7 步未读取到 ChatGPT 登录邮箱，请先登录目标 ChatGPT 账号后再执行。`);
+      }
+
+      if (targetEmail && targetEmail !== sessionEmail) {
+        await addStepLog(
+          visibleStep,
+          `单独执行第 7 步：当前已登录 ChatGPT 账号为 ${sessionEmail}，旧目标邮箱为 ${targetEmail}，本次按当前已登录账号继续。`,
+          'warn'
+        );
+      } else {
+        await addStepLog(
+          visibleStep,
+          `单独执行第 7 步：本次按当前已登录 ChatGPT 账号 ${sessionEmail} 开通 2FA。`,
+          'info'
+        );
+      }
+
+      const passwordTrusted = isPasswordTrustedForAccount(state, sessionEmail);
+      const registrationEmailState = state.registrationEmailState && typeof state.registrationEmailState === 'object'
+        ? {
+            ...state.registrationEmailState,
+            current: sessionEmail,
+            source: 'manual_step7_current_session',
+            updatedAt: new Date(Math.max(1, Math.floor(Number(now()) || Date.now()))).toISOString(),
+          }
+        : {
+            current: sessionEmail,
+            source: 'manual_step7_current_session',
+            updatedAt: new Date(Math.max(1, Math.floor(Number(now()) || Date.now()))).toISOString(),
+          };
+      const runtimeState = {
+        ...state,
+        email: sessionEmail,
+        accountIdentifierType: 'email',
+        accountIdentifier: sessionEmail,
+        step8VerificationTargetEmail: '',
+        boundEmail: '',
+        registrationEmailState,
+      };
+      if (!passwordTrusted) {
+        runtimeState.password = '';
+        runtimeState.customPassword = '';
+        runtimeState.passwordAccountIdentifierType = null;
+        runtimeState.passwordAccountIdentifier = '';
+      }
+      await setState({
+        email: sessionEmail,
+        accountIdentifierType: 'email',
+        accountIdentifier: sessionEmail,
+        step8VerificationTargetEmail: '',
+        boundEmail: '',
+        registrationEmailState,
+      });
+      return {
+        accountEmail: sessionEmail,
+        runtimeState,
+      };
+    }
+
     async function getMergedState(state = {}) {
       const latestState = typeof getState === 'function'
         ? await getState().catch(() => ({}))
@@ -565,6 +652,9 @@
         accountIdentifierType: runtimeState.accountIdentifierType || 'email',
         accountIdentifier: runtimeState.accountIdentifier || accountEmail,
         password: normalizeString(runtimeState.password || runtimeState.customPassword),
+        customPassword: normalizeString(runtimeState.customPassword),
+        passwordAccountIdentifierType: runtimeState.passwordAccountIdentifierType || null,
+        passwordAccountIdentifier: runtimeState.passwordAccountIdentifier || '',
         currentNodeId: nodeId || 'enable-totp-mfa',
       });
       const reason = success
@@ -1034,7 +1124,7 @@
 
     async function executeEnableTotpMfa(state = {}) {
       throwIfStopped();
-      const runtimeState = await getMergedState(state);
+      let runtimeState = await getMergedState(state);
       const visibleStep = resolveVisibleStep(runtimeState);
       if (shouldRequireGptPasswordBeforeTotp(runtimeState) && !runtimeState.gptPasswordSet) {
         await addStepLog(
@@ -1072,7 +1162,9 @@
       const apiUrl = buildTotpEnableApiUrl(runtimeState);
       const apiKey = getTotpApiAuthToken(runtimeState);
       const deviceId = normalizeString(runtimeState.totpMfaDeviceId) || createDeviceId();
-      const accountEmail = resolveAccountEmail(runtimeState, authSession);
+      const executionAccount = await resolveExecutionAccountEmail(runtimeState, authSession, visibleStep);
+      runtimeState = executionAccount.runtimeState;
+      const accountEmail = executionAccount.accountEmail;
       try {
         await recordStep7AccountCheckpoint({
           runtimeState,

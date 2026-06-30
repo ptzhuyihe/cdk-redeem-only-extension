@@ -33,6 +33,7 @@
       isRemovedPhonePlatformRateLimitFailure,
       isChatgptSessionReaderNonFreeTrialFailure,
       isUpiRedeemBackendFailure,
+      isUpiRedeemNetworkFailure,
       isRestartCurrentAttemptError,
       isStep4Route405RecoveryLimitFailure,
       isSignupUserAlreadyExistsFailure,
@@ -732,6 +733,8 @@
               && isChatgptSessionReaderNonFreeTrialFailure(err);
             const blockedByUpiRedeemBackendFailure = typeof isUpiRedeemBackendFailure === 'function'
               && isUpiRedeemBackendFailure(err);
+            const blockedByUpiRedeemNetworkFailure = typeof isUpiRedeemNetworkFailure === 'function'
+              && isUpiRedeemNetworkFailure(err);
             const blockedByCardHelperTaskEnded = typeof isCardHelperTaskEndedFailure === 'function'
               ? isCardHelperTaskEndedFailure(err)
               : /CARD_HELPER_TASK_ENDED::/i.test(err?.message || String(err || ''));
@@ -758,6 +761,8 @@
               && attemptRun < maxPlusNonFreeTrialAttempts;
             const retryableUpiRedeemBackendFailure = blockedByUpiRedeemBackendFailure
               && attemptRun < maxPlusNonFreeTrialAttempts;
+            const retryableUpiRedeemNetworkFailure = blockedByUpiRedeemNetworkFailure
+              && attemptRun < maxPlusNonFreeTrialAttempts;
             const retryableHostedCheckoutGenericError = blockedByHostedCheckoutGenericError
               && autoRunRetryLegacyWalletCallback
               && attemptRun < maxPlusNonFreeTrialAttempts;
@@ -768,6 +773,7 @@
               && !blockedByUpiAccountIneligible
               && !blockedByPlusNonFreeTrial
               && !blockedByUpiRedeemBackendFailure
+              && !blockedByUpiRedeemNetworkFailure
               && !blockedByCardHelperTaskEnded
               && !blockedByHostedCheckoutGenericError
               && !blockedByHostedCheckoutCardFallback
@@ -782,6 +788,7 @@
               && !blockedByUpiAccountIneligible
               && !blockedByPlusNonFreeTrial
               && !blockedByUpiRedeemBackendFailure
+              && !blockedByUpiRedeemNetworkFailure
               && !blockedByCardHelperTaskEnded
               && !blockedByHostedCheckoutGenericError
               && !blockedByHostedCheckoutCardFallback
@@ -874,6 +881,70 @@
               forceFreshTabsNextRun = true;
               await addLog(
                 `UPI 兑换失败自动重试：${Math.round(AUTO_RUN_RETRY_DELAY_MS / 1000)} 秒后换新邮箱，开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun + 1} 次尝试（第 ${retryIndex}/${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试）。`,
+                'warn'
+              );
+              try {
+                await sleepWithStop(AUTO_RUN_RETRY_DELAY_MS);
+              } catch (sleepError) {
+                if (isStopError(sleepError)) {
+                  stoppedEarly = true;
+                  await appendRoundRecordIfNeeded('stopped', getErrorMessage(sleepError), sleepError);
+                  await addLog(`第 ${targetRun}/${totalRuns} 轮已被用户停止`, 'warn');
+                  await broadcastAutoRunStatus('stopped', {
+                    currentRun: targetRun,
+                    totalRuns,
+                    attemptRun,
+                    sessionId: 0,
+                  });
+                  break;
+                }
+                throw sleepError;
+              }
+              try {
+                const parkedForRetry = await waitBeforeAutoRunRetry(targetRun, totalRuns, attemptRun + 1, {
+                  autoRunSkipFailures,
+                  autoRunRetryNonFreeTrial,
+                  autoRunRetryLegacyWalletCallback,
+                  roundSummaries,
+                });
+                if (parkedForRetry) {
+                  parkedByTimer = true;
+                  break;
+                }
+              } catch (sleepError) {
+                if (isStopError(sleepError)) {
+                  stoppedEarly = true;
+                  await appendRoundRecordIfNeeded('stopped', getErrorMessage(sleepError), sleepError);
+                  await addLog(`第 ${targetRun}/${totalRuns} 轮已被用户停止`, 'warn');
+                  await broadcastAutoRunStatus('stopped', {
+                    currentRun: targetRun,
+                    totalRuns,
+                    attemptRun,
+                    sessionId: 0,
+                  });
+                  break;
+                }
+                throw sleepError;
+              }
+              attemptRun += 1;
+              reuseExistingProgress = false;
+              continue;
+            }
+
+            if (retryableUpiRedeemNetworkFailure) {
+              const retryIndex = attemptRun;
+              await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试 UPI 接口网络异常：${reason}`, 'warn');
+              cancelPendingCommands('当前尝试因 UPI 接口网络异常已放弃。');
+              await broadcastStopToContentScripts();
+              await broadcastAutoRunStatus('retrying', {
+                currentRun: targetRun,
+                totalRuns,
+                attemptRun,
+                sessionId,
+              });
+              forceFreshTabsNextRun = true;
+              await addLog(
+                `UPI 接口网络异常自动重试：${Math.round(AUTO_RUN_RETRY_DELAY_MS / 1000)} 秒后重开当前轮，开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun + 1} 次尝试（第 ${retryIndex}/${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试）。`,
                 'warn'
               );
               try {
@@ -1198,6 +1269,26 @@
                 targetRun < totalRuns
                   ? `第 ${targetRun}/${totalRuns} 轮因 CDK 兑换失败提前结束，自动流程将继续下一轮。`
                   : `第 ${targetRun}/${totalRuns} 轮因 CDK 兑换失败提前结束，已无后续轮次，本次自动运行结束。`,
+                'warn'
+              );
+              forceFreshTabsNextRun = true;
+              break;
+            }
+
+            if (blockedByUpiRedeemNetworkFailure) {
+              roundSummary.status = 'failed';
+              roundSummary.finalFailureReason = reason;
+              await setState({
+                autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
+              });
+              await appendRoundRecordIfNeeded('failed', reason, err);
+              cancelPendingCommands('当前轮因 UPI 接口网络异常已达到重试上限。');
+              await broadcastStopToContentScripts();
+              await addLog(`第 ${targetRun}/${totalRuns} 轮 UPI 接口网络异常已重试 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次仍失败，本轮将切换下一轮：${reason}`, 'warn');
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮因 UPI 接口网络异常提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因 UPI 接口网络异常提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;
@@ -1658,8 +1749,4 @@
     createAutoRunController,
   };
 });
-
-
-
-
 

@@ -591,6 +591,7 @@ const REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES = 15;
 const AUTO_RUN_DELAY_MIN_MINUTES = 1;
 const AUTO_RUN_DELAY_MAX_MINUTES = 1440;
 const AUTO_RUN_RETRY_DELAY_MS = 3000;
+const ASSURIVO_NO_VALID_CODE_RESTART_COOLDOWN_MS = 60000;
 const AUTO_RUN_MAX_RETRIES_PER_ROUND = 3;
 const AUTO_STEP_DELAY_MIN_ALLOWED_SECONDS = 0;
 const AUTO_STEP_DELAY_MAX_ALLOWED_SECONDS = 600;
@@ -10620,6 +10621,28 @@ function isSignupPhonePasswordMismatchFailure(error) {
   return /SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(message);
 }
 
+function isAssurivoNoValidCodeFailure(error) {
+  const message = getErrorMessage(error);
+  return /Assurivo\s+JSON\s+接口暂未返回有效验证码|Assurivo.*只返回了早于本轮发码时间|自定义邮箱.*暂未返回有效验证码/i.test(message);
+}
+
+async function waitBeforeAssurivoNoValidCodeRestart(error, options = {}) {
+  const cooldownMs = Math.max(
+    0,
+    Math.floor(Number(options.cooldownMs) || ASSURIVO_NO_VALID_CODE_RESTART_COOLDOWN_MS)
+  );
+  if (cooldownMs <= 0) {
+    return;
+  }
+  const seconds = Math.max(1, Math.round(cooldownMs / 1000));
+  await addLog(
+    `节点 fetch-signup-code：Assurivo 暂未返回本轮最新有效验证码，等待 ${seconds} 秒后再沿用当前邮箱重开，避免过快重复注册。原因：${getErrorMessage(error)}`,
+    'warn',
+    { nodeId: 'fetch-signup-code' }
+  );
+  await sleepWithStop(cooldownMs);
+}
+
 function getSignupPhonePasswordMismatchRestartPayload(preservedState = {}) {
   const preservedEmail = String(preservedState.email || '').trim();
   const preservedPassword = String(preservedState.password || '').trim();
@@ -10899,6 +10922,13 @@ function isUpiRedeemBackendFailure(error) {
   const message = getErrorMessage(error);
   const combinedMessage = `${rawMessage}\n${message}`;
   return /UPI_REDEEM_BACKEND_FAILED::|UPI[\s\S]*(?:卡密|兑换)[\s\S]*(?:失败|超时|未找到|不存在)|(?:卡密|兑换)[\s\S]*(?:失败|超时|未找到|不存在)[\s\S]*UPI/i.test(combinedMessage);
+}
+
+function isUpiRedeemNetworkFailure(error) {
+  const rawMessage = String(typeof error === 'string' ? error : error?.message || '');
+  const message = getErrorMessage(error);
+  const combinedMessage = `${rawMessage}\n${message}`;
+  return /UPI_REDEEM_NETWORK::|UPI[\s\S]*(?:接口|资格|会员|兑换)[\s\S]*(?:网络请求失败|请求超时|Failed to fetch|NetworkError|fetch failed|Load failed)/i.test(combinedMessage);
 }
 
 function isCardHelperTaskEndedFailure(error) {
@@ -13175,6 +13205,9 @@ async function executeNode(nodeId, options = {}) {
     await setNodeStatus(normalizedNodeId, 'running');
     await addLog('开始执行', 'info', { nodeId: normalizedNodeId });
     await humanStepDelay();
+    if (normalizedNodeId === 'fill-profile') {
+      await assertSignupAuthPageNotMaxCheckAttemptsBlocked();
+    }
     const fetchRetryPolicy = typeof getStepFetchNetworkRetryPolicy === 'function'
       ? getStepFetchNetworkRetryPolicy(step)
       : null;
@@ -14094,6 +14127,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isRemovedPhonePlatformRateLimitFailure,
   isChatgptSessionReaderNonFreeTrialFailure,
   isUpiRedeemBackendFailure,
+  isUpiRedeemNetworkFailure,
   isCardHelperTaskEndedFailure,
   isHostedCheckoutGenericErrorFailure,
   isHostedCheckoutVerificationResendLimitFailure,
@@ -14792,6 +14826,9 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
           const preservedEmail = String(preservedState.email || '').trim();
           const preservedPassword = String(preservedState.password || '').trim();
           const emailSuffix = preservedEmail ? `当前邮箱：${preservedEmail}；` : '';
+          if (isAssurivoNoValidCodeFailure(err)) {
+            await waitBeforeAssurivoNoValidCodeRestart(err);
+          }
           await addLog(
             `节点 fetch-signup-code：执行失败，准备沿用当前邮箱回到节点 open-chatgpt 重新开始（第 ${step4RestartCount} 次重开）。${emailSuffix}原因：${getErrorMessage(err)}`,
             'warn'
@@ -16518,6 +16555,106 @@ function isStep5SubmitRecoverySuccessState(pageState = {}) {
     || successState === 'left_profile';
 }
 
+function isAuthMaxCheckAttemptsText(text = '') {
+  return /max_check_attempts|試行回数が多すぎ|数分待ってからもう一度|too\s+many\s+(?:attempts|checks|tries)|try\s+again\s+in\s+(?:a\s+)?few\s+minutes/i
+    .test(String(text || ''));
+}
+
+function createAuthMaxCheckAttemptsBlockedError() {
+  return new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
+}
+
+async function readAuthPageTextSnapshotFromTab(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return null;
+  }
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) {
+    return null;
+  }
+
+  const snapshot = {
+    url: String(tab.url || ''),
+    title: String(tab.title || ''),
+    text: '',
+  };
+
+  if (typeof chrome?.scripting?.executeScript !== 'function') {
+    return snapshot;
+  }
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const title = String(document.title || '');
+        const bodyText = String(document.body?.innerText || '');
+        const rootText = String(document.documentElement?.textContent || '');
+        return {
+          url: String(location.href || ''),
+          title,
+          text: [title, bodyText, rootText].join('\n').slice(0, 30000),
+        };
+      },
+    });
+    const value = results?.[0]?.result;
+    if (value && typeof value === 'object') {
+      return {
+        url: String(value.url || snapshot.url),
+        title: String(value.title || snapshot.title),
+        text: String(value.text || ''),
+      };
+    }
+  } catch (error) {
+    console.warn(LOG_PREFIX, `[auth page snapshot] failed to read tab ${tabId}: ${getErrorMessage(error)}`);
+  }
+
+  return snapshot;
+}
+
+async function getAuthMaxCheckAttemptsBlockStateFromTab(tabId) {
+  const snapshot = await readAuthPageTextSnapshotFromTab(tabId);
+  if (!snapshot) {
+    return null;
+  }
+
+  const combinedText = [snapshot.url, snapshot.title, snapshot.text].join('\n');
+  if (!isAuthMaxCheckAttemptsText(combinedText)) {
+    return {
+      blocked: false,
+      ...snapshot,
+    };
+  }
+
+  return {
+    blocked: true,
+    ...snapshot,
+  };
+}
+
+async function assertSignupAuthPageNotMaxCheckAttemptsBlocked(options = {}) {
+  const tabId = Number.isInteger(options.tabId)
+    ? options.tabId
+    : await getTabId('signup-page');
+  if (!Number.isInteger(tabId)) {
+    return null;
+  }
+
+  const blockState = await getAuthMaxCheckAttemptsBlockStateFromTab(tabId);
+  if (!blockState?.blocked) {
+    return blockState;
+  }
+
+  if (options.log !== false) {
+    await addLog('步骤 5：检测到 OpenAI 认证页试行次数过多（max_check_attempts），当前流程将立即停止，避免继续点击重试。', 'error', {
+      step: 5,
+      stepKey: 'fill-profile',
+    });
+  }
+  throw createAuthMaxCheckAttemptsBlockedError();
+}
+
 function buildStep5SubmitRecoveryCompletionPayload(pageState = {}) {
   const payload = {
     profileSubmitted: true,
@@ -16583,6 +16720,14 @@ function startStep5ProfileSubmitRecoveryWatchdog(nodeId, options = {}) {
         return;
       }
 
+      const signupTabId = await getTabId('signup-page');
+      const directBlockState = await getAuthMaxCheckAttemptsBlockStateFromTab(signupTabId);
+      if (directBlockState?.blocked) {
+        completing = true;
+        await failNodeFromBackground(normalizedNodeId, createAuthMaxCheckAttemptsBlockedError());
+        return;
+      }
+
       const pageState = await getStep5SubmitStateFromContent({
         timeoutMs: 6000,
         responseTimeoutMs: 6000,
@@ -16591,6 +16736,20 @@ function startStep5ProfileSubmitRecoveryWatchdog(nodeId, options = {}) {
       });
 
       if (!await isStillRunning()) {
+        return;
+      }
+
+      if (pageState?.maxCheckAttemptsBlocked) {
+        completing = true;
+        await failNodeFromBackground(normalizedNodeId, createAuthMaxCheckAttemptsBlockedError());
+        return;
+      }
+      if (pageState?.userAlreadyExistsBlocked) {
+        completing = true;
+        await failNodeFromBackground(
+          normalizedNodeId,
+          'SIGNUP_USER_ALREADY_EXISTS::步骤 5：检测到 user_already_exists，当前轮将直接停止。'
+        );
         return;
       }
 
@@ -17980,6 +18139,3 @@ restoreAutoRunTimerIfNeeded().catch((err) => {
 disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
   handleBackgroundStartupError('disable legacy IP proxy feature', err);
 });
-
-
-

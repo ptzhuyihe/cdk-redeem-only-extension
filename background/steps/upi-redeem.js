@@ -13,6 +13,7 @@
     const UPI_REDEEM_AUTH_ERROR_PREFIX = 'UPI_REDEEM_AUTH_ERROR::';
     const UPI_REDEEM_DUPLICATE_CDK_ERROR_PREFIX = 'UPI_REDEEM_DUPLICATE_CDK::';
     const UPI_REDEEM_NOT_ACCEPTED_ERROR_PREFIX = 'UPI_REDEEM_NOT_ACCEPTED::';
+    const UPI_REDEEM_NETWORK_ERROR_PREFIX = 'UPI_REDEEM_NETWORK::';
     const UPI_ACCESS_TOKEN_EXPIRED_ERROR_PREFIX = 'UPI_ACCESS_TOKEN_EXPIRED::';
     const CHATGPT_SESSION_API_URL = 'https://chatgpt.com/api/auth/session';
     const DEFAULT_UPI_REDEEM_API_BASE_URL = 'https://chong.nerver.cc';
@@ -47,6 +48,11 @@
 
     function normalizeString(value = '') {
       return String(value || '').trim();
+    }
+
+    function isFetchNetworkError(error) {
+      const message = normalizeString(error?.message || error);
+      return /failed\s*to\s*fetch|networkerror|load failed|fetch failed|network request failed/i.test(message);
     }
 
     function maskAccessToken(token = '') {
@@ -1926,6 +1932,10 @@
         if (error?.name === 'AbortError') {
           throw new Error('UPI 兑换接口请求超时。');
         }
+        if (isFetchNetworkError(error)) {
+          const message = normalizeString(error?.message || error);
+          throw new Error(`${UPI_REDEEM_NETWORK_ERROR_PREFIX}UPI 兑换接口网络请求失败：${apiUrl}。原始错误：${message || 'Failed to fetch'}`);
+        }
         throw error;
       } finally {
         if (timeoutId) {
@@ -1964,11 +1974,11 @@
           : { ok: false, reason: 'invalid-response' };
       } catch (error) {
         if (error?.name === 'AbortError') {
-          throw new Error(`UPI 会员状态接口请求超时：${apiUrl}`);
+          throw new Error(`${UPI_REDEEM_NETWORK_ERROR_PREFIX}UPI 会员状态接口请求超时：${apiUrl}`);
         }
         const message = normalizeString(error?.message || error);
-        if (/failed\s*to\s*fetch|networkerror|load failed/i.test(message)) {
-          throw new Error(`UPI 会员状态接口网络请求失败：${apiUrl}。请检查订阅 API 地址、网络/代理、证书或扩展是否已重新加载。原始错误：${message || 'Failed to fetch'}`);
+        if (isFetchNetworkError(error)) {
+          throw new Error(`${UPI_REDEEM_NETWORK_ERROR_PREFIX}UPI 会员状态接口网络请求失败：${apiUrl}。请检查订阅 API 地址、网络/代理、证书或扩展是否已重新加载。原始错误：${message || 'Failed to fetch'}`);
         }
         throw error;
       } finally {
@@ -2026,7 +2036,11 @@
           : { ok: false, reason: 'invalid-response' };
       } catch (error) {
         if (error?.name === 'AbortError') {
-          throw new Error('UPI 优惠资格验证接口请求超时。');
+          throw new Error(`${UPI_REDEEM_NETWORK_ERROR_PREFIX}UPI 优惠资格验证接口请求超时。`);
+        }
+        if (isFetchNetworkError(error)) {
+          const message = normalizeString(error?.message || error);
+          throw new Error(`${UPI_REDEEM_NETWORK_ERROR_PREFIX}UPI 优惠资格验证接口网络请求失败：${apiUrl}。原始错误：${message || 'Failed to fetch'}`);
         }
         throw error;
       } finally {

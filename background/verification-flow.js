@@ -7,7 +7,7 @@
   const ASSURIVO_VERIFICATION_FEED_URL = 'https://assurivo.com/console/feed.php';
   const DEFAULT_SIGNUP_VERIFICATION_CODE_WAIT_SECONDS = 10;
   const MAX_SIGNUP_VERIFICATION_CODE_WAIT_SECONDS = 300;
-  const ASSURIVO_VERIFICATION_FILTER_SKEW_MS = 5000;
+  const ASSURIVO_VERIFICATION_FILTER_SKEW_MS = 90000;
   const POST_SUBMIT_CONFIRM_TIMEOUT_MS = 60000;
   const POST_SUBMIT_CONFIRM_POLL_INTERVAL_MS = 1000;
   const STEP4_STUCK_VERIFICATION_RESUBMIT_LIMIT = 2;
@@ -280,13 +280,19 @@
     }
 
     function getCustomEmailVerificationRequestUrl(rawUrl = '') {
-      return buildLinlinflowMailApiUrl(rawUrl) || rawUrl;
+      return buildAssurivoFeedVerificationUrlFromUrl(rawUrl)
+        || buildLinlinflowMailApiUrl(rawUrl)
+        || rawUrl;
     }
 
     function getCustomEmailVerificationRequestLabel(rawUrl = '') {
       return buildLinlinflowMailApiUrl(rawUrl)
         ? 'LinlinFlow 邮箱取码接口'
-        : (isAssurivoOpenVerificationUrl(rawUrl) ? 'Assurivo 网页取件' : '自定义邮箱取码 URL');
+        : (
+          buildAssurivoFeedVerificationUrlFromUrl(rawUrl)
+            ? 'Assurivo JSON 接口'
+            : '自定义邮箱取码 URL'
+        );
     }
 
     function normalizeCustomEmailPoolEntryForVerification(rawEntry = {}) {
@@ -526,7 +532,6 @@
         /your\s+temporary\s+chatgpt\s+(?:login|verification)\s+code[\s\S]{0,1200}?enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
         /(?:この|次の)?\s*一時(?:的な)?(?:認証|検証)コード(?:を)?(?:入力して)?(?:続行|確認|ログイン)?(?:してください)?[:：]?\s*((?:\d[\s-]*){6})/gi,
         /(?:認証コード|認證コード|検証コード|確認コード)[:：]?\s*((?:\d[\s-]*){6})/gi,
-        /((?:\d[\s-]*){6})[\s\S]{0,160}?(?:このメールは無視してください|ChatGPT\s*アカウントを作成|ChatGPT\s*チーム|OpenAI)/gi,
       ];
       const codes = [];
       let matchedPrompt = /enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue|your\s+temporary\s+chatgpt\s+(?:login|verification)\s+code|一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード/i.test(text);
@@ -542,6 +547,91 @@
         }
       }
       return { codes, matchedPrompt };
+    }
+
+    function extractAssurivoOpenPageMailBlocks(payload) {
+      const rawText = String(payload || '');
+      if (!rawText.trim()) {
+        return [];
+      }
+
+      const blocks = [];
+      const articlePattern = /<article\b[^>]*class=["'][^"']*\bmail\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi;
+      let match = articlePattern.exec(rawText);
+      while (match) {
+        blocks.push(match[0]);
+        match = articlePattern.exec(rawText);
+      }
+      return blocks.length ? blocks : [rawText];
+    }
+
+    function extractAssurivoOpenPageMailTimestamp(block = '') {
+      const text = htmlToVerificationSearchText(block).replace(/\s+/g, ' ').trim();
+      const patterns = [
+        /(?:时间|時刻|日時|日付|time|date)[:：]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)/i,
+        /(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)/,
+      ];
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) {
+          const timestamp = parseVerificationTimestampString(match[1]);
+          if (timestamp > 0) {
+            return timestamp;
+          }
+        }
+      }
+      return 0;
+    }
+
+    function getOrderedAssurivoOpenPageMailBlocks(payload, options = {}) {
+      const annotated = extractAssurivoOpenPageMailBlocks(payload).map((block, index) => ({
+        block,
+        index,
+        timestamp: extractAssurivoOpenPageMailTimestamp(block),
+      }));
+      const filterAfterTimestamp = normalizeFilterAfterTimestamp(options.filterAfterTimestamp);
+      const hasTimestampedEntries = annotated.some((item) => item.timestamp > 0);
+      const minTimestamp = filterAfterTimestamp > 0
+        ? Math.max(0, filterAfterTimestamp - ASSURIVO_VERIFICATION_FILTER_SKEW_MS)
+        : 0;
+      const selected = minTimestamp > 0 && hasTimestampedEntries
+        ? annotated.filter((item) => item.timestamp >= minTimestamp)
+        : annotated;
+      if (hasTimestampedEntries) {
+        selected.sort((left, right) => (right.timestamp - left.timestamp) || (left.index - right.index));
+      }
+      return selected.map((item) => item.block);
+    }
+
+    function hasOnlyOlderTimestampedAssurivoOpenPageEntries(payload, filterAfterTimestamp = 0) {
+      const minTimestamp = normalizeFilterAfterTimestamp(filterAfterTimestamp) - ASSURIVO_VERIFICATION_FILTER_SKEW_MS;
+      if (!(minTimestamp > 0)) {
+        return false;
+      }
+      const timestamps = extractAssurivoOpenPageMailBlocks(payload)
+        .map((block) => extractAssurivoOpenPageMailTimestamp(block))
+        .filter((timestamp) => timestamp > 0);
+      return Boolean(timestamps.length) && timestamps.every((timestamp) => timestamp < minTimestamp);
+    }
+
+    function extractAssurivoOpenPageVerificationCode(payload, excluded = new Set(), options = {}) {
+      const blocks = getOrderedAssurivoOpenPageMailBlocks(payload, options);
+      let matchedPrompt = false;
+      for (const block of blocks) {
+        const { codes, matchedPrompt: blockMatchedPrompt } = collectAssurivoOpenPageBodyCodes(block);
+        matchedPrompt = matchedPrompt || blockMatchedPrompt;
+        const filteredCodes = codes.filter((code) => !excluded.has(code));
+        if (filteredCodes.length) {
+          return {
+            code: options.preferFirstCode ? filteredCodes[0] : filteredCodes[filteredCodes.length - 1],
+            matchedPrompt,
+          };
+        }
+      }
+      return {
+        code: '',
+        matchedPrompt,
+      };
     }
 
     function isAssurivoVerificationPayload(payload) {
@@ -562,6 +652,60 @@
           )
         ))
       );
+    }
+
+    function isAssurivoFeedVerificationEntry(entry = {}) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return false;
+      }
+      const body = htmlToVerificationSearchText(entry.body || '');
+      const metadata = [
+        entry.subject,
+        entry.from,
+        entry.to,
+      ].map((value) => String(value || '')).join(' ');
+      const combined = `${metadata} ${body}`;
+      return /(?:chatgpt|openai)/i.test(combined)
+        && /(?:verification|verify|temporary|one[-\s]*time|code|验证码|一次性|一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード|コードを入力して続行)/i.test(body);
+    }
+
+    function collectStrictVerificationBodyCodes(value = '') {
+      const text = htmlToVerificationSearchText(value).replace(/\s+/g, ' ').trim();
+      if (!text) {
+        return [];
+      }
+      const patterns = [
+        /enter\s+this\s+temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /temporary\s+verification\s+code\s+to\s+continue[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:your|this)\s+(?:temporary\s+)?(?:chatgpt\s+|openai\s+)?(?:verification|login|one[-\s]*time)\s+code(?:\s+is)?[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:この|次の)?\s*一時(?:的な)?(?:認証|検証)コード(?:を)?(?:入力して)?(?:続行|確認|ログイン)?(?:してください)?[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:認証コード|認證コード|検証コード|確認コード)[:：]?\s*((?:\d[\s-]*){6})/gi,
+        /(?:一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード|verification\s+code|temporary\s+code|one[-\s]*time\s+code)[\s\S]{0,500}?(?:^|[^0-9])((?:\d[\s-]*){6})(?![\s-]*\d)/gi,
+      ];
+      const codes = [];
+      for (const pattern of patterns) {
+        let match = pattern.exec(text);
+        while (match) {
+          const code = normalizeDigits(match[1]);
+          if (code && !codes.includes(code)) {
+            codes.push(code);
+          }
+          match = pattern.exec(text);
+        }
+      }
+      return codes;
+    }
+
+    function formatVerificationTimestampForLog(timestamp = 0) {
+      const numeric = Number(timestamp);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return '';
+      }
+      try {
+        return new Date(numeric).toLocaleString('zh-CN', { hour12: false });
+      } catch {
+        return '';
+      }
     }
 
     function normalizeVerificationTimestampMs(value) {
@@ -619,7 +763,7 @@
     }
 
     function isVerificationTimestampKey(key = '') {
-      return /^(?:received(?:_?at|_?time)?|recv(?:_?at|_?time)?|sent(?:_?at|_?time)?|created(?:_?at|_?time)?|mail(?:_?date|_?time)?|date|datetime|time|timestamp)$/i.test(
+      return /^(?:received(?:_?at|_?time)?|recv(?:_?at|_?time)?|sent(?:_?at|_?time)?|created(?:_?at|_?time)?|saved(?:_?at|_?time)?|mail(?:_?date|_?time)?|date|datetime|time|timestamp)$/i.test(
         String(key || '').replace(/[-\s]+/g, '_')
       );
     }
@@ -676,6 +820,39 @@
       return timestamps.length ? Math.max(...timestamps) : 0;
     }
 
+    function parseAssurivoChinaTimestampString(value = '') {
+      const text = String(value || '').replace(/\s+/g, ' ').trim();
+      const match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (!match) {
+        return parseVerificationTimestampString(text);
+      }
+      const [, year, month, day, hour = '0', minute = '0', second = '0'] = match;
+      const parsed = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour) - 8,
+        Number(minute),
+        Number(second)
+      );
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function extractAssurivoFeedEntryTimestamp(entry = {}) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return 0;
+      }
+      for (const key of ['saved_at', 'saved_time', 'savedAt', 'received_at', 'created_at', 'date', 'time']) {
+        if (entry[key] !== undefined && entry[key] !== null && String(entry[key]).trim()) {
+          const timestamp = parseAssurivoChinaTimestampString(entry[key]);
+          if (timestamp > 0) {
+            return timestamp;
+          }
+        }
+      }
+      return extractVerificationEntryTimestamp(entry);
+    }
+
     function normalizeFilterAfterTimestamp(value) {
       const timestamp = normalizeVerificationTimestampMs(value);
       return timestamp > 0 ? timestamp : 0;
@@ -685,7 +862,7 @@
       const annotated = (Array.isArray(entries) ? entries : []).map((entry, index) => ({
         entry,
         index,
-        timestamp: extractVerificationEntryTimestamp(entry),
+        timestamp: extractAssurivoFeedEntryTimestamp(entry),
       }));
       const filterAfterTimestamp = normalizeFilterAfterTimestamp(options.filterAfterTimestamp);
       const hasTimestampedEntries = annotated.some((item) => item.timestamp > 0);
@@ -707,9 +884,34 @@
         return false;
       }
       const timestamps = (Array.isArray(entries) ? entries : [])
-        .map((entry) => extractVerificationEntryTimestamp(entry))
+        .map((entry) => extractAssurivoFeedEntryTimestamp(entry))
         .filter((timestamp) => timestamp > 0);
       return Boolean(timestamps.length) && timestamps.every((timestamp) => timestamp < minTimestamp);
+    }
+
+    function getLatestAssurivoEntryTimestamp(entries = []) {
+      const timestamps = (Array.isArray(entries) ? entries : [])
+        .map((entry) => extractAssurivoFeedEntryTimestamp(entry))
+        .filter((timestamp) => timestamp > 0);
+      return timestamps.length ? Math.max(...timestamps) : 0;
+    }
+
+    function describeAssurivoFilterTiming(entries = [], filterAfterTimestamp = 0) {
+      const latestTimestamp = getLatestAssurivoEntryTimestamp(entries);
+      const requestedAt = normalizeFilterAfterTimestamp(filterAfterTimestamp);
+      const parts = [];
+      const latestText = formatVerificationTimestampForLog(latestTimestamp);
+      const requestedText = formatVerificationTimestampForLog(requestedAt);
+      if (latestText) {
+        parts.push(`最新邮件时间 ${latestText}`);
+      }
+      if (requestedText) {
+        parts.push(`本轮发码时间 ${requestedText}`);
+      }
+      if (parts.length) {
+        parts.push(`容错 ${Math.round(ASSURIVO_VERIFICATION_FILTER_SKEW_MS / 1000)} 秒`);
+      }
+      return parts.length ? `（${parts.join('；')}）` : '';
     }
 
     function extractFirstEmailCodeFromOrderedEntries(entries = [], excluded = new Set(), options = {}) {
@@ -721,6 +923,28 @@
         }
       }
       return '';
+    }
+
+    function extractAssurivoFeedVerificationCodeDetails(payload = {}, excluded = new Set(), options = {}) {
+      const entries = Array.isArray(payload?.data) ? payload.data : [];
+      const candidates = getOrderedAssurivoVerificationEntries(
+        entries.filter((entry) => isAssurivoFeedVerificationEntry(entry)),
+        options
+      );
+      if (!candidates.length) {
+        return { code: '', emailTimestamp: 0, source: 'assurivo-feed' };
+      }
+
+      const latestEntry = candidates[0];
+      const emailTimestamp = extractAssurivoFeedEntryTimestamp(latestEntry);
+      const codes = collectStrictVerificationBodyCodes(latestEntry.body || '')
+        .filter((code) => !excluded.has(code));
+      return {
+        code: codes.length ? codes[0] : '',
+        emailTimestamp,
+        emailTimestampText: formatVerificationTimestampForLog(emailTimestamp),
+        source: 'assurivo-feed',
+      };
     }
 
     function isLinlinflowMailApiPayload(payload) {
@@ -775,34 +999,39 @@
     }
 
     function extractCustomEmailVerificationCode(payload, options = {}) {
+      return extractCustomEmailVerificationCodeDetails(payload, options).code || '';
+    }
+
+    function extractCustomEmailVerificationCodeDetails(payload, options = {}) {
       const excluded = new Set((options.excludeCodes || []).map((code) => String(code || '').trim()).filter(Boolean));
       if (isAssurivoVerificationPayload(payload)) {
-        const code = extractFirstEmailCodeFromOrderedEntries(payload.data, excluded, options);
-        if (code) {
-          return code;
-        }
-        return '';
+        return extractAssurivoFeedVerificationCodeDetails(payload, excluded, options);
       }
       if (options.assurivoOpenPage && (typeof payload === 'string' || typeof payload === 'number')) {
-        const { codes: bodyCodes, matchedPrompt } = collectAssurivoOpenPageBodyCodes(payload);
-        const filteredBodyCodes = bodyCodes.filter((code) => !excluded.has(code));
-        if (filteredBodyCodes.length) {
-          return options.preferFirstCode ? filteredBodyCodes[0] : filteredBodyCodes[filteredBodyCodes.length - 1];
+        const { code, matchedPrompt } = extractAssurivoOpenPageVerificationCode(payload, excluded, options);
+        if (code) {
+          return { code, source: 'assurivo-open-page' };
         }
         if (matchedPrompt) {
-          return '';
+          return { code: '', source: 'assurivo-open-page' };
         }
       }
       if (isLinlinflowMailApiPayload(payload)) {
-        return extractLinlinflowMailApiCode(payload, excluded, options);
+        return {
+          code: extractLinlinflowMailApiCode(payload, excluded, options),
+          source: 'linlinflow',
+        };
       }
       const codes = collectCustomEmailVerificationCodes(payload).filter((code, index, list) => (
         !excluded.has(code) && list.indexOf(code) === index
       ));
       if (!codes.length) {
-        return '';
+        return { code: '', source: 'generic' };
       }
-      return options.preferFirstCode ? codes[0] : codes[codes.length - 1];
+      return {
+        code: options.preferFirstCode ? codes[0] : codes[codes.length - 1],
+        source: 'generic',
+      };
     }
 
     function parseCustomEmailVerificationPayloadText(text = '') {
@@ -842,7 +1071,7 @@
       return { email, pwd };
     }
 
-    function buildAssurivoVerificationUrl(entry = {}, state = {}, endpoint = 'open') {
+    function buildAssurivoVerificationUrl(entry = {}, state = {}, endpoint = 'feed') {
       const credential = String(entry?.credential || '').trim();
       const { email, pwd } = normalizeAssurivoCredentialParts(credential, entry?.email);
       if (!email || !pwd) {
@@ -862,6 +1091,28 @@
         return url.hostname === 'assurivo.com' && url.pathname === '/console/open.php';
       } catch {
         return false;
+      }
+    }
+
+    function isAssurivoFeedVerificationUrl(rawUrl = '') {
+      try {
+        const url = new URL(String(rawUrl || '').trim());
+        return url.hostname === 'assurivo.com' && url.pathname === '/console/feed.php';
+      } catch {
+        return false;
+      }
+    }
+
+    function buildAssurivoFeedVerificationUrlFromUrl(rawUrl = '') {
+      try {
+        const url = new URL(String(rawUrl || '').trim());
+        if (url.hostname !== 'assurivo.com' || !['/console/open.php', '/console/feed.php'].includes(url.pathname)) {
+          return '';
+        }
+        url.pathname = '/console/feed.php';
+        return url.toString();
+      } catch {
+        return '';
       }
     }
 
@@ -1282,6 +1533,19 @@
       return '';
     }
 
+    function normalizeVerificationRequestedAtCandidate(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return 0;
+      }
+      const timestamp = Math.floor(numeric);
+      const now = Date.now();
+      if (timestamp > now + 30000) {
+        return now;
+      }
+      return timestamp;
+    }
+
     function resolveInitialVerificationRequestedAt(step, state = {}, fallback = 0) {
       const stateKey = getVerificationRequestedAtStateKey(step);
       const candidateValues = [
@@ -1290,9 +1554,9 @@
       ];
 
       for (const value of candidateValues) {
-        const numeric = Number(value);
-        if (Number.isFinite(numeric) && numeric > 0) {
-          return Math.floor(numeric);
+        const timestamp = normalizeVerificationRequestedAtCandidate(value);
+        if (timestamp > 0) {
+          return timestamp;
         }
       }
       return 0;
@@ -2335,9 +2599,9 @@
       if (assurivoVerificationUrl) {
         requests.push({
           url: assurivoVerificationUrl,
-          label: 'Assurivo 网页取件',
-          preferFirstCode: true,
-          assurivoOpenPage: true,
+          label: 'Assurivo JSON 接口',
+          preferFirstCode: false,
+          assurivoOpenPage: false,
         });
         if (assurivoFallbackVerificationUrl && assurivoFallbackVerificationUrl !== assurivoVerificationUrl) {
           requests.push({
@@ -2374,7 +2638,7 @@
             url: requestUrl,
             label: getCustomEmailVerificationRequestLabel(verificationUrl),
             preferFirstCode: Boolean(linlinflowRequestUrl) || isAssurivoOpenVerificationUrl(verificationUrl),
-            assurivoOpenPage: isAssurivoOpenVerificationUrl(verificationUrl),
+            assurivoOpenPage: false,
           });
         }
       }
@@ -2405,19 +2669,23 @@
           throw lastError;
         }
 
-        const code = extractCustomEmailVerificationCode(payload, {
+        const codeDetails = extractCustomEmailVerificationCodeDetails(payload, {
           excludeCodes: options.excludeCodes || [],
           filterAfterTimestamp,
           preferFirstCode: request.preferFirstCode,
           assurivoOpenPage: request.assurivoOpenPage,
           ignoreTimestampFilter: request.ignoreTimestampFilter,
         });
+        const code = codeDetails.code || '';
         if (code) {
-          await addLog(`步骤 ${completionStep}：已通过${request.label}获取${verificationLabel}验证码：${code}`, 'ok');
+          const timestampSuffix = codeDetails.emailTimestampText
+            ? `（邮件时间 ${codeDetails.emailTimestampText}）`
+            : '';
+          await addLog(`步骤 ${completionStep}：已通过${request.label}获取最新${verificationLabel}验证码：${code}${timestampSuffix}`, 'ok');
           return {
             handled: true,
             code,
-            emailTimestamp: Date.now(),
+            emailTimestamp: codeDetails.emailTimestamp || Date.now(),
             targetEmail,
             verificationUrl: request.url,
           };
@@ -2425,10 +2693,22 @@
 
         if (
           assurivoVerificationUrl
-          && isAssurivoVerificationPayload(payload)
-          && hasOnlyOlderTimestampedAssurivoEntries(payload.data, filterAfterTimestamp)
+          && (
+            (
+              isAssurivoVerificationPayload(payload)
+              && hasOnlyOlderTimestampedAssurivoEntries(payload.data, filterAfterTimestamp)
+            )
+            || (
+              request.assurivoOpenPage
+              && (typeof payload === 'string' || typeof payload === 'number')
+              && hasOnlyOlderTimestampedAssurivoOpenPageEntries(payload, filterAfterTimestamp)
+            )
+          )
         ) {
-          await addLog(`步骤 ${completionStep}：${request.label}只返回了早于本轮发码时间的验证码邮件，将继续等待新邮件。`, 'warn');
+          const timingSuffix = isAssurivoVerificationPayload(payload)
+            ? describeAssurivoFilterTiming(payload.data, filterAfterTimestamp)
+            : '';
+          await addLog(`步骤 ${completionStep}：${request.label}只返回了早于本轮发码时间的验证码邮件${timingSuffix}，将继续等待新邮件。`, 'warn');
         }
         const detail = describeCustomEmailVerificationPayload(payload);
         lastError = new Error(`步骤 ${completionStep}：${request.label}暂未返回有效验证码${detail ? `：${detail}` : ''}`);

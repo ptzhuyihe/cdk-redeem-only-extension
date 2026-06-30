@@ -3162,6 +3162,12 @@ function createAuthMaxCheckAttemptsError() {
   return new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
 }
 
+function isAuthMaxCheckAttemptsPage() {
+  const text = getPageTextSnapshot();
+  const title = typeof document !== 'undefined' ? String(document.title || '') : '';
+  return AUTH_MAX_CHECK_ATTEMPTS_PATTERN.test(text) || AUTH_MAX_CHECK_ATTEMPTS_PATTERN.test(title);
+}
+
 function createStep8EmailInUseError() {
   return new Error(`${STEP8_EMAIL_IN_USE_ERROR_PREFIX}email_in_use on add-email verification page; choose a different email.`);
 }
@@ -3392,13 +3398,14 @@ function getStep4PostVerificationState(options = {}) {
 
 function getSignupVerificationPostSubmitState() {
   const retryState = getCurrentAuthRetryPageState('signup');
+  const maxCheckAttemptsBlocked = Boolean(retryState?.maxCheckAttemptsBlocked || isAuthMaxCheckAttemptsPage());
   const invalidCodeText = getVerificationErrorText();
   const postVerificationState = getStep4PostVerificationState();
   return {
     url: location.href,
-    retryPage: Boolean(retryState),
+    retryPage: Boolean(retryState || maxCheckAttemptsBlocked),
     retryEnabled: Boolean(retryState?.retryEnabled),
-    maxCheckAttemptsBlocked: Boolean(retryState?.maxCheckAttemptsBlocked),
+    maxCheckAttemptsBlocked,
     userAlreadyExistsBlocked: Boolean(retryState?.userAlreadyExistsBlocked),
     invalidCode: Boolean(invalidCodeText),
     errorText: invalidCodeText,
@@ -3989,19 +3996,17 @@ function getAuthRetryButton({ allowDisabled = false } = {}) {
 }
 
 function getAuthTimeoutErrorPageState(options = {}) {
-  if (authPageRecovery?.getAuthTimeoutErrorPageState) {
-    return authPageRecovery.getAuthTimeoutErrorPageState(options);
-  }
-
   const { pathPatterns = [] } = options;
   const path = location.pathname || '';
   if (pathPatterns.length && !pathPatterns.some((pattern) => pattern.test(path))) {
     return null;
   }
 
-  const retryButton = getAuthRetryButton({ allowDisabled: true });
-  if (!retryButton) {
-    return null;
+  if (authPageRecovery?.getAuthTimeoutErrorPageState) {
+    const recoveryState = authPageRecovery.getAuthTimeoutErrorPageState(options);
+    if (recoveryState || !isAuthMaxCheckAttemptsPage()) {
+      return recoveryState;
+    }
   }
 
   const text = getPageTextSnapshot();
@@ -4010,11 +4015,15 @@ function getAuthTimeoutErrorPageState(options = {}) {
   const detailMatched = AUTH_TIMEOUT_ERROR_DETAIL_PATTERN.test(text);
   const routeErrorMatched = AUTH_ROUTE_ERROR_PATTERN.test(text);
   const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
-  const maxCheckAttemptsBlocked = AUTH_MAX_CHECK_ATTEMPTS_PATTERN.test(text);
+  const maxCheckAttemptsBlocked = isAuthMaxCheckAttemptsPage();
   const emailInUseBlocked = /email_in_use/i.test(text);
   const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
+  const retryButton = getAuthRetryButton({ allowDisabled: true });
 
   if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
+    return null;
+  }
+  if (!retryButton && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
     return null;
   }
 
@@ -4022,7 +4031,7 @@ function getAuthTimeoutErrorPageState(options = {}) {
     path,
     url: location.href,
     retryButton,
-    retryEnabled: isActionEnabled(retryButton),
+    retryEnabled: Boolean(retryButton && isActionEnabled(retryButton)),
     titleMatched,
     detailMatched,
     routeErrorMatched,
@@ -8553,6 +8562,7 @@ function getStep5PostSubmitSuccessState() {
 
 function getStep5SubmitState() {
   const retryState = getStep5AuthRetryPageState();
+  const maxCheckAttemptsBlocked = Boolean(retryState?.maxCheckAttemptsBlocked || isAuthMaxCheckAttemptsPage());
   const successState = getStep5PostSubmitSuccessState();
   const passkeyState = getCreateAccountEnrollPasskeyPageState();
   const submitButton = getStep5SubmitButton();
@@ -8568,9 +8578,9 @@ function getStep5SubmitState() {
 
   return {
     url: location.href,
-    retryPage: Boolean(retryState),
+    retryPage: Boolean(retryState || maxCheckAttemptsBlocked),
     retryEnabled: Boolean(retryState?.retryEnabled),
-    maxCheckAttemptsBlocked: Boolean(retryState?.maxCheckAttemptsBlocked),
+    maxCheckAttemptsBlocked,
     userAlreadyExistsBlocked: Boolean(retryState?.userAlreadyExistsBlocked),
     successState: successState?.state || '',
     passkeyEnrollPage: Boolean(passkeyState),
@@ -8582,6 +8592,7 @@ function getStep5SubmitState() {
     unknownAuthPage: Boolean(
       signupAuthHost
       && !retryState
+      && !maxCheckAttemptsBlocked
       && !successState
       && !passkeyState
       && !isStep5ProfileStillVisible()
@@ -8872,6 +8883,10 @@ async function waitForStep5ProfileReadyBeforeFill(timeout = 60000) {
   while (Date.now() - start < resolvedTimeout) {
     throwIfStopped();
     lastUrl = location.href;
+
+    if (isAuthMaxCheckAttemptsPage()) {
+      throw createAuthMaxCheckAttemptsError();
+    }
 
     const retryState = getCurrentAuthRetryPageState('signup');
     if (retryState?.maxCheckAttemptsBlocked) {
