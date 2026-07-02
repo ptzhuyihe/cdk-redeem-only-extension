@@ -2,6 +2,8 @@
   root.MultiPageBackgroundStep4 = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundStep4Module() {
   const MAIL_2925_FILTER_LOOKBACK_MS = 10 * 60 * 1000;
+  const STEP4_AUTH_HTTP_ERROR_RELOAD_THROTTLE_MS = 15 * 1000;
+  const STEP4_AUTH_HTTP_ERROR_RELOAD_LIMIT = 6;
 
   function createStep4Executor(deps = {}) {
     const {
@@ -88,7 +90,8 @@
         || Boolean(snapshot?.verificationVisible);
     }
 
-    async function getLoginAuthStateFromSignupPage() {
+    async function getLoginAuthStateFromSignupPage(options = {}) {
+      const silent = Boolean(options?.silent);
       const request = {
         type: 'GET_LOGIN_AUTH_STATE',
         step: 4,
@@ -110,9 +113,58 @@
           });
         }
       } catch (error) {
-        await addLog(`步骤 4：登录验证页预检查未完成，将继续使用注册验证码页检测。${error?.message || error}`, 'warn');
+        if (!silent) {
+          await addLog(`步骤 4：登录验证页预检查未完成，将继续使用注册验证码页检测。${error?.message || error}`, 'warn');
+        }
       }
       return null;
+    }
+
+    function isAuthHttpErrorPageState(snapshot = {}) {
+      return String(snapshot?.state || '').trim().toLowerCase() === 'auth_http_error_page'
+        || snapshot?.authHttpErrorPage === true
+        || snapshot?.httpErrorPage === true;
+    }
+
+    function isReloadableAuthHttpErrorUrl(url = '') {
+      try {
+        const parsed = new URL(String(url || ''));
+        return parsed.hostname === 'auth.openai.com'
+          && /\/(?:u\/)?email-verification(?:[/?#]|$)/i.test(parsed.pathname);
+      } catch {
+        return false;
+      }
+    }
+
+    async function reloadSignupAuthHttpErrorPage(tabId, context = '') {
+      if (!tabId || !chrome?.tabs?.get || !chrome?.tabs?.reload) {
+        return false;
+      }
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      const url = String(tab?.url || '').trim();
+      if (!isReloadableAuthHttpErrorUrl(url)) {
+        return false;
+      }
+      await addLog(`步骤 4：认证验证码页返回 HTTP 500，正在刷新页面后重试。${context ? `原因：${context}` : ''}`, 'warn');
+      await chrome.tabs.reload(tabId, { bypassCache: true }).catch(() => {});
+      if (typeof waitForTabStableComplete === 'function') {
+        await waitForTabStableComplete(tabId, {
+          timeoutMs: 30000,
+          retryDelayMs: 300,
+          stableMs: 800,
+          initialDelayMs: 500,
+        }).catch(() => null);
+      }
+      return true;
+    }
+
+    function isLikelyChromeAuthHttpErrorTab(tab = null) {
+      if (!isReloadableAuthHttpErrorUrl(tab?.url || '')) {
+        return false;
+      }
+      const title = String(tab?.title || '').trim();
+      return /This page isn'?t working|HTTP\s+ERROR|auth\.openai\.com/i.test(title)
+        || (!title && String(tab?.status || '').toLowerCase() === 'complete');
     }
 
     function buildRegisteredLoginVerificationError(authState = {}) {
@@ -224,9 +276,63 @@
       return result || {};
     }
 
-    async function executeSignupEmailVerificationStep(state, stepStartedAt, verificationSessionKey) {
+    async function executeSignupEmailVerificationStep(state, stepStartedAt, verificationSessionKey, signupTabId = null) {
       const signupProfile = buildSignupProfileForVerificationStep();
       const password = state.password || state.customPassword || '';
+      const resolvedSignupTabId = signupTabId || (typeof getTabId === 'function'
+        ? await getTabId('signup-page').catch(() => null)
+        : null);
+      let lastAuthHttpErrorReloadAt = 0;
+      let authHttpErrorReloadCount = 0;
+      let authHttpErrorReloadLimitLogged = false;
+
+      async function recoverSignupAuthHttpErrorPageBeforeFetch(context = {}) {
+        throwIfStopped();
+        if (!resolvedSignupTabId || !chrome?.tabs?.get) {
+          return;
+        }
+
+        const authState = await getLoginAuthStateFromSignupPage({ silent: true });
+        const shouldReload = isAuthHttpErrorPageState(authState);
+        if (!shouldReload && authState) {
+          return;
+        }
+
+        const tab = await chrome.tabs.get(resolvedSignupTabId).catch(() => null);
+        if (!shouldReload && !isLikelyChromeAuthHttpErrorTab(tab)) {
+          return;
+        }
+
+        const now = Date.now();
+        if (now - lastAuthHttpErrorReloadAt < STEP4_AUTH_HTTP_ERROR_RELOAD_THROTTLE_MS) {
+          return;
+        }
+        if (authHttpErrorReloadCount >= STEP4_AUTH_HTTP_ERROR_RELOAD_LIMIT) {
+          if (!authHttpErrorReloadLimitLogged) {
+            authHttpErrorReloadLimitLogged = true;
+            await addLog(
+              `步骤 4：验证码页连续出现 HTTP 500，已达到自动刷新上限 ${STEP4_AUTH_HTTP_ERROR_RELOAD_LIMIT} 次，将继续等待邮箱验证码或最终按取码超时处理。`,
+              'warn'
+            );
+          }
+          return;
+        }
+
+        const attempt = Math.max(0, Math.floor(Number(context?.attempt) || 0));
+        const reason = attempt > 0
+          ? `取码轮询第 ${attempt} 次前检测到 OpenAI 验证码页 HTTP 500`
+          : '取码轮询期间检测到 OpenAI 验证码页 HTTP 500';
+        const reloaded = await reloadSignupAuthHttpErrorPage(resolvedSignupTabId, reason);
+        if (reloaded) {
+          authHttpErrorReloadCount += 1;
+          lastAuthHttpErrorReloadAt = Date.now();
+          await addLog(
+            `步骤 4：取码轮询期间检测到 OpenAI 验证码页 HTTP 500，已刷新认证页后继续等待邮件（${authHttpErrorReloadCount}/${STEP4_AUTH_HTTP_ERROR_RELOAD_LIMIT}）。`,
+            'warn'
+          );
+        }
+      }
+
       const latestState = typeof getState === 'function'
         ? await getState().catch(() => null)
         : null;
@@ -241,6 +347,7 @@
           signupProfile,
           password: stateForVerification.password || stateForVerification.customPassword || password,
           filterAfterTimestamp: verificationFilterAfterTimestamp,
+          beforeFetchAttempt: recoverSignupAuthHttpErrorPageBeforeFetch,
         });
         if (customResult?.handled) {
           return customResult;
@@ -312,6 +419,7 @@
         requestFreshCodeFirst: shouldRequestFreshCodeFirst,
         signupProfile,
         password,
+        beforeFetchAttempt: recoverSignupAuthHttpErrorPageBeforeFetch,
         resendIntervalMs: mail.provider === LUCKMAIL_PROVIDER
           ? 15000
           : ((mail.provider === HOTMAIL_PROVIDER || mail.provider === ICLOUD_API_PROVIDER || mail.provider === '2925')
@@ -370,6 +478,12 @@
       throwIfStopped();
 
       const loginAuthState = await getLoginAuthStateFromSignupPage();
+      if (isAuthHttpErrorPageState(loginAuthState)) {
+        const reloaded = await reloadSignupAuthHttpErrorPage(signupTabId, 'auth_http_error_page');
+        if (reloaded) {
+          await addLog('步骤 4：HTTP 500 页面已刷新，继续重新检测注册验证码页。', 'warn');
+        }
+      }
       if (isRegisteredLoginTotpVerificationState(loginAuthState)) {
         await addLog('步骤 4：检测到当前页是登录 TOTP 二次验证页，判定当前邮箱已注册，将标记为已用并切换下一个。', 'warn');
         throw buildRegisteredLoginVerificationError(loginAuthState);
@@ -417,6 +531,10 @@
             throw error;
           }
 
+          if (await reloadSignupAuthHttpErrorPage(signupTabId, error?.message || error)) {
+            continue;
+          }
+
           const recoverResult = await sendToContentScriptResilient('signup-page', {
             type: 'RECOVER_AUTH_RETRY_PAGE',
             step: 4,
@@ -457,12 +575,12 @@
         const phoneResult = await executeSignupPhoneCodeStep(stateWithPassword, signupTabId);
         if (phoneResult?.emailVerificationRequired || phoneResult?.emailVerificationPage) {
           await addLog('步骤 4：手机验证码已通过，OpenAI 要求继续邮箱验证，切换到邮箱验证码轮询。', 'info');
-          return executeSignupEmailVerificationStep(stateWithPassword, stepStartedAt, verificationSessionKey);
+          return executeSignupEmailVerificationStep(stateWithPassword, stepStartedAt, verificationSessionKey, signupTabId);
         }
         return phoneResult;
       }
 
-      return executeSignupEmailVerificationStep(stateWithPassword, stepStartedAt, verificationSessionKey);
+      return executeSignupEmailVerificationStep(stateWithPassword, stepStartedAt, verificationSessionKey, signupTabId);
     }
 
     return { executeStep4 };

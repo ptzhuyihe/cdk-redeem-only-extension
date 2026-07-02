@@ -7,6 +7,9 @@
   const TOTP_LOOKUP_TIMEOUT_MS = 20000;
   const DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT = 3;
   const REDEEM_CHANNEL_FAILURE_LIMIT = 3;
+  const REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS = 24 * 60 * 60 * 1000;
+  const REDEEM_GROUP_CONTINUATION_IDLE_WAIT_MS = 5000;
+  const REDEEM_GROUP_CONTINUATION_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
   const UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT_MAX = 20;
   const CHATGPT_ENTRY_URL = 'https://chatgpt.com/';
   const CHATGPT_LOGIN_URL = 'https://chatgpt.com/auth/login';
@@ -104,6 +107,20 @@
     };
   }
 
+  function mergeRedeemDeletionStateForSave(previous = {}, next = {}) {
+    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(next || {}, key);
+    const previousDeletion = buildRedeemDeletionStatePatch(previous);
+    const nextDeletion = buildRedeemDeletionStatePatch(next);
+    return {
+      redeemAutoDeletedEmails: hasOwn('redeemAutoDeletedEmails')
+        ? nextDeletion.redeemAutoDeletedEmails
+        : previousDeletion.redeemAutoDeletedEmails,
+      redeemPlusDeletedEmailsByChannel: hasOwn('redeemPlusDeletedEmailsByChannel')
+        ? nextDeletion.redeemPlusDeletedEmailsByChannel
+        : previousDeletion.redeemPlusDeletedEmailsByChannel,
+    };
+  }
+
   function normalizeRetryCount(value = 0) {
     return Math.max(0, Math.floor(Number(value) || 0));
   }
@@ -192,6 +209,75 @@
     return legacyChannel === normalizedChannel ? normalizeRetryCount(item?.redeemFailureCount) : 0;
   }
 
+  function getRedeemChannelDailyLimitBlockedAtField(channel = 'upi') {
+    return normalizeRedeemChannel(channel) === 'ideal'
+      ? 'idealRedeemDailyLimitBlockedAt'
+      : 'upiRedeemDailyLimitBlockedAt';
+  }
+
+  function getRedeemChannelDailyLimitBlockedUntilField(channel = 'upi') {
+    return normalizeRedeemChannel(channel) === 'ideal'
+      ? 'idealRedeemDailyLimitBlockedUntil'
+      : 'upiRedeemDailyLimitBlockedUntil';
+  }
+
+  function getRedeemChannelDailyLimitReasonField(channel = 'upi') {
+    return normalizeRedeemChannel(channel) === 'ideal'
+      ? 'idealRedeemDailyLimitReason'
+      : 'upiRedeemDailyLimitReason';
+  }
+
+  function isRedeemChannelDailyLimitReason(message = '') {
+    const text = normalizeString(message);
+    return /该邮箱/.test(text)
+      && /在该渠道今日提交次数已达上限/.test(text)
+      && /3\s*次/.test(text)
+      && /请\s*24\s*小时后再试/.test(text);
+  }
+
+  function buildRedeemChannelDailyLimitPatch(channel = 'upi', reason = '', failedAt = '') {
+    if (!isRedeemChannelDailyLimitReason(reason)) {
+      return {};
+    }
+    const normalizedChannel = normalizeRedeemChannel(channel);
+    const blockedAt = normalizeString(failedAt) || new Date().toISOString();
+    const blockedAtMs = Math.max(0, Date.parse(blockedAt) || Date.now());
+    const blockedUntil = new Date(blockedAtMs + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS).toISOString();
+    return {
+      [getRedeemChannelDailyLimitBlockedAtField(normalizedChannel)]: blockedAt,
+      [getRedeemChannelDailyLimitBlockedUntilField(normalizedChannel)]: blockedUntil,
+      [getRedeemChannelDailyLimitReasonField(normalizedChannel)]: normalizeString(reason),
+    };
+  }
+
+  function isRedeemChannelDailyLimitBlocked(item = {}, channel = 'upi') {
+    const normalizedChannel = normalizeRedeemChannel(channel);
+    const nowMs = Date.now();
+    const blockedUntil = Date.parse(normalizeString(item?.[getRedeemChannelDailyLimitBlockedUntilField(normalizedChannel)]));
+    if (Number.isFinite(blockedUntil) && blockedUntil > nowMs) {
+      return true;
+    }
+    const blockedAt = Date.parse(normalizeString(item?.[getRedeemChannelDailyLimitBlockedAtField(normalizedChannel)]));
+    const storedReason = item?.[getRedeemChannelDailyLimitReasonField(normalizedChannel)];
+    if (
+      Number.isFinite(blockedAt)
+      && blockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs
+      && isRedeemChannelDailyLimitReason(storedReason || item?.redeemReason || item?.reason)
+    ) {
+      return true;
+    }
+    const itemChannel = normalizeRedeemChannel(item?.redeemChannel || item?.channel || item?.paymentChannel);
+    if (itemChannel !== normalizedChannel) {
+      return false;
+    }
+    const legacyReason = item?.redeemReason || item?.reason || item?.remoteMessage;
+    if (!isRedeemChannelDailyLimitReason(legacyReason)) {
+      return false;
+    }
+    const legacyBlockedAt = Date.parse(normalizeString(item?.redeemLastFailedAt || item?.redeemAttemptedAt || item?.checkedAt || item?.updatedAt));
+    return !Number.isFinite(legacyBlockedAt) || legacyBlockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs;
+  }
+
   function isRedeemAccountLocked(item = {}) {
     return item?.redeemLocked === true
       || getRedeemChannelFailureCount(item, 'ideal') >= REDEEM_CHANNEL_FAILURE_LIMIT;
@@ -224,6 +310,7 @@
       redeemFailureLimit: REDEEM_CHANNEL_FAILURE_LIMIT,
       redeemLastFailedAt: failedAt,
       redeemChannel: normalizedChannel,
+      ...buildRedeemChannelDailyLimitPatch(normalizedChannel, reason, failedAt),
     };
     if (normalizedChannel === 'ideal' && count >= REDEEM_CHANNEL_FAILURE_LIMIT) {
       const lockReason = `IDEAL 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，账号已封存，不再使用：${reason}`;
@@ -243,6 +330,12 @@
   function shouldRedeemItemUseChannel(item = {}, channel = 'upi') {
     if (isRedeemAccountLocked(item)) {
       return false;
+    }
+    if (isRedeemChannelDailyLimitBlocked(item, channel)) {
+      return false;
+    }
+    if (normalizeRedeemChannel(channel) === 'upi') {
+      return true;
     }
     return getRedeemChannelFailureCount(item, channel) < REDEEM_CHANNEL_FAILURE_LIMIT;
   }
@@ -299,7 +392,7 @@
         : {};
       return [cdkey, {
         ...entry,
-        email: normalizeEmail(entry.email || entry.accountEmail || entry.credentialEmail),
+        email: normalizeEmail(entry.email || entry.accountEmail || entry.account_email || entry.credentialEmail || entry.credential_email || entry.targetEmail || entry.target_email),
         accessToken: normalizeString(entry.accessToken || entry.access_token || entry.upiRedeemAccessToken),
         accessTokenMasked: normalizeString(entry.accessTokenMasked),
         accessTokenUpdatedAt: Math.max(0, Math.floor(Number(entry.accessTokenUpdatedAt) || Number(entry.tokenUpdatedAt) || 0)),
@@ -315,7 +408,15 @@
   }
 
   function getUpiRedeemCdkeyUsageEntryEmail(entry = {}) {
-    return normalizeEmail(entry.email || entry.accountEmail || entry.credentialEmail || entry.targetEmail);
+    return normalizeEmail(
+      entry.email
+      || entry.accountEmail
+      || entry.account_email
+      || entry.credentialEmail
+      || entry.credential_email
+      || entry.targetEmail
+      || entry.target_email
+    );
   }
 
   function isSuccessfulUpiRedeemCdkeyUsageEntry(entry = {}) {
@@ -350,13 +451,19 @@
       if (email && targets.has(email) && shouldClearUpiRedeemCdkeyUsageAccountBinding(entry, options)) {
         delete entry.email;
         delete entry.accountEmail;
+        delete entry.account_email;
         delete entry.credentialEmail;
+        delete entry.credential_email;
         delete entry.targetEmail;
+        delete entry.target_email;
         delete entry.accessToken;
         delete entry.access_token;
         delete entry.upiRedeemAccessToken;
+        delete entry.upi_redeem_access_token;
         delete entry.accessTokenMasked;
+        delete entry.access_token_masked;
         delete entry.accessTokenUpdatedAt;
+        delete entry.access_token_updated_at;
         changed = true;
       }
       nextUsage[cdkey] = entry;
@@ -912,25 +1019,54 @@
     return normalizeRedeemChannel(item?.redeemChannel || item?.channel || item?.paymentChannel);
   }
 
-  function buildResultExportRows(results = {}, status = 'paid', channel = '') {
+  function isResultItemHiddenByPlusDeletion(results = {}, item = {}, channel = '') {
+    const email = normalizeEmail(item?.email);
+    if (!email) return false;
+    const deletedByChannel = normalizeRedeemPlusDeletedEmailsByChannel(results?.redeemPlusDeletedEmailsByChannel);
+    const rawChannel = normalizeString(channel || item?.redeemChannel || item?.channel || item?.paymentChannel);
+    if (!rawChannel) {
+      return (deletedByChannel.upi || []).includes(email) || (deletedByChannel.ideal || []).includes(email);
+    }
+    const targetChannel = normalizeRedeemChannel(rawChannel);
+    return (deletedByChannel[targetChannel] || []).includes(email);
+  }
+
+  function buildResultExportRows(results = {}, status = 'paid', channel = '', emails = []) {
     const normalizedStatus = normalizeString(status);
     const normalizedChannel = normalizeString(channel) ? normalizeRedeemChannel(channel) : '';
-    return normalizeResultsPayload(results).items
+    const normalizedResults = normalizeResultsPayload(results);
+    const allowedEmailSet = new Set(normalizeEmailList(emails));
+    const seenExportKeys = new Set();
+    return normalizedResults.items
       .filter((item) => {
+        const email = normalizeEmail(item.email);
+        if (!email || (allowedEmailSet.size && !allowedEmailSet.has(email))) return false;
         const statusMatches = normalizedStatus === 'free'
           ? item.status === 'free' || item.status === 'failed'
           : item.status === normalizedStatus;
         if (!statusMatches) return false;
         if (normalizedStatus === 'paid' && normalizedChannel) {
-          return getResultItemRedeemChannel(item) === normalizedChannel;
+          if (
+            getResultItemRedeemChannel(item) !== normalizedChannel
+            || isResultItemHiddenByPlusDeletion(normalizedResults, item, normalizedChannel)
+          ) {
+            return false;
+          }
+        } else if (normalizedStatus === 'paid' && isResultItemHiddenByPlusDeletion(normalizedResults, item)) {
+          return false;
         }
+        if (normalizedStatus !== 'failed' && (!item.password || !item.totpMfaSecret)) return false;
+        const key = normalizedStatus === 'paid'
+          ? `${getResultItemRedeemChannel(item)}:${email}`
+          : `${normalizedStatus}:${email}`;
+        if (seenExportKeys.has(key)) return false;
+        seenExportKeys.add(key);
         return true;
       })
       .map((item) => {
         if (normalizedStatus === 'failed') {
           return `${item.email}---${item.reason || '核验失败'}`;
         }
-        if (!item.email || !item.password || !item.totpMfaSecret) return '';
         if (normalizedStatus === 'free') {
           const timestamp = item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '';
           return `${item.email}---${item.password}---${item.totpMfaSecret}---${item.accessToken || ''}---${timestamp}`;
@@ -1031,6 +1167,7 @@
       isTabAlive = async () => true,
       registerTab = async () => {},
       redeemUpiCredentialWithAccessToken = null,
+      refreshPendingUpiCredentialMembershipRedeemStatuses = null,
       reuseOrCreateTab = null,
       sendTabMessageUntilStopped = null,
       setState = null,
@@ -1127,7 +1264,12 @@
     }
 
     async function saveResults(results = {}) {
-      const payload = normalizeResultsPayload(results);
+      const stored = await chromeApi.storage.local.get([RESULTS_STORAGE_KEY]).catch(() => ({}));
+      const previousPayload = normalizeResultsPayload(stored?.[RESULTS_STORAGE_KEY]);
+      const payload = normalizeResultsPayload({
+        ...results,
+        ...mergeRedeemDeletionStateForSave(previousPayload, results),
+      });
       await chromeApi.storage.local.set({ [RESULTS_STORAGE_KEY]: payload });
       if (typeof setState === 'function') {
         await setState({ [RESULTS_STORAGE_KEY]: payload }).catch(() => {});
@@ -1313,6 +1455,7 @@
       if (!shouldRedeemItemUseChannel(item, channel)) return false;
       if (isPreSubmitUpiRedeemBlockedResultItem(item)) return false;
       if (isNonRetryableUpiRedeemRetryError(item?.redeemReason || item?.reason)) return false;
+      if (normalizeRedeemChannel(channel) === 'upi') return true;
       return getRedeemChannelFailureCount(item, channel) < Math.max(1, Math.floor(Number(totalRoundLimit) || 1));
     }
 
@@ -1686,6 +1829,10 @@
       }
       const checkedAt = normalizeString(input.checkedAt) || new Date().toISOString();
       const currentResults = await getStoredResults();
+      const nextRedeemAutoDeletedEmails = (Array.isArray(currentResults.redeemAutoDeletedEmails)
+        ? currentResults.redeemAutoDeletedEmails
+        : []
+      ).map(normalizeEmail).filter((item) => item && item !== email);
       const existingItem = currentResults.items.find((item) => normalizeEmail(item?.email) === email) || {};
       let backupCredential = {};
       try {
@@ -1695,10 +1842,57 @@
         backupCredential = {};
       }
       const reason = normalizeString(input.reason || input.message || credential.reason) || '账号有试用资格，可进行 CDK 兑换';
+      const trialEligibilityStatus = normalizeString(
+        input.trialEligibilityStatus
+        || credential.trialEligibilityStatus
+        || existingItem.trialEligibilityStatus
+        || 'eligible'
+      );
+      const trialEligibilityReason = normalizeString(
+        input.trialEligibilityReason
+        || credential.trialEligibilityReason
+        || reason
+      );
+      const trialEligibilityCheckedAt = normalizeString(
+        input.trialEligibilityCheckedAt
+        || credential.trialEligibilityCheckedAt
+        || checkedAt
+      );
       const accessToken = normalizeString(input.accessToken || input.token || input.access_token || credential.accessToken || existingItem.accessToken);
       const accessTokenUpdatedAt = accessToken
         ? normalizeString(input.accessTokenUpdatedAt || credential.accessTokenUpdatedAt || checkedAt)
         : normalizeString(existingItem.accessTokenUpdatedAt);
+      const hasRedeemField = (key) => (
+        Object.prototype.hasOwnProperty.call(input, key)
+        || Object.prototype.hasOwnProperty.call(credential, key)
+      );
+      const getRedeemField = (key) => (
+        Object.prototype.hasOwnProperty.call(input, key) ? input[key] : credential[key]
+      );
+      const nextRedeemStatus = hasRedeemField('redeemStatus')
+        ? normalizeString(getRedeemField('redeemStatus'))
+        : (existingItem.redeemStatus === 'success' ? existingItem.redeemStatus : normalizeString(existingItem.redeemStatus));
+      const nextRedeemReason = hasRedeemField('redeemReason')
+        ? normalizeString(getRedeemField('redeemReason'))
+        : existingItem.redeemReason;
+      const nextRedeemFailureCount = hasRedeemField('redeemFailureCount')
+        ? normalizeRetryCount(getRedeemField('redeemFailureCount'))
+        : (existingItem.redeemStatus === 'success' ? 0 : existingItem.redeemFailureCount);
+      const nextRedeemChannel = hasRedeemField('redeemChannel') || hasRedeemField('channel')
+        ? normalizeRedeemChannel(getRedeemField('redeemChannel') || getRedeemField('channel'))
+        : normalizeString(existingItem.redeemChannel);
+      const hasRedeemCdkey = (
+        Object.prototype.hasOwnProperty.call(input, 'cdkey')
+        || hasRedeemField('upiRedeemCdkey')
+        || hasRedeemField('cdkey')
+      );
+      const nextRedeemCdkey = hasRedeemCdkey
+        ? normalizeString(
+            Object.prototype.hasOwnProperty.call(input, 'cdkey')
+              ? input.cdkey
+              : (getRedeemField('upiRedeemCdkey') || getRedeemField('cdkey'))
+          )
+        : normalizeString(existingItem.upiRedeemCdkey);
       const nextItems = upsertResultItem(currentResults.items, {
         ...existingItem,
         ...backupCredential,
@@ -1713,18 +1907,30 @@
         accessToken,
         accessTokenMasked: normalizeString(input.accessTokenMasked || credential.accessTokenMasked || existingItem.accessTokenMasked) || maskAccessToken(accessToken),
         accessTokenUpdatedAt,
-        trialEligibilityStatus: 'eligible',
-        trialEligibilityReason: reason,
-        trialEligibilityCheckedAt: checkedAt,
-        redeemStatus: existingItem.redeemStatus === 'success' ? existingItem.redeemStatus : normalizeString(existingItem.redeemStatus),
-        redeemReason: existingItem.redeemReason,
-        redeemFailureCount: existingItem.redeemStatus === 'success' ? 0 : existingItem.redeemFailureCount,
-        redeemLastFailedAt: existingItem.redeemStatus === 'success' ? '' : existingItem.redeemLastFailedAt,
-        upiRedeemCdkey: normalizeString(input.cdkey || existingItem.upiRedeemCdkey),
+        trialEligibilityStatus,
+        trialEligibilityReason,
+        trialEligibilityCheckedAt,
+        redeemStatus: nextRedeemStatus,
+        redeemReason: nextRedeemReason,
+        redeemFailureCount: nextRedeemFailureCount,
+        redeemFailureLimit: hasRedeemField('redeemFailureLimit') ? normalizeRetryCount(getRedeemField('redeemFailureLimit')) : existingItem.redeemFailureLimit,
+        upiRedeemFailureCount: hasRedeemField('upiRedeemFailureCount') ? normalizeRetryCount(getRedeemField('upiRedeemFailureCount')) : existingItem.upiRedeemFailureCount,
+        idealRedeemFailureCount: hasRedeemField('idealRedeemFailureCount') ? normalizeRetryCount(getRedeemField('idealRedeemFailureCount')) : existingItem.idealRedeemFailureCount,
+        redeemLocked: hasRedeemField('redeemLocked') ? getRedeemField('redeemLocked') === true : existingItem.redeemLocked,
+        redeemLockedReason: hasRedeemField('redeemLockedReason') ? normalizeString(getRedeemField('redeemLockedReason')) : existingItem.redeemLockedReason,
+        redeemLockedAt: hasRedeemField('redeemLockedAt') ? normalizeString(getRedeemField('redeemLockedAt')) : existingItem.redeemLockedAt,
+        redeemChannel: nextRedeemChannel,
+        redeemLastFailedAt: hasRedeemField('redeemLastFailedAt')
+          ? normalizeString(getRedeemField('redeemLastFailedAt'))
+          : (existingItem.redeemStatus === 'success' ? '' : existingItem.redeemLastFailedAt),
+        redeemAttemptedAt: hasRedeemField('redeemAttemptedAt') ? normalizeString(getRedeemField('redeemAttemptedAt')) : existingItem.redeemAttemptedAt,
+        lastFailedUpiRedeemCdkey: hasRedeemField('lastFailedUpiRedeemCdkey') ? normalizeString(getRedeemField('lastFailedUpiRedeemCdkey')) : existingItem.lastFailedUpiRedeemCdkey,
+        upiRedeemCdkey: nextRedeemCdkey,
       });
       return saveResults({
         ...currentResults,
         items: nextItems,
+        redeemAutoDeletedEmails: nextRedeemAutoDeletedEmails,
         updatedAt: checkedAt,
         source: normalizeString(input.source || currentResults.source || 'registration-upi-eligibility'),
         total: Math.max(currentResults.total || 0, nextItems.length),
@@ -1801,12 +2007,13 @@
       );
     }
 
-    function buildAutoContinuationRedeemCandidates(items = [], totalRoundLimit = 1, targetEmail = '', channel = 'upi') {
+    function buildAutoContinuationRedeemCandidates(items = [], totalRoundLimit = 1, targetEmail = '', channel = 'upi', options = {}) {
       const fresh = [];
       const released = [];
       const failed = [];
       const seen = new Set();
       const normalizedTargetEmail = normalizeEmail(targetEmail);
+      const includeFresh = options.includeFresh === true;
 
       const pushCandidate = (bucket, item) => {
         const normalized = normalizeResultItem(item);
@@ -1833,7 +2040,7 @@
       });
 
       return {
-        candidates: [...released, ...failed],
+        candidates: includeFresh ? [...released, ...fresh, ...failed] : [...released, ...failed],
         freshCount: fresh.length,
         releasedCount: released.length,
         failedCount: failed.length,
@@ -4073,23 +4280,162 @@
         failed: 0,
         skipped: 0,
       };
+      const attemptedEmailsThisRun = new Set();
+      const requestedEmailSet = new Set(requestedCredentials.map((credential) => normalizeEmail(credential?.email)).filter(Boolean));
+      const allowGroupContinuation = input.disableGroupContinuation !== true
+        && !['free-click', 'free-single'].includes(source);
+      const includeFreshContinuation = allowGroupContinuation
+        && !['free-upi-to-ideal'].includes(source);
+      const continuationTargetEmail = allowGroupContinuation
+        ? ''
+        : normalizeEmail(requestedCredentials[0]?.email || input.email || input.accountEmail || input.credential?.email || '');
+      let redeemTotalTarget = credentials.length;
 
       const getLatestItem = (email = '') => (
         items.find((item) => normalizeEmail(item?.email) === normalizeEmail(email)) || {}
       );
 
+      const rememberRedeemTotalTarget = (queue = []) => {
+        redeemTotalTarget = Math.max(
+          redeemTotalTarget,
+          redeemCompleted + Math.max(0, Array.isArray(queue) ? queue.length : 0)
+        );
+      };
+
       const saveRedeemProgress = async (patch = {}) => {
+        const requestedRedeemTotal = Math.max(
+          0,
+          Math.floor(Number(patch.redeemTotal ?? currentResults.redeemTotal ?? redeemTotalTarget ?? credentials.length) || 0)
+        );
         currentResults = await saveResults({
           ...currentResults,
           items,
           redeeming: patch.redeeming !== false,
           redeemUpdatedAt: new Date().toISOString(),
-          redeemTotal: Math.max(0, Math.floor(Number(patch.redeemTotal ?? currentResults.redeemTotal ?? credentials.length) || 0)),
+          redeemTotal: Math.max(requestedRedeemTotal, redeemTotalTarget),
           redeemCompleted,
           source,
           flowStage: normalizeFlowStage(patch.flowStage ?? currentResults.flowStage),
           flowStageEmail: normalizeEmail(patch.email ?? currentResults.flowStageEmail),
         });
+      };
+
+      const reloadRedeemProgressState = async () => {
+        currentResults = await getStoredResults();
+        items = mergeCredentialsIntoResultItems(currentResults.items, requestedCredentials);
+        return currentResults;
+      };
+
+      const buildContinuationQueue = () => {
+        if (!allowGroupContinuation && !continuationTargetEmail) {
+          return [];
+        }
+        const queue = buildAutoContinuationRedeemCandidates(
+          items,
+          totalRoundLimit,
+          continuationTargetEmail,
+          redeemChannel,
+          { includeFresh: includeFreshContinuation }
+        ).candidates
+          .filter((credential) => {
+            const email = normalizeEmail(credential?.email);
+            if (!email || attemptedEmailsThisRun.has(email)) {
+              return false;
+            }
+            if (!includeFreshContinuation && requestedEmailSet.size && !requestedEmailSet.has(email)) {
+              return false;
+            }
+            return true;
+          });
+        return filterRedeemableCredentialsForCurrentResults(queue, {
+          ...currentResults,
+          items,
+        })
+          .map((credential) => normalizeResultItem({ ...credential, status: credential.status || 'free' }))
+          .filter((credential) => shouldRedeemItemUseChannel(credential, redeemChannel));
+      };
+
+      const hasActiveRedeemWorkForChannel = (runtimeState = {}, resultItems = items) => {
+        const usage = normalizeUpiRedeemCdkeyUsage(getRedeemChannelUsage(runtimeState, redeemChannel));
+        const hasActiveUsage = Object.values(usage).some((entry) => (
+          entry?.retrying === true
+          || isActiveUpiRedeemRemoteStatus(entry?.remoteStatus)
+          || isActiveUpiRedeemRemoteStatus(entry?.remoteMessage)
+        ));
+        if (hasActiveUsage) {
+          return true;
+        }
+        return (Array.isArray(resultItems) ? resultItems : []).some((item) => {
+          const itemChannel = normalizeString(item?.redeemChannel || item?.channel || item?.paymentChannel)
+            ? normalizeRedeemChannel(item.redeemChannel || item.channel || item.paymentChannel)
+            : redeemChannel;
+          return itemChannel === redeemChannel
+            && normalizeString(item?.status).toLowerCase() === 'free'
+            && (
+              isActiveUpiRedeemRemoteStatus(item?.redeemStatus)
+              || isActiveUpiRedeemRemoteStatus(item?.remoteStatus)
+              || isActiveUpiRedeemRemoteStatus(item?.remoteMessage)
+            );
+        });
+      };
+
+      const refreshPendingRedeemStatusesForContinuation = async () => {
+        if (typeof refreshPendingUpiCredentialMembershipRedeemStatuses !== 'function') {
+          return;
+        }
+        try {
+          await refreshPendingUpiCredentialMembershipRedeemStatuses({
+            channel: redeemChannel,
+            autoRefresh: true,
+            skipAutoRetry: true,
+            source: 'free-redeem-continuation',
+          });
+        } catch (error) {
+          await addLog(
+            `${redeemChannelLabel} Free 分组 CDK 兑换：刷新远端兑换状态失败，稍后继续等待：${getErrorMessage(error) || error.message || error}`,
+            'warn'
+          );
+        }
+      };
+
+      const waitForContinuationCdkey = async (pendingCount = 0) => {
+        const startedWaitingAt = Date.now();
+        let waitLogged = false;
+        while (true) {
+          throwIfMembershipStopRequested('redeem');
+          await refreshPendingRedeemStatusesForContinuation();
+          await reloadRedeemProgressState();
+          const latestRuntimeState = await getFreshUpiRedeemRuntimeState({
+            ...input,
+            settings: runtimeSettings,
+          });
+          const availableCdkeys = getAvailableUpiRedeemCdkeys(latestRuntimeState, redeemChannel);
+          if (availableCdkeys.length) {
+            return { ok: true, availableCount: availableCdkeys.length };
+          }
+          const nextQueue = buildContinuationQueue();
+          if (!nextQueue.length) {
+            return { ok: false, reason: 'no-candidates' };
+          }
+          if (!hasActiveRedeemWorkForChannel(latestRuntimeState, items)) {
+            return { ok: false, reason: 'no-active-work', pendingCount: nextQueue.length };
+          }
+          const waitedMs = Date.now() - startedWaitingAt;
+          if (waitedMs >= REDEEM_GROUP_CONTINUATION_IDLE_TIMEOUT_MS) {
+            return { ok: false, reason: 'timeout', pendingCount: nextQueue.length };
+          }
+          if (!waitLogged) {
+            const waitSeconds = Math.max(1, Math.round(REDEEM_GROUP_CONTINUATION_IDLE_WAIT_MS / 1000));
+            await addLog(
+              `${redeemChannelLabel} Free 分组 CDK 兑换：当前没有可用 CDK，仍有 ${pendingCount || nextQueue.length} 个后续账号；将每 ${waitSeconds} 秒刷新远端状态，等待 CDK 回池后继续。`,
+              'warn'
+            );
+            waitLogged = true;
+          }
+          rememberRedeemTotalTarget(nextQueue);
+          await saveRedeemProgress({ flowStage: 'upi-redeem-plus', email: '', redeemTotal: redeemTotalTarget });
+          await sleepWithStop(REDEEM_GROUP_CONTINUATION_IDLE_WAIT_MS);
+        }
       };
 
       try {
@@ -4146,25 +4492,30 @@
         }
 
         let roundQueue = credentials;
+        let continuationBatchNumber = 1;
+        rememberRedeemTotalTarget(roundQueue);
         await addLog(
           `${redeemChannelLabel} Free 分组 CDK 兑换：开始处理 ${credentials.length} 个账号；配置总轮数 ${configuredRoundCount}，实际总轮数 ${totalRoundLimit}。`,
           'info'
         );
 
-        for (let roundNumber = 1; roundNumber <= totalRoundLimit && roundQueue.length; roundNumber += 1) {
-          throwIfMembershipStopRequested('redeem');
-          const roundState = await getFreshUpiRedeemRuntimeState({
-            ...input,
-            settings: runtimeSettings,
-          });
-          const roundCdkeys = getAvailableUpiRedeemCdkeys(roundState, redeemChannel);
-          if (!roundCdkeys.length) {
-            await addLog(
-              `${redeemChannelLabel} Free 分组 CDK 兑换：第 ${roundNumber}/${totalRoundLimit} 轮没有可用 CDK，剩余账号保持待兑换。`,
-              'warn'
-            );
-            break;
-          }
+        while (roundQueue.length) {
+          let stoppedForCdkey = false;
+          for (let roundNumber = 1; roundNumber <= totalRoundLimit && roundQueue.length; roundNumber += 1) {
+            throwIfMembershipStopRequested('redeem');
+            const roundState = await getFreshUpiRedeemRuntimeState({
+              ...input,
+              settings: runtimeSettings,
+            });
+            const roundCdkeys = getAvailableUpiRedeemCdkeys(roundState, redeemChannel);
+            if (!roundCdkeys.length) {
+              stoppedForCdkey = true;
+              await addLog(
+                `${redeemChannelLabel} Free 分组 CDK 兑换：第 ${roundNumber}/${totalRoundLimit} 轮没有可用 CDK，剩余账号保持待兑换，准备刷新远端状态后续兑。`,
+                'warn'
+              );
+              break;
+            }
 
           const failedEmailsThisRound = [];
           const roundTotal = roundQueue.length;
@@ -4212,8 +4563,9 @@
             const availableCdkeys = getAvailableUpiRedeemCdkeys(runtimeStateForCdkey, redeemChannel);
             const attemptedUpiRedeemCdkey = pickRandomUpiRedeemCdkey(availableCdkeys);
             if (!attemptedUpiRedeemCdkey) {
+              stoppedForCdkey = true;
               await addLog(
-                `${redeemChannelLabel} Free 分组 CDK 兑换：第 ${roundNumber}/${totalRoundLimit} 轮暂时没有可用 CDK，剩余账号保持待兑换；请手动点击一键兑换继续。`,
+                `${redeemChannelLabel} Free 分组 CDK 兑换：第 ${roundNumber}/${totalRoundLimit} 轮暂时没有可用 CDK，剩余账号保持待兑换，准备刷新远端状态后续兑。`,
                 'warn'
               );
               break;
@@ -4262,6 +4614,7 @@
               redeemCompleted += 1;
               stats.attempted += 1;
               attemptCounted = true;
+              attemptedEmailsThisRun.add(email);
               if (redeemResult.pendingRemoteConfirmation === true) {
                 const pendingReason = normalizeString(redeemResult.reason)
                   || 'CDK 已提交，等待远端系统返回最终结果';
@@ -4347,9 +4700,9 @@
                   failedAt: redeemFailedAt,
                 });
               const channelFailureCount = getRedeemChannelFailureCount(failurePatch, redeemChannel);
-              const reachedUpiFallback = !authError
+              const reachedUpiDailyLimit = !authError
                 && redeemChannel === 'upi'
-                && channelFailureCount >= REDEEM_CHANNEL_FAILURE_LIMIT;
+                && isRedeemChannelDailyLimitReason(reason);
               const reachedIdealLock = !authError
                 && redeemChannel === 'ideal'
                 && channelFailureCount >= REDEEM_CHANNEL_FAILURE_LIMIT;
@@ -4357,6 +4710,7 @@
                 roundAttempted += 1;
                 redeemCompleted += 1;
                 stats.attempted += 1;
+                attemptedEmailsThisRun.add(email);
               }
               if (authError) {
                 redeemStopRequested = true;
@@ -4372,9 +4726,9 @@
                   ? 'UPI 远端接口拒绝请求，已停止整批兑换'
                   : reachedIdealLock
                     ? getRedeemLockReason(failurePatch)
-                    : reachedUpiFallback
-                      ? `${reason}（UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL）`
-                      : `${reason}（${roundLabel}）`,
+                    : reachedUpiDailyLimit
+                      ? `${reason}（UPI 今日提交次数已达上限，已转入 IDEAL 候选）`
+                    : `${reason}（${roundLabel}）`,
                 accessToken,
                 accessTokenMasked: maskAccessToken(accessToken),
                 redeemStatus: authError ? 'stopped' : 'failed',
@@ -4397,9 +4751,9 @@
                   ? `${redeemChannelLabel} Free 分组 CDK 兑换：远端接口拒绝请求，已停止在 ${email}；请检查 External API Key 或后端外部兑换接口 CSRF/API Key 配置：${reason}`
                   : reachedIdealLock
                     ? `${redeemChannelLabel} Free 分组 CDK 兑换：${email} -> ${attemptedUpiRedeemCdkey} 失败，IDEAL 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，账号已封存，不再使用：${reason}`
-                    : reachedUpiFallback
-                      ? `${redeemChannelLabel} Free 分组 CDK 兑换：${email} -> ${attemptedUpiRedeemCdkey} 失败，UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL：${reason}`
-                  : `${redeemChannelLabel} Free 分组 CDK 兑换：${email} -> ${attemptedUpiRedeemCdkey} 失败，释放 CDK 并切换下一个账号：${reason}`,
+                    : reachedUpiDailyLimit
+                      ? `${redeemChannelLabel} Free 分组 CDK 兑换：${email} -> ${attemptedUpiRedeemCdkey} 明确返回今日提交次数上限，已转入 IDEAL 候选：${reason}`
+                    : `${redeemChannelLabel} Free 分组 CDK 兑换：${email} -> ${attemptedUpiRedeemCdkey} 失败，释放 CDK 并切换下一个账号：${reason}`,
                 authError ? 'error' : 'warn'
               );
               if (redeemStopRequested) {
@@ -4412,7 +4766,7 @@
             `${redeemChannelLabel} Free 分组 CDK 兑换：第 ${roundNumber}/${totalRoundLimit} 轮结束，尝试 ${roundAttempted}/${roundTotal} 个账号。`,
             'info'
           );
-          if (redeemStopRequested || roundNumber >= totalRoundLimit) {
+          if (redeemStopRequested || stoppedForCdkey || roundNumber >= totalRoundLimit) {
             break;
           }
           roundQueue = failedEmailsThisRound
@@ -4427,6 +4781,48 @@
           );
         }
 
+          if (redeemStopRequested || !allowGroupContinuation) {
+            break;
+          }
+
+          await reloadRedeemProgressState();
+          let continuationQueue = buildContinuationQueue();
+          if (!continuationQueue.length) {
+            break;
+          }
+
+          let latestRuntimeState = await getFreshUpiRedeemRuntimeState({
+            ...input,
+            settings: runtimeSettings,
+          });
+          if (!getAvailableUpiRedeemCdkeys(latestRuntimeState, redeemChannel).length) {
+            const waitResult = await waitForContinuationCdkey(continuationQueue.length);
+            await reloadRedeemProgressState();
+            continuationQueue = buildContinuationQueue();
+            latestRuntimeState = await getFreshUpiRedeemRuntimeState({
+              ...input,
+              settings: runtimeSettings,
+            });
+            if (!waitResult.ok || !continuationQueue.length || !getAvailableUpiRedeemCdkeys(latestRuntimeState, redeemChannel).length) {
+              const reasonText = waitResult.reason === 'timeout'
+                ? `等待 CDK 回池超时，剩余 ${waitResult.pendingCount || continuationQueue.length} 个后续账号保持待兑换`
+                : waitResult.reason === 'no-active-work'
+                  ? `当前没有可用 CDK，且没有等待远端结果的 ${redeemChannelLabel} 任务，剩余账号保持待兑换`
+                  : '没有可继续兑换的后续账号';
+              await addLog(`${redeemChannelLabel} Free 分组 CDK 兑换：${reasonText}。`, 'warn');
+              break;
+            }
+          }
+
+          continuationBatchNumber += 1;
+          roundQueue = continuationQueue;
+          rememberRedeemTotalTarget(roundQueue);
+          await addLog(
+            `${redeemChannelLabel} Free 分组 CDK 兑换：继续第 ${continuationBatchNumber} 批后续账号 ${roundQueue.length} 个。`,
+            'info'
+          );
+        }
+
         const finishedAt = new Date().toISOString();
         const finalResults = await saveResults({
           ...currentResults,
@@ -4435,7 +4831,7 @@
           redeemUpdatedAt: finishedAt,
           redeemFinishedAt: redeemStopRequested ? '' : finishedAt,
           redeemStoppedAt: redeemStopRequested ? finishedAt : '',
-          redeemTotal: Math.max(redeemCompleted, credentials.length),
+          redeemTotal: Math.max(redeemCompleted, redeemTotalTarget, credentials.length),
           redeemCompleted,
           flowStage: redeemStopRequested ? currentResults.flowStage : '',
           flowStageEmail: redeemStopRequested ? currentResults.flowStageEmail : '',
@@ -5110,6 +5506,7 @@
                 failedAt: new Date().toISOString(),
               });
               const failureCount = getRedeemChannelFailureCount(failurePatch, redeemChannel);
+              const reachedUpiDailyLimit = redeemChannel === 'upi' && isRedeemChannelDailyLimitReason(reason);
               summary.attempted += 1;
               summary.failed += 1;
               items = upsertResultItem(items, {
@@ -5118,8 +5515,10 @@
                 planType: 'free',
                 reason: redeemChannel === 'ideal' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
                   ? getRedeemLockReason(failurePatch)
+                  : reachedUpiDailyLimit
+                    ? `${reason}（UPI 今日提交次数已达上限，已转入 IDEAL 候选）`
                   : redeemChannel === 'upi' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
-                    ? `${reason}（UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL）`
+                    ? `${reason}（UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次；当前策略仍允许继续 UPI）`
                     : `${reason}（${getRedeemRoundLabel(failureCount, totalRoundLimit)}）`,
                 accessToken,
                 accessTokenMasked: maskAccessToken(accessToken),
@@ -5135,8 +5534,10 @@
               await addLog(
                 redeemChannel === 'ideal' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
                   ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 重复提交，IDEAL 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，账号已封存，不再使用。`
+                  : reachedUpiDailyLimit
+                    ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 明确返回今日提交次数上限，已转入 IDEAL 候选。`
                   : redeemChannel === 'upi' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
-                    ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 重复提交，UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL。`
+                    ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 重复提交，UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次；当前策略仍允许继续 UPI。`
                     : `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 重复提交，本账号本轮结束，切换下一个账号。`,
                 'warn'
               );
@@ -5215,6 +5616,7 @@
               failedAt: new Date().toISOString(),
             });
             const failureCount = getRedeemChannelFailureCount(failurePatch, redeemChannel);
+            const reachedUpiDailyLimit = redeemChannel === 'upi' && isRedeemChannelDailyLimitReason(reason);
             summary.attempted += 1;
             summary.failed += 1;
             if (isUpiRedeemApiAuthError(error)) {
@@ -5246,8 +5648,10 @@
               planType: 'free',
               reason: redeemChannel === 'ideal' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
                 ? getRedeemLockReason(failurePatch)
+                : reachedUpiDailyLimit
+                  ? `${reason}（UPI 今日提交次数已达上限，已转入 IDEAL 候选）`
                 : redeemChannel === 'upi' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
-                  ? `${reason}（UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL）`
+                  ? `${reason}（UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次；当前策略仍允许继续 UPI）`
                   : `${reason}（${getRedeemRoundLabel(failureCount, totalRoundLimit)}）`,
               accessToken,
               accessTokenMasked: maskAccessToken(accessToken),
@@ -5263,8 +5667,10 @@
             await addLog(
               redeemChannel === 'ideal' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
                 ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 失败，IDEAL 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，账号已封存，不再使用：${reason}`
+                : reachedUpiDailyLimit
+                  ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 明确返回今日提交次数上限，已转入 IDEAL 候选：${reason}`
                 : redeemChannel === 'upi' && failureCount >= REDEEM_CHANNEL_FAILURE_LIMIT
-                  ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 失败，UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，切换 IDEAL：${reason}`
+                  ? `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 失败，UPI 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次；当前策略仍允许继续 UPI：${reason}`
                   : `${redeemChannelLabel} 自动续兑：${email} -> ${selectedCdkey} 失败，本账号本轮结束，切换下一个账号：${reason}`,
               'warn'
             );
@@ -5676,16 +6082,38 @@
       if (removeAfterExport && (results.running || results.redeeming)) {
         throw new Error('UPI 备份账号核验/补兑正在运行，请先停止后再导出并清空当前批次。');
       }
-      const rows = buildResultExportRows(results, status, channel);
-      const exportedEmails = normalizeResultsPayload(results).items
+      const allowedEmails = normalizeEmailList(input.emails || input.emailList || []);
+      const rows = buildResultExportRows(results, status, channel, allowedEmails);
+      const normalizedResults = normalizeResultsPayload(results);
+      const allowedEmailSet = new Set(allowedEmails);
+      const seenExportEmails = new Set();
+      const exportedEmails = normalizedResults.items
         .filter((item) => {
+          const email = normalizeEmail(item.email);
+          if (!email || (allowedEmailSet.size && !allowedEmailSet.has(email))) return false;
           const statusMatches = status === 'free'
             ? item.status === 'free' || item.status === 'failed'
             : item.status === status;
           if (!statusMatches) return false;
-          if (status === 'paid' && channel && getResultItemRedeemChannel(item) !== normalizeRedeemChannel(channel)) return false;
-          if (status === 'failed') return Boolean(item.email);
-          return Boolean(item.email && item.password && item.totpMfaSecret);
+          if (status === 'paid' && channel) {
+            const normalizedChannel = normalizeRedeemChannel(channel);
+            if (
+              getResultItemRedeemChannel(item) !== normalizedChannel
+              || isResultItemHiddenByPlusDeletion(normalizedResults, item, normalizedChannel)
+            ) {
+              return false;
+            }
+          } else if (status === 'paid' && isResultItemHiddenByPlusDeletion(normalizedResults, item)) {
+            return false;
+          }
+          if (status === 'failed' && !item.email) return false;
+          if (status !== 'failed' && !Boolean(item.email && item.password && item.totpMfaSecret)) return false;
+          const key = status === 'paid'
+            ? `${getResultItemRedeemChannel(item)}:${email}`
+            : `${status}:${email}`;
+          if (seenExportEmails.has(key)) return false;
+          seenExportEmails.add(key);
+          return true;
         })
         .map((item) => item.email);
       const nameMap = {

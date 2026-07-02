@@ -20,6 +20,9 @@
     const DEFAULT_UPI_SUBSCRIPTION_API_BASE_URL = 'https://cha.nerver.cc';
     const UPI_ELIGIBILITY_CHECK_MAX_ATTEMPTS = 3;
     const UPI_ELIGIBILITY_CHECK_RETRY_DELAYS_MS = [3000, 7000];
+    const UPI_AUTO_REDEEM_REMOTE_REFRESH_INTERVAL_MS = 5000;
+    const UPI_AUTO_REDEEM_REMOTE_REFRESH_TIMEOUT_MS = 120000;
+    const UPI_AUTO_REDEEM_REMOTE_REFRESH_ERROR_LOG_INTERVAL_MS = 30000;
 
   function createUpiRedeemExecutor(deps = {}) {
     const {
@@ -40,6 +43,7 @@
       setPersistentSettings = async () => {},
       setState = async () => {},
       broadcastDataUpdate = null,
+      refreshPendingUpiCredentialMembershipRedeemStatuses = null,
       sleepWithStop = async () => {},
       throwIfStopped = () => {},
       upsertTrialEligibleFreeCredential = null,
@@ -56,6 +60,154 @@
 
     function getRedeemChannelLabel(channel = 'upi') {
       return normalizeRedeemChannel(channel) === 'ideal' ? 'IDEAL' : 'UPI';
+    }
+
+    const REDEEM_CHANNEL_FAILURE_LIMIT = 3;
+    const REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS = 24 * 60 * 60 * 1000;
+
+    function getRedeemChannelFailureField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemFailureCount'
+        : 'upiRedeemFailureCount';
+    }
+
+    function getRedeemChannelFailureCount(item = {}, channel = 'upi') {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const field = getRedeemChannelFailureField(normalizedChannel);
+      if (Object.prototype.hasOwnProperty.call(item || {}, field)) {
+        return Math.max(0, Math.floor(Number(item?.[field]) || 0));
+      }
+      const legacyChannel = normalizeString(item?.redeemChannel || item?.channel || item?.paymentChannel)
+        ? normalizeRedeemChannel(item.redeemChannel || item.channel || item.paymentChannel)
+        : '';
+      return legacyChannel === normalizedChannel
+        ? Math.max(0, Math.floor(Number(item?.redeemFailureCount) || 0))
+        : 0;
+    }
+
+    function getRedeemChannelDailyLimitBlockedAtField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitBlockedAt'
+        : 'upiRedeemDailyLimitBlockedAt';
+    }
+
+    function getRedeemChannelDailyLimitBlockedUntilField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitBlockedUntil'
+        : 'upiRedeemDailyLimitBlockedUntil';
+    }
+
+    function getRedeemChannelDailyLimitReasonField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitReason'
+        : 'upiRedeemDailyLimitReason';
+    }
+
+    function isRedeemChannelDailyLimitReason(message = '') {
+      const text = normalizeString(message);
+      return /该邮箱/.test(text)
+        && /在该渠道今日提交次数已达上限/.test(text)
+        && /3\s*次/.test(text)
+        && /请\s*24\s*小时后再试/.test(text);
+    }
+
+    function buildRedeemChannelDailyLimitPatch(channel = 'upi', reason = '', failedAt = '') {
+      if (!isRedeemChannelDailyLimitReason(reason)) {
+        return {};
+      }
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const blockedAt = normalizeString(failedAt) || toIsoTimestamp();
+      const blockedAtMs = Math.max(0, Date.parse(blockedAt) || now());
+      const blockedUntil = new Date(blockedAtMs + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS).toISOString();
+      return {
+        [getRedeemChannelDailyLimitBlockedAtField(normalizedChannel)]: blockedAt,
+        [getRedeemChannelDailyLimitBlockedUntilField(normalizedChannel)]: blockedUntil,
+        [getRedeemChannelDailyLimitReasonField(normalizedChannel)]: normalizeString(reason),
+      };
+    }
+
+    function isRedeemChannelDailyLimitBlocked(item = {}, channel = 'upi') {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const nowMs = Math.max(1, Math.floor(Number(now()) || Date.now()));
+      const blockedUntil = Date.parse(normalizeString(item?.[getRedeemChannelDailyLimitBlockedUntilField(normalizedChannel)]));
+      if (Number.isFinite(blockedUntil) && blockedUntil > nowMs) {
+        return true;
+      }
+      const blockedAt = Date.parse(normalizeString(item?.[getRedeemChannelDailyLimitBlockedAtField(normalizedChannel)]));
+      const storedReason = item?.[getRedeemChannelDailyLimitReasonField(normalizedChannel)];
+      if (
+        Number.isFinite(blockedAt)
+        && blockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs
+        && isRedeemChannelDailyLimitReason(storedReason || item?.redeemReason || item?.reason)
+      ) {
+        return true;
+      }
+      const itemChannel = normalizeRedeemChannel(item?.redeemChannel || item?.channel || item?.paymentChannel);
+      if (itemChannel !== normalizedChannel) {
+        return false;
+      }
+      const legacyReason = item?.redeemReason || item?.reason || item?.remoteMessage;
+      if (!isRedeemChannelDailyLimitReason(legacyReason)) {
+        return false;
+      }
+      const legacyBlockedAt = Date.parse(normalizeString(item?.redeemLastFailedAt || item?.redeemAttemptedAt || item?.checkedAt || item?.updatedAt));
+      return !Number.isFinite(legacyBlockedAt) || legacyBlockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs;
+    }
+
+    function isRedeemAccountLocked(item = {}) {
+      return item?.redeemLocked === true
+        || getRedeemChannelFailureCount(item, 'ideal') >= REDEEM_CHANNEL_FAILURE_LIMIT;
+    }
+
+    function buildRedeemAccountUnlockedPatch() {
+      return {
+        redeemLocked: false,
+        redeemLockedReason: '',
+        redeemLockedAt: '',
+      };
+    }
+
+    function buildRedeemChannelFailurePatch(item = {}, channel = 'upi', options = {}) {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const failedAt = normalizeString(options.failedAt) || toIsoTimestamp();
+      const reason = normalizeString(options.reason) || '兑换失败';
+      const count = Math.min(
+        REDEEM_CHANNEL_FAILURE_LIMIT,
+        getRedeemChannelFailureCount(item, normalizedChannel) + 1
+      );
+      const patch = {
+        [getRedeemChannelFailureField(normalizedChannel)]: count,
+        redeemFailureCount: count,
+        redeemFailureLimit: REDEEM_CHANNEL_FAILURE_LIMIT,
+        redeemLastFailedAt: failedAt,
+        redeemChannel: normalizedChannel,
+        ...buildRedeemChannelDailyLimitPatch(normalizedChannel, reason, failedAt),
+      };
+      if (normalizedChannel === 'ideal' && count >= REDEEM_CHANNEL_FAILURE_LIMIT) {
+        return {
+          ...patch,
+          redeemLocked: true,
+          redeemLockedReason: `IDEAL 已失败 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，账号已封存，不再使用：${reason}`,
+          redeemLockedAt: failedAt,
+        };
+      }
+      return {
+        ...patch,
+        ...buildRedeemAccountUnlockedPatch(),
+      };
+    }
+
+    function shouldRedeemItemUseChannel(item = {}, channel = 'upi') {
+      if (isRedeemAccountLocked(item)) {
+        return false;
+      }
+      if (isRedeemChannelDailyLimitBlocked(item, channel)) {
+        return false;
+      }
+      if (normalizeRedeemChannel(channel) === 'upi') {
+        return true;
+      }
+      return getRedeemChannelFailureCount(item, channel) < REDEEM_CHANNEL_FAILURE_LIMIT;
     }
 
     function getRedeemChannelPoolKey(channel = 'upi') {
@@ -753,6 +905,20 @@
         const entry = usage?.[cdkey] || {};
         return isCdkeySelectableForRedeem(entry);
       }) || '';
+    }
+
+    function getAvailableRedeemCdkeys(state = {}, channel = 'upi') {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const usage = normalizeUpiRedeemCdkeyUsage(getRedeemChannelUsage(state, normalizedChannel));
+      const cdkeys = mergeCdkeysWithRecoverableUsage(
+        parseCdkeyPoolText(getRedeemChannelPoolText(state, normalizedChannel)),
+        usage
+      );
+      return cdkeys.filter((cdkey) => isCdkeySelectableForRedeem(usage?.[cdkey] || {}));
+    }
+
+    function countAvailableRedeemCdkeys(state = {}, channel = 'upi') {
+      return getAvailableRedeemCdkeys(state, channel).length;
     }
 
     async function updateCdkeyUsage(cdkey, updater, channel = 'upi') {
@@ -2774,79 +2940,55 @@
       return cleanupUpdates;
     }
 
-    async function applyIneligibleAccountCleanup({ state = {}, email = '', visibleStep = 0, reason = '' } = {}) {
-      const normalizedEmail = parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(state, {});
+    async function upsertRegistrationFreeCredential({
+      runtimeState = {},
+      visibleStep = 0,
+      sessionState = {},
+      email = '',
+      reason = '',
+      checkedAt = '',
+      trialEligibilityStatus = 'pending',
+    } = {}) {
+      if (typeof upsertTrialEligibleFreeCredential !== 'function') {
+        await addStepLog(visibleStep, '主流程 Free 写入能力未接入，暂时无法同步到 Free 组。', 'warn');
+        return null;
+      }
+      const normalizedEmail = parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(runtimeState, sessionState);
       if (!normalizedEmail) {
-        await addStepLog(visibleStep, 'UPI 资格检查无资格，但未能解析当前账号邮箱，无法自动删除账号记录。', 'warn');
-        return {};
+        await addStepLog(visibleStep, '主流程 Free 写入：未读取到当前账号邮箱，暂时无法同步到 Free 组。', 'warn');
+        return null;
       }
-
-      if (typeof deleteUpiCredentialMembershipCredentials === 'function') {
-        try {
-          const result = await deleteUpiCredentialMembershipCredentials({
+      const sessionPayload = sessionState?.session || sessionState;
+      const accessToken = getChatGptSessionAccessToken(sessionPayload)
+        || normalizeString(sessionState?.accessToken || runtimeState.accessToken || runtimeState.upiRedeemAccessToken);
+      const upsertedAt = normalizeString(checkedAt) || toIsoTimestamp();
+      const upsertReason = normalizeString(reason) || '主流程注册完成，等待 UPI 资格/兑换检测';
+      try {
+        const freeResults = await upsertTrialEligibleFreeCredential({
+          source: 'registration-free-entry',
+          email: normalizedEmail,
+          credential: buildCurrentUpiCredentialForMembership({
+            ...runtimeState,
             email: normalizedEmail,
-            deleteBackups: true,
-          });
-          const deletedCount = Math.max(0, Math.floor(Number(result?.deletedCount) || 0));
-          await addStepLog(
-            visibleStep,
-            deletedCount
-              ? `UPI 账号无资格：已从 Free/备份账号池删除 ${normalizedEmail}。`
-              : `UPI 账号无资格：Free/备份账号池中未找到 ${normalizedEmail}，继续清理注册邮箱池。`,
-            'warn'
-          );
-        } catch (error) {
-          await addStepLog(
-            visibleStep,
-            `UPI 账号无资格：删除 Free/备份账号 ${normalizedEmail} 失败：${getErrorMessage(error) || error}`,
-            'warn'
-          );
-        }
+          }, normalizedEmail),
+          accessToken,
+          accessTokenMasked: maskAccessToken(accessToken),
+          reason: upsertReason,
+          checkedAt: upsertedAt,
+          trialEligibilityStatus,
+          trialEligibilityReason: upsertReason,
+          trialEligibilityCheckedAt: upsertedAt,
+        });
+        await addStepLog(visibleStep, `主流程已同步到 Free 组：${normalizedEmail}。`, 'ok');
+        return freeResults;
+      } catch (error) {
+        await addStepLog(
+          visibleStep,
+          `主流程同步 Free 组失败：${normalizedEmail}：${getErrorMessage(error) || error}`,
+          'warn'
+        );
+        return null;
       }
-
-      if (typeof markCurrentRegistrationAccountUsed === 'function') {
-        try {
-          await markCurrentRegistrationAccountUsed({
-            ...state,
-            email: normalizedEmail,
-            accountIdentifierType: state.accountIdentifierType || 'email',
-            accountIdentifier: state.accountIdentifier || normalizedEmail,
-          }, {
-            logPrefix: 'UPI 资格检查无资格',
-            level: 'warn',
-          });
-        } catch (error) {
-          await addStepLog(
-            visibleStep,
-            `UPI 账号无资格：标记当前注册邮箱已用失败：${getErrorMessage(error) || error}`,
-            'warn'
-          );
-        }
-      }
-
-      const cleanupUpdates = buildSuccessfulRedeemCleanupUpdates(state, '', normalizedEmail);
-      if (Object.keys(cleanupUpdates).length) {
-        await setState(cleanupUpdates);
-        try {
-          await setPersistentSettings(cleanupUpdates);
-        } catch (error) {
-          await addStepLog(
-            visibleStep,
-            `UPI 账号无资格：保存邮箱池删除结果失败：${getErrorMessage(error) || error}`,
-            'warn'
-          );
-        }
-        if (typeof broadcastDataUpdate === 'function') {
-          broadcastDataUpdate(cleanupUpdates);
-        }
-      }
-
-      await addStepLog(
-        visibleStep,
-        `UPI 账号无资格：${normalizedEmail} 已删除/标记已用，后续不会再次拿它注册。${reason ? `原因：${reason}` : ''}`,
-        'warn'
-      );
-      return cleanupUpdates;
     }
 
     async function checkRegistrationUpiTrialEligibility(input = {}) {
@@ -2871,7 +3013,7 @@
 
       await addStepLog(
         visibleStep,
-        `UPI 注册后试用资格检查：正在检测 ${email || 'unknown'}，通过后才进入 Free 分组。`,
+        `UPI 注册后试用资格检查：正在检测 ${email || 'unknown'}，结果将更新已有 Free 记录。`,
         'info'
       );
 
@@ -2916,8 +3058,9 @@
         }
         const reason = normalizeString(eligibility?.item?.message || eligibility?.item?.reason)
           || '账号有试用资格，已进入 Free 分组';
+        let freeResults = null;
         if (typeof upsertTrialEligibleFreeCredential === 'function') {
-          await upsertTrialEligibleFreeCredential({
+          freeResults = await upsertTrialEligibleFreeCredential({
             source: 'registration-upi-eligibility',
             email,
             credential: buildCurrentUpiCredentialForMembership({
@@ -2929,6 +3072,9 @@
             accessTokenMasked: maskAccessToken(accessToken),
             reason,
             checkedAt,
+            trialEligibilityStatus: 'eligible',
+            trialEligibilityReason: reason,
+            trialEligibilityCheckedAt: checkedAt,
           });
         }
         await addStepLog(
@@ -2941,33 +3087,41 @@
           email,
           reason,
           checkedAt,
+          freeResults,
         };
       } catch (error) {
-        const message = getErrorMessage(error) || 'UPI 试用资格检测失败。';
-        if (isUpiAccountIneligibleError(error)) {
-          await addStepLog(
-            visibleStep,
-            `UPI 注册后试用资格检查确认无资格，正在删除账号：${email || 'unknown'}：${message}`,
-            'warn'
-          );
-          await applyIneligibleAccountCleanup({
-            state: {
-              ...runtimeState,
-              ...patch,
-              email,
-            },
-            email,
-            visibleStep,
-            reason: message,
-          });
+        if (isFlowStoppedError(error)) {
           throw error;
         }
+        const message = getErrorMessage(error) || 'UPI 试用资格检测失败。';
+        const failedAt = toIsoTimestamp();
+        const trialEligibilityStatus = isUpiAccountIneligibleError(error) ? 'ineligible' : 'failed';
+        const freeResults = await upsertRegistrationFreeCredential({
+          runtimeState: {
+            ...runtimeState,
+            ...patch,
+            email,
+          },
+          visibleStep,
+          sessionState: chatGptSession,
+          email,
+          reason: message,
+          checkedAt: failedAt,
+          trialEligibilityStatus,
+        });
         await addStepLog(
           visibleStep,
-          `UPI 注册后试用资格检查失败，账号未进入 Free 分组：${email || 'unknown'}：${message}`,
-          'error'
+          `UPI 注册后试用资格检查${trialEligibilityStatus === 'ineligible' ? '确认无资格' : '失败'}，账号保留在 Free 组：${email || 'unknown'}：${message}`,
+          trialEligibilityStatus === 'ineligible' ? 'warn' : 'error'
         );
-        throw error;
+        return {
+          eligible: false,
+          email,
+          reason: message,
+          checkedAt: failedAt,
+          freeResults,
+          trialEligibilityStatus,
+        };
       }
     }
 
@@ -3329,6 +3483,524 @@
       };
     }
 
+    function findMembershipResultItem(results = {}, email = '') {
+      const targetEmail = parsePoolEntryEmail(email);
+      return (Array.isArray(results?.items) ? results.items : [])
+        .find((item) => parsePoolEntryEmail(item?.email) === targetEmail) || null;
+    }
+
+    function isAutoRedeemResultInFlight(item = {}) {
+      return [
+        item?.redeemStatus,
+        item?.remoteStatus,
+        item?.remoteMessage,
+      ].some((value) => [
+        'pending',
+        'pending_token',
+        'pending_dispatch',
+        'dispatched',
+        'dispatching',
+        'running',
+        'redeeming',
+        'processing',
+        'in_progress',
+        'queued',
+        'accepted',
+        'submitted',
+      ].includes(normalizeUpiRedeemRemoteStatus(value)));
+    }
+
+    function findPendingAutoRedeemResultItem(state = {}, {
+      email = '',
+      channel = 'upi',
+      cdkey = '',
+    } = {}) {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      if (!normalizedEmail) {
+        return null;
+      }
+      const item = findMembershipResultItem(state?.upiCredentialMembershipCheckResults, normalizedEmail);
+      if (!item || !isAutoRedeemResultInFlight(item)) {
+        return null;
+      }
+      const targetChannel = normalizeRedeemChannel(channel);
+      const itemChannel = normalizeRedeemChannel(item?.redeemChannel || item?.channel);
+      if (itemChannel !== targetChannel) {
+        return null;
+      }
+      const targetCdkey = normalizeString(cdkey);
+      const itemCdkey = normalizeString(item?.upiRedeemCdkey || item?.cdkey);
+      if (targetCdkey && itemCdkey && itemCdkey !== targetCdkey) {
+        return null;
+      }
+      return item;
+    }
+
+    async function waitForSubmittedAutoRedeemRemoteRefresh({
+      visibleStep = 7,
+      email = '',
+      channel = 'upi',
+      cdkey = '',
+    } = {}) {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      const redeemChannel = normalizeRedeemChannel(channel);
+      const redeemChannelLabel = getRedeemChannelLabel(redeemChannel);
+      const submittedCdkey = normalizeString(cdkey);
+      if (!normalizedEmail || !submittedCdkey) {
+        return { status: 'skipped', reason: '缺少邮箱或 CDK，无法自动刷新远端状态。' };
+      }
+      if (typeof refreshPendingUpiCredentialMembershipRedeemStatuses !== 'function') {
+        await addStepLog(
+          visibleStep,
+          `${redeemChannelLabel} 主流程自动兑换：远端状态刷新能力未接入，已跳过后台刷新。`,
+          'warn'
+        );
+        return { status: 'skipped', reason: '远端状态刷新能力未接入' };
+      }
+
+      const startedAt = Math.max(1, Math.floor(Number(now()) || Date.now()));
+      let attempt = 0;
+      let lastErrorLogAt = 0;
+      let lastWaitingLogAt = 0;
+      await addStepLog(
+        visibleStep,
+        `${redeemChannelLabel} 主流程自动兑换：后台正在刷新远端兑换状态：${normalizedEmail} -> ${submittedCdkey}；只同步状态和失败次数，不在刷新线程里续兑。`,
+        'info'
+      );
+
+      while (true) {
+        throwIfStopped();
+        const latestBefore = await getMergedState({});
+        const pendingBefore = findPendingAutoRedeemResultItem(latestBefore, {
+          email: normalizedEmail,
+          channel: redeemChannel,
+          cdkey: submittedCdkey,
+        });
+        if (!pendingBefore) {
+          return { status: 'synced', reason: '当前账号已离开等待远端结果状态' };
+        }
+
+        attempt += 1;
+        try {
+          const refreshResult = await refreshPendingUpiCredentialMembershipRedeemStatuses({
+            email: normalizedEmail,
+            channel: redeemChannel,
+            cdkey: submittedCdkey,
+            autoRefresh: true,
+            skipAutoRetry: true,
+          });
+          if (refreshResult?.ok === false) {
+            const reason = (Array.isArray(refreshResult.errors) ? refreshResult.errors : [])
+              .map((item) => normalizeString(item?.error || item))
+              .filter(Boolean)
+              .join('；') || '远端状态刷新失败';
+            throw new Error(reason);
+          }
+
+          const latestAfter = await getMergedState({});
+          const pendingAfter = findPendingAutoRedeemResultItem(latestAfter, {
+            email: normalizedEmail,
+            channel: redeemChannel,
+            cdkey: submittedCdkey,
+          });
+          if (!pendingAfter) {
+            const finalItem = findMembershipResultItem(latestAfter?.upiCredentialMembershipCheckResults, normalizedEmail) || {};
+            const finalStatus = normalizeString(finalItem?.redeemStatus || finalItem?.status || finalItem?.planType);
+            const finalReason = normalizeString(finalItem?.redeemReason || finalItem?.reason || finalItem?.remoteMessage);
+            await addStepLog(
+              visibleStep,
+              `${redeemChannelLabel} 主流程自动兑换：远端兑换状态已同步：${normalizedEmail} -> ${submittedCdkey}${finalStatus ? `，状态 ${finalStatus}` : ''}${finalReason ? `，${finalReason}` : ''}；已跳过自动续兑。`,
+              finalItem?.status === 'paid' ? 'success' : 'warn'
+            );
+            return {
+              status: 'synced',
+              reason: finalReason || '远端状态已同步',
+              item: finalItem,
+              attempts: attempt,
+            };
+          }
+
+          const nowMs = Math.max(1, Math.floor(Number(now()) || Date.now()));
+          if (!lastWaitingLogAt || nowMs - lastWaitingLogAt >= UPI_AUTO_REDEEM_REMOTE_REFRESH_ERROR_LOG_INTERVAL_MS) {
+            lastWaitingLogAt = nowMs;
+            await addStepLog(
+              visibleStep,
+              `${redeemChannelLabel} 主流程自动兑换：远端仍在处理 ${normalizedEmail} -> ${submittedCdkey}，继续每 5 秒刷新；不自动续兑。`,
+              'info'
+            );
+          }
+        } catch (error) {
+          if (isFlowStoppedError(error)) {
+            throw error;
+          }
+          const nowMs = Math.max(1, Math.floor(Number(now()) || Date.now()));
+          if (!lastErrorLogAt || nowMs - lastErrorLogAt >= UPI_AUTO_REDEEM_REMOTE_REFRESH_ERROR_LOG_INTERVAL_MS) {
+            lastErrorLogAt = nowMs;
+            await addStepLog(
+              visibleStep,
+              `${redeemChannelLabel} 主流程自动兑换：刷新远端兑换状态临时失败，将继续等待：${getErrorMessage(error) || error}`,
+              'warn'
+            );
+          }
+        }
+
+        const elapsedMs = Math.max(0, Math.max(1, Math.floor(Number(now()) || Date.now())) - startedAt);
+        if (elapsedMs >= UPI_AUTO_REDEEM_REMOTE_REFRESH_TIMEOUT_MS) {
+          await addStepLog(
+            visibleStep,
+            `${redeemChannelLabel} 主流程自动兑换：后台刷新远端兑换状态超时，账号仍等待远端结果：${normalizedEmail} -> ${submittedCdkey}；已跳过自动续兑。`,
+            'warn'
+          );
+          return {
+            status: 'timeout',
+            reason: '远端状态刷新超时，仍等待结果',
+            attempts: attempt,
+          };
+        }
+        await sleepWithStop(UPI_AUTO_REDEEM_REMOTE_REFRESH_INTERVAL_MS);
+      }
+    }
+
+    function isFlowStoppedError(error) {
+      return normalizeString(error?.message || error) === '流程已被用户停止。'
+        || /^流程已被用户停止。?$/.test(getErrorMessage(error));
+    }
+
+    function shouldCountAutoRedeemFailure(error) {
+      const message = getErrorMessage(error) || normalizeString(error?.message || error);
+      if (isFlowStoppedError(error)) return false;
+      if (isUpiRedeemApiAuthError(error)) return false;
+      if (isUpiAccessTokenExpiredError(error)) return false;
+      if (isUpiAccountIneligibleError(error)) return false;
+      return !/没有可用的\s*CDK|CDK\s*不足|External API Key|API\s*Key|缺少\s*ChatGPT\s*accessToken|缺少\s*accessToken|登录态不一致|账号无资格|not eligible|ineligible/i.test(message);
+    }
+
+    async function writeTrialEligibleFreeRedeemState({
+      runtimeState = {},
+      email = '',
+      accessToken = '',
+      checkedAt = '',
+      reason = '',
+      cdkey = '',
+      patch = {},
+    } = {}) {
+      if (typeof upsertTrialEligibleFreeCredential !== 'function') {
+        return null;
+      }
+      const normalizedEmail = parsePoolEntryEmail(email);
+      if (!normalizedEmail) {
+        return null;
+      }
+      const stateForCredential = {
+        ...runtimeState,
+        email: normalizedEmail,
+      };
+      const hasPatchCdkey = Object.prototype.hasOwnProperty.call(patch, 'upiRedeemCdkey')
+        || Object.prototype.hasOwnProperty.call(patch, 'cdkey');
+      return upsertTrialEligibleFreeCredential({
+        source: 'registration-auto-redeem',
+        email: normalizedEmail,
+        credential: {
+          ...buildCurrentUpiCredentialForMembership(stateForCredential, normalizedEmail),
+          ...patch,
+        },
+        accessToken,
+        accessTokenMasked: maskAccessToken(accessToken),
+        reason,
+        checkedAt: normalizeString(checkedAt) || toIsoTimestamp(),
+        cdkey: hasPatchCdkey ? (patch.upiRedeemCdkey ?? patch.cdkey ?? '') : cdkey,
+        ...patch,
+      });
+    }
+
+    async function attemptAutoRedeemTrialEligibleFreeCredentialChannel({
+      runtimeState = {},
+      visibleStep = 7,
+      sessionState = {},
+      email = '',
+      item = {},
+      channel = 'upi',
+    } = {}) {
+      throwIfStopped();
+      const redeemChannel = normalizeRedeemChannel(channel);
+      const redeemChannelLabel = getRedeemChannelLabel(redeemChannel);
+      const normalizedEmail = parsePoolEntryEmail(email);
+      const accessToken = getChatGptSessionAccessToken(sessionState?.session || sessionState)
+        || normalizeString(sessionState?.accessToken || runtimeState.accessToken || runtimeState.upiRedeemAccessToken);
+      if (!normalizedEmail || !accessToken) {
+        const reason = !normalizedEmail ? '缺少账号邮箱' : '缺少 AT，无法自动兑换';
+        await addStepLog(visibleStep, `${redeemChannelLabel} 主流程自动兑换：跳过：${reason}。`, 'warn');
+        return { status: 'skipped', reason, item };
+      }
+
+      const latestState = await getMergedState(runtimeState);
+      const usage = normalizeUpiRedeemCdkeyUsage(getRedeemChannelUsage(latestState, redeemChannel));
+      const cdkeys = getAvailableRedeemCdkeys(latestState, redeemChannel);
+      const cdkey = pickFirstUnusedCdkey(cdkeys, usage) || cdkeys[0] || '';
+      if (!cdkey) {
+        const reason = `${redeemChannelLabel} 没有可用 CDK`;
+        await addStepLog(visibleStep, `${redeemChannelLabel} 主流程自动兑换：${reason}，账号保留在 Free。`, 'warn');
+        return { status: 'skipped', reason, item };
+      }
+
+      const redeemAttemptedAt = toIsoTimestamp();
+      const runningReason = `主流程自动使用 ${redeemChannelLabel} CDK 兑换：${cdkey}`;
+      const runningResults = await writeTrialEligibleFreeRedeemState({
+        runtimeState: latestState,
+        email: normalizedEmail,
+        accessToken,
+        checkedAt: redeemAttemptedAt,
+        reason: runningReason,
+        cdkey,
+        patch: {
+          status: 'free',
+          planType: 'free',
+          redeemStatus: 'running',
+          redeemReason: runningReason,
+          redeemAttemptedAt,
+          redeemFailureLimit: REDEEM_CHANNEL_FAILURE_LIMIT,
+          upiRedeemCdkey: cdkey,
+          redeemChannel,
+        },
+      });
+      const baseItem = findMembershipResultItem(runningResults, normalizedEmail) || item || {};
+
+      await addStepLog(
+        visibleStep,
+        `${redeemChannelLabel} 主流程自动兑换：${normalizedEmail} -> ${cdkey}，正在提交到兑换后端。`,
+        'info'
+      );
+
+      try {
+        const redeemResult = await redeemUpiCredentialWithAccessToken({
+          state: {
+            ...latestState,
+            visibleStep,
+            channel: redeemChannel,
+            redeemChannel,
+          },
+          credential: {
+            ...baseItem,
+            email: normalizedEmail,
+          },
+          session: sessionState?.session || sessionState,
+          accessToken,
+          forceCdkey: cdkey,
+          channel: redeemChannel,
+          skipEligibilityCheck: true,
+          deferSubscriptionConfirmation: true,
+        });
+        const submittedCdkey = normalizeString(redeemResult?.cdkey || redeemResult?.upiRedeemCdkey || cdkey);
+        if (redeemResult?.duplicateCdkeyRejected === true) {
+          throw new Error(redeemResult.reason || 'CDK 重复提交，当前账号未提交成功。');
+        }
+        if (redeemResult?.pendingRemoteConfirmation === true) {
+          const pendingReason = normalizeString(redeemResult.reason)
+            || 'CDK 已提交，等待远端系统返回最终结果';
+          const submittedResults = await writeTrialEligibleFreeRedeemState({
+            runtimeState: latestState,
+            email: normalizedEmail,
+            accessToken,
+            checkedAt: redeemAttemptedAt,
+            reason: pendingReason,
+            cdkey: submittedCdkey,
+            patch: {
+              status: 'free',
+              planType: 'free',
+              redeemStatus: 'submitted',
+              redeemReason: pendingReason,
+              redeemAttemptedAt,
+              redeemFailureLimit: REDEEM_CHANNEL_FAILURE_LIMIT,
+              upiRedeemCdkey: submittedCdkey,
+              redeemChannel,
+            },
+          });
+          await addStepLog(
+            visibleStep,
+            `${redeemChannelLabel} 主流程自动兑换：${normalizedEmail} -> ${submittedCdkey} 已提交，等待远端最终会员结果。`,
+            'ok'
+          );
+          const remoteRefresh = await waitForSubmittedAutoRedeemRemoteRefresh({
+            visibleStep,
+            email: normalizedEmail,
+            channel: redeemChannel,
+            cdkey: submittedCdkey,
+          });
+          const latestAfterRemoteRefresh = await getMergedState({});
+          const latestSubmittedItem = findMembershipResultItem(
+            latestAfterRemoteRefresh?.upiCredentialMembershipCheckResults,
+            normalizedEmail
+          );
+          return {
+            status: 'submitted',
+            channel: redeemChannel,
+            cdkey: submittedCdkey,
+            reason: remoteRefresh?.reason || pendingReason,
+            remoteRefreshStatus: remoteRefresh?.status || '',
+            item: latestSubmittedItem || findMembershipResultItem(submittedResults, normalizedEmail) || baseItem,
+          };
+        }
+
+        const planType = normalizeSubscriptionPlanType(redeemResult?.planType || redeemResult?.subscription?.planType);
+        const successReason = normalizeString(redeemResult?.reason) || (planType ? `已开通 ${planType}` : 'CDK 兑换已提交');
+        await addStepLog(
+          visibleStep,
+          `${redeemChannelLabel} 主流程自动兑换：${normalizedEmail} -> ${submittedCdkey} 返回非等待状态：${successReason}`,
+          'ok'
+        );
+        return {
+          status: redeemResult?.active ? 'success' : 'submitted',
+          channel: redeemChannel,
+          cdkey: submittedCdkey,
+          reason: successReason,
+          item: baseItem,
+        };
+      } catch (error) {
+        if (isFlowStoppedError(error)) {
+          throw error;
+        }
+        const reason = getErrorMessage(error) || '兑换失败';
+        const failedAt = toIsoTimestamp();
+        const countFailure = shouldCountAutoRedeemFailure(error);
+        const failurePatch = countFailure
+          ? buildRedeemChannelFailurePatch(baseItem, redeemChannel, { reason, failedAt })
+          : {};
+        const channelFailureCount = getRedeemChannelFailureCount({
+          ...baseItem,
+          ...failurePatch,
+        }, redeemChannel);
+        const reachedUpiDailyLimit = countFailure
+          && redeemChannel === 'upi'
+          && isRedeemChannelDailyLimitReason(reason);
+        const reachedIdealLock = countFailure
+          && redeemChannel === 'ideal'
+          && channelFailureCount >= REDEEM_CHANNEL_FAILURE_LIMIT;
+        const nextReason = countFailure
+          ? (reachedIdealLock
+              ? failurePatch.redeemLockedReason
+              : reachedUpiDailyLimit
+                ? `${reason}（UPI 今日提交次数已达上限，已转入 IDEAL 候选）`
+              : `${reason}（${redeemChannelLabel} 失败 ${channelFailureCount}/${REDEEM_CHANNEL_FAILURE_LIMIT}）`)
+          : `${reason}；未计入账号兑换失败次数。`;
+        const failedResults = await writeTrialEligibleFreeRedeemState({
+          runtimeState: latestState,
+          email: normalizedEmail,
+          accessToken,
+          checkedAt: failedAt,
+          reason: nextReason,
+          cdkey: countFailure ? '' : cdkey,
+          patch: {
+            status: 'free',
+            planType: 'free',
+            redeemStatus: countFailure ? 'failed' : 'blocked',
+            redeemReason: reason,
+            redeemAttemptedAt,
+            ...(countFailure ? failurePatch : {}),
+            lastFailedUpiRedeemCdkey: countFailure ? cdkey : baseItem.lastFailedUpiRedeemCdkey,
+            upiRedeemCdkey: countFailure ? '' : cdkey,
+            redeemChannel,
+          },
+        });
+        await addStepLog(
+          visibleStep,
+          countFailure
+            ? `${redeemChannelLabel} 主流程自动兑换：${normalizedEmail} -> ${cdkey} 失败：${nextReason}`
+            : `${redeemChannelLabel} 主流程自动兑换：${normalizedEmail} -> ${cdkey} 阻塞但不计失败：${reason}`,
+          countFailure ? 'warn' : 'error'
+        );
+        return {
+          status: countFailure ? 'failed' : 'blocked',
+          channel: redeemChannel,
+          cdkey,
+          reason: nextReason,
+          failureCount: channelFailureCount,
+          shouldTryIdeal: reachedUpiDailyLimit,
+          locked: reachedIdealLock,
+          item: findMembershipResultItem(failedResults, normalizedEmail) || {
+            ...baseItem,
+            ...failurePatch,
+          },
+        };
+      }
+    }
+
+    async function autoRedeemTrialEligibleFreeCredential({
+      runtimeState = {},
+      visibleStep = 7,
+      sessionState = {},
+      email = '',
+      eligibility = {},
+    } = {}) {
+      const normalizedEmail = parsePoolEntryEmail(email || eligibility.email);
+      if (!normalizedEmail) {
+        return { status: 'skipped', reason: '缺少账号邮箱' };
+      }
+      if (typeof upsertTrialEligibleFreeCredential !== 'function') {
+        await addStepLog(visibleStep, '主流程自动兑换：Free 分组写入能力未接入，已跳过自动兑换。', 'warn');
+        return { status: 'skipped', reason: 'Free 分组写入能力未接入' };
+      }
+      let currentItem = findMembershipResultItem(eligibility.freeResults, normalizedEmail);
+      if (isRedeemAccountLocked(currentItem)) {
+        const reason = normalizeString(currentItem.redeemLockedReason) || '账号已封存，不再自动兑换';
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} 已封存，跳过：${reason}`, 'warn');
+        return { status: 'skipped', reason, item: currentItem };
+      }
+      if (isAutoRedeemResultInFlight(currentItem)) {
+        const reason = normalizeString(currentItem.redeemReason) || '已有兑换任务等待远端结果';
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} 已有兑换任务处理中，跳过重复提交：${reason}`, 'warn');
+        return { status: 'skipped', reason, item: currentItem };
+      }
+
+      const latestState = await getMergedState(runtimeState);
+      const upiAvailable = countAvailableRedeemCdkeys(latestState, 'upi');
+      const idealAvailable = countAvailableRedeemCdkeys(latestState, 'ideal');
+      if (upiAvailable <= 0 && idealAvailable <= 0) {
+        const reason = 'UPI/IDEAL 都没有可用 CDK';
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} 已进入 Free，但 ${reason}，等待导入卡密后手动兑换。`, 'warn');
+        return { status: 'skipped', reason, item: currentItem };
+      }
+
+      if (upiAvailable > 0 && shouldRedeemItemUseChannel(currentItem, 'upi')) {
+        const upiResult = await attemptAutoRedeemTrialEligibleFreeCredentialChannel({
+          runtimeState: latestState,
+          visibleStep,
+          sessionState,
+          email: normalizedEmail,
+          item: currentItem,
+          channel: 'upi',
+        });
+        currentItem = upiResult.item || currentItem;
+        if (upiResult.status === 'submitted' || upiResult.status === 'success') {
+          return upiResult;
+        }
+        if (!upiResult.shouldTryIdeal) {
+          return upiResult;
+        }
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} UPI 明确返回今日提交次数上限，准备改用 IDEAL。`, 'warn');
+      } else if (upiAvailable <= 0) {
+        await addStepLog(visibleStep, `主流程自动兑换：UPI 当前没有可用 CDK，${normalizedEmail} 将尝试 IDEAL。`, 'warn');
+      } else {
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} UPI 当前不可用，将尝试 IDEAL。`, 'warn');
+      }
+
+      if (idealAvailable > 0 && shouldRedeemItemUseChannel(currentItem, 'ideal')) {
+        return attemptAutoRedeemTrialEligibleFreeCredentialChannel({
+          runtimeState: latestState,
+          visibleStep,
+          sessionState,
+          email: normalizedEmail,
+          item: currentItem,
+          channel: 'ideal',
+        });
+      }
+
+      const reason = idealAvailable <= 0
+        ? 'IDEAL 没有可用 CDK'
+        : 'IDEAL 已达到失败上限或账号已封存';
+      await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} 未继续 IDEAL：${reason}。`, 'warn');
+      return { status: 'skipped', reason, item: currentItem };
+    }
+
     async function executeUpiRedeem(state = {}) {
       throwIfStopped();
       const runtimeState = await getMergedState(state);
@@ -3345,7 +4017,7 @@
       {
       await addStepLog(
         visibleStep,
-        '主流程 UPI 节点只检测试用资格并写入 Free 组，不自动兑换 CDK。',
+        '主流程 UPI 节点会检测试用资格并写入 Free 组；如果有可用 CDK，将自动提交兑换。',
         'info'
       );
       const tabId = await resolveSessionTabId(runtimeState);
@@ -3366,6 +4038,19 @@
         `已读取 ChatGPT session：${sessionEmail || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(sessionState)}。`,
         'ok'
       );
+      const freeEntryResults = await upsertRegistrationFreeCredential({
+        runtimeState: {
+          ...runtimeState,
+          email: sessionEmail || runtimeState.email,
+          visibleStep,
+        },
+        visibleStep,
+        sessionState,
+        email: sessionEmail || runtimeState.email,
+        reason: '主流程注册完成，等待 UPI 资格/兑换检测',
+        checkedAt: toIsoTimestamp(),
+        trialEligibilityStatus: 'pending',
+      });
       const eligibility = await checkRegistrationUpiTrialEligibility({
         state: {
           ...runtimeState,
@@ -3380,18 +4065,47 @@
         email: sessionEmail || runtimeState.email,
         visibleStep,
       });
+      const eligibilityForRedeem = {
+        ...eligibility,
+        freeResults: eligibility?.freeResults || freeEntryResults,
+      };
+      const autoRedeem = eligibility?.eligible === true
+        ? await autoRedeemTrialEligibleFreeCredential({
+            runtimeState: {
+              ...runtimeState,
+              email: eligibility?.email || sessionEmail || runtimeState.email,
+              visibleStep,
+            },
+            visibleStep,
+            sessionState,
+            email: eligibility?.email || sessionEmail || runtimeState.email,
+            eligibility: eligibilityForRedeem,
+          })
+        : {
+            status: 'skipped',
+            reason: eligibility?.reason || 'UPI 资格检测未通过，账号已保留在 Free 组',
+          };
       await addStepLog(
         visibleStep,
-        `主流程 UPI 资格检测完成，账号已保持在 Free 组，等待手动一键兑换：${eligibility?.email || sessionEmail || 'unknown'}。`,
-        'success'
+        autoRedeem?.status === 'submitted'
+          ? `主流程 UPI 资格检测完成，账号已进入 Free，并已自动提交 ${getRedeemChannelLabel(autoRedeem.channel)} 兑换：${eligibility?.email || sessionEmail || 'unknown'} -> ${autoRedeem.cdkey || 'unknown'}。`
+          : `主流程 UPI 资格检测完成，账号已进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`,
+        autoRedeem?.status === 'submitted' ? 'success' : 'warn'
       );
       await completeNodeFromBackground(state?.nodeId || 'upi-redeem', {
         email: eligibility?.email || sessionEmail || runtimeState.email || '',
         upiTrialEligible: eligibility?.eligible === true,
         upiTrialEligibilityReason: eligibility?.reason || '',
         upiTrialEligibilityCheckedAt: eligibility?.checkedAt || toIsoTimestamp(),
+        upiAutoRedeemStatus: autoRedeem?.status || '',
+        upiAutoRedeemChannel: autoRedeem?.channel || '',
+        upiAutoRedeemCdkey: autoRedeem?.cdkey || '',
+        upiAutoRedeemReason: autoRedeem?.reason || '',
       });
-      return eligibility;
+      return {
+        ...eligibility,
+        autoRedeem,
+      };
       }
 
       const apiUrl = buildUpiRedeemApiUrl(runtimeState);
@@ -3524,17 +4238,20 @@
               lastError: retryMessage,
             }));
             if (isUpiAccountIneligibleError(retryError)) {
-              await addStepLog(visibleStep, `刷新 ChatGPT 页面后 UPI 资格检查确认账号无资格，未提交到兑换后端 ${apiUrl}：${retryMessage}`, 'error');
-              await applyIneligibleAccountCleanup({
-                state: {
+              await upsertRegistrationFreeCredential({
+                runtimeState: {
                   ...runtimeState,
                   ...latestForSubscription,
                   email: currentEmail || latestForSubscription.email || runtimeState.email,
                 },
-                email: currentEmail,
                 visibleStep,
+                sessionState,
+                email: currentEmail,
                 reason: retryMessage,
+                checkedAt: toIsoTimestamp(),
+                trialEligibilityStatus: 'ineligible',
               });
+              await addStepLog(visibleStep, `刷新 ChatGPT 页面后 UPI 资格检查确认账号无资格，账号保留在 Free 组，未提交到兑换后端 ${apiUrl}：${retryMessage}`, 'error');
               throw retryError;
             }
             if (isUpiAccessTokenExpiredError(retryError)) {
@@ -3576,17 +4293,20 @@
             lastError: message,
           }));
           if (isUpiAccountIneligibleError(error)) {
-            await addStepLog(visibleStep, `UPI 资格检查确认账号无资格，未提交到兑换后端 ${apiUrl}：${message}`, 'error');
-            await applyIneligibleAccountCleanup({
-              state: {
+            await upsertRegistrationFreeCredential({
+              runtimeState: {
                 ...runtimeState,
                 ...latestForSubscription,
                 email: currentEmail || latestForSubscription.email || runtimeState.email,
               },
-              email: currentEmail,
               visibleStep,
+              sessionState,
+              email: currentEmail,
               reason: message,
+              checkedAt: toIsoTimestamp(),
+              trialEligibilityStatus: 'ineligible',
             });
+            await addStepLog(visibleStep, `UPI 资格检查确认账号无资格，账号保留在 Free 组，未提交到兑换后端 ${apiUrl}：${message}`, 'error');
             throw error;
           }
           await addStepLog(visibleStep, `UPI 资格检查接口失败，将继续提交兑换后端 ${apiUrl} 留痕：${message}`, 'warn');

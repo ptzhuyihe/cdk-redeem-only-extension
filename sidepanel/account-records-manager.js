@@ -11,6 +11,7 @@
     const displayTimeZone = constants.displayTimeZone || 'Asia/Shanghai';
     const pageSize = Math.max(1, Math.floor(Number(constants.pageSize) || 10));
     const REDEEM_CHANNEL_FAILURE_LIMIT = 3;
+    const REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS = 24 * 60 * 60 * 1000;
 
     const FILTER_CONFIG = {
       all: {
@@ -68,6 +69,11 @@
     let upiCredentialMembershipRedeemStatusRefreshBusy = false;
     let upiCredentialMembershipGroup = 'free';
     const disabledUpiCredentialMembershipEmails = new Set();
+    const locallyDeletedUpiCredentialMembershipEmails = new Set();
+    const locallyDeletedRedeemPlusEmailsByChannel = {
+      upi: new Set(),
+      ideal: new Set(),
+    };
     const selectedRecordIds = new Set();
 
     function escapeHtml(value) {
@@ -105,6 +111,60 @@
       return legacyChannel === normalizedChannel ? normalizeRetryCount(row?.redeemFailureCount) : 0;
     }
 
+    function getRedeemChannelDailyLimitBlockedAtField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitBlockedAt'
+        : 'upiRedeemDailyLimitBlockedAt';
+    }
+
+    function getRedeemChannelDailyLimitBlockedUntilField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitBlockedUntil'
+        : 'upiRedeemDailyLimitBlockedUntil';
+    }
+
+    function getRedeemChannelDailyLimitReasonField(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal'
+        ? 'idealRedeemDailyLimitReason'
+        : 'upiRedeemDailyLimitReason';
+    }
+
+    function isRedeemChannelDailyLimitReason(message = '') {
+      const text = normalizeUpiCredentialMembershipText(message);
+      return /该邮箱/.test(text)
+        && /在该渠道今日提交次数已达上限/.test(text)
+        && /3\s*次/.test(text)
+        && /请\s*24\s*小时后再试/.test(text);
+    }
+
+    function isRedeemChannelDailyLimitBlocked(row = {}, channel = 'upi') {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const nowMs = Date.now();
+      const blockedUntil = normalizeTimestamp(row?.[getRedeemChannelDailyLimitBlockedUntilField(normalizedChannel)]);
+      if (blockedUntil > nowMs) {
+        return true;
+      }
+      const blockedAt = normalizeTimestamp(row?.[getRedeemChannelDailyLimitBlockedAtField(normalizedChannel)]);
+      const storedReason = row?.[getRedeemChannelDailyLimitReasonField(normalizedChannel)];
+      if (
+        blockedAt > 0
+        && blockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs
+        && isRedeemChannelDailyLimitReason(storedReason || row?.redeemReason || row?.reason)
+      ) {
+        return true;
+      }
+      const rowChannel = normalizeRedeemChannel(row?.redeemChannel || row?.channel || row?.paymentChannel);
+      if (rowChannel !== normalizedChannel) {
+        return false;
+      }
+      const legacyReason = row?.redeemReason || row?.reason || row?.remoteMessage;
+      if (!isRedeemChannelDailyLimitReason(legacyReason)) {
+        return false;
+      }
+      const legacyBlockedAt = normalizeTimestamp(row?.redeemLastFailedAt || row?.redeemAttemptedAt || row?.checkedAt || row?.updatedAt);
+      return !legacyBlockedAt || legacyBlockedAt + REDEEM_CHANNEL_DAILY_LIMIT_BLOCK_MS > nowMs;
+    }
+
     function isUpiCredentialMembershipRedeemLocked(row = {}) {
       return row?.redeemLocked === true
         || getRedeemChannelFailureCount(row, 'ideal') >= REDEEM_CHANNEL_FAILURE_LIMIT;
@@ -138,6 +198,10 @@
 
     function getUpiCredentialMembershipFailureLimit(row = {}) {
       return REDEEM_CHANNEL_FAILURE_LIMIT;
+    }
+
+    function shouldApplyRedeemFailureLimitForChannel(channel = 'upi') {
+      return normalizeRedeemChannel(channel) === 'ideal';
     }
 
     function isPreSubmitUpiCredentialMembershipBlockedReason(message = '') {
@@ -527,8 +591,35 @@
       };
     }
 
+    function getLocallyDeletedRedeemPlusEmailsByChannel() {
+      return {
+        upi: Array.from(locallyDeletedRedeemPlusEmailsByChannel.upi),
+        ideal: Array.from(locallyDeletedRedeemPlusEmailsByChannel.ideal),
+      };
+    }
+
+    function mergeRedeemPlusDeletedEmailsByChannel(...values) {
+      const merged = { upi: [], ideal: [] };
+      values.forEach((value) => {
+        const normalized = normalizeRedeemPlusDeletedEmailsByChannel(value);
+        merged.upi.push(...normalized.upi);
+        merged.ideal.push(...normalized.ideal);
+      });
+      return {
+        upi: normalizeUpiCredentialMembershipEmailList(merged.upi),
+        ideal: normalizeUpiCredentialMembershipEmailList(merged.ideal),
+      };
+    }
+
+    function addLocallyDeletedRedeemPlusEmails(channel = 'upi', emails = []) {
+      const normalizedChannel = normalizeRedeemChannel(channel);
+      const target = locallyDeletedRedeemPlusEmailsByChannel[normalizedChannel];
+      normalizeUpiCredentialMembershipEmailList(Array.isArray(emails) ? emails : [emails])
+        .forEach((email) => target.add(email));
+    }
+
     function buildRedeemPlusDeletedEmailSets(value = {}) {
-      const normalized = normalizeRedeemPlusDeletedEmailsByChannel(value);
+      const normalized = mergeRedeemPlusDeletedEmailsByChannel(value, getLocallyDeletedRedeemPlusEmailsByChannel());
       return {
         upi: new Set(normalized.upi),
         ideal: new Set(normalized.ideal),
@@ -545,11 +636,15 @@
       if (String(row?.status || '').trim().toLowerCase() !== 'paid') {
         return false;
       }
-      return isRedeemPlusDeletedEmail(
-        row.email,
-        row.redeemChannel || row.channel || row.paymentChannel,
-        deletedEmailSets
-      );
+      const email = normalizeUpiCredentialMembershipEmail(row.email);
+      if (!email) {
+        return false;
+      }
+      const rawChannel = normalizeUpiCredentialMembershipText(row.redeemChannel || row.channel || row.paymentChannel);
+      if (!rawChannel) {
+        return Boolean(deletedEmailSets?.upi?.has(email) || deletedEmailSets?.ideal?.has(email));
+      }
+      return isRedeemPlusDeletedEmail(email, rawChannel, deletedEmailSets);
     }
 
     function getRedeemChannelLabel(channel = 'upi') {
@@ -633,7 +728,7 @@
       if (isActiveUpiCredentialMembershipRedeemRow(row, results)) {
         return true;
       }
-      return Boolean(findActiveUpiRedeemCdkeyUsageEntryByEmail(row?.email));
+      return Boolean(findActiveUpiRedeemCdkeyUsageEntryByEmail(row?.email, state.getLatestState(), row?.redeemChannel || row?.channel));
     }
 
     function normalizeUpiCredentialMembershipCapabilityFlag(value) {
@@ -768,8 +863,11 @@
       return normalizeUpiCredentialMembershipEmail(
         entry.email
         || entry.accountEmail
+        || entry.account_email
         || entry.credentialEmail
+        || entry.credential_email
         || entry.targetEmail
+        || entry.target_email
         || ''
       );
     }
@@ -821,6 +919,9 @@
             return;
           }
           const email = getUpiRedeemUsageEmail(entry);
+          if (!email) {
+            return;
+          }
           if (isRedeemPlusDeletedEmail(email, channel, plusDeletedEmailSets)) {
             return;
           }
@@ -837,7 +938,8 @@
           if (channel === 'upi') {
             byCdkey[cdkey.toLowerCase()] = patch;
           }
-          if (email) {
+          byEmail[`${channel}:${email}`] = patch;
+          if (!byEmail[email]) {
             byEmail[email] = patch;
           }
         });
@@ -864,8 +966,12 @@
     function applyUpiRedeemSuccessMembershipPatch(row = {}, lookup = buildUpiRedeemSuccessMembershipLookup()) {
       const email = normalizeUpiCredentialMembershipEmail(row.email);
       const cdkey = String(row.upiRedeemCdkey || row.cdkey || '').trim().toLowerCase();
-      const channel = normalizeRedeemChannel(row.redeemChannel || row.channel);
-      const patch = (cdkey && (lookup.byCdkey?.[`${channel}:${cdkey}`] || lookup.byCdkey?.[cdkey])) || (email && lookup.byEmail?.[email]) || null;
+      const rawChannel = normalizeUpiCredentialMembershipText(row.redeemChannel || row.channel);
+      const channel = normalizeRedeemChannel(rawChannel);
+      const patch = (cdkey && (lookup.byCdkey?.[`${channel}:${cdkey}`] || lookup.byCdkey?.[cdkey]))
+        || (email && rawChannel && lookup.byEmail?.[`${channel}:${email}`])
+        || (email && !rawChannel && lookup.byEmail?.[email])
+        || null;
       if (!patch) {
         return row;
       }
@@ -918,22 +1024,44 @@
 
     function mergeManualFreeMembershipOverridesIntoResults(results = {}, currentState = state.getLatestState()) {
       const previousResults = currentState?.upiCredentialMembershipCheckResults || {};
+      const mergedPlusDeletedEmailsByChannel = mergeRedeemPlusDeletedEmailsByChannel(
+        previousResults.redeemPlusDeletedEmailsByChannel,
+        results?.redeemPlusDeletedEmailsByChannel,
+        getLocallyDeletedRedeemPlusEmailsByChannel()
+      );
+      const resultsWithDeletionState = {
+        ...results,
+        redeemPlusDeletedEmailsByChannel: mergedPlusDeletedEmailsByChannel,
+        redeemPlusDeletedCountByChannel: {
+          upi: mergedPlusDeletedEmailsByChannel.upi.length,
+          ideal: mergedPlusDeletedEmailsByChannel.ideal.length,
+        },
+      };
+      const deletedEmailSet = new Set([
+        ...(Array.isArray(previousResults.redeemAutoDeletedEmails) ? previousResults.redeemAutoDeletedEmails : []),
+        ...(Array.isArray(resultsWithDeletionState?.redeemAutoDeletedEmails) ? resultsWithDeletionState.redeemAutoDeletedEmails : []),
+        ...locallyDeletedUpiCredentialMembershipEmails,
+      ].map(normalizeUpiCredentialMembershipEmail).filter(Boolean));
       const overrides = {};
       (Array.isArray(previousResults.items) ? previousResults.items : []).forEach((row) => {
         const email = normalizeUpiCredentialMembershipEmail(row?.email);
-        if (!email || String(row?.membershipOverrideStatus || '').trim().toLowerCase() !== 'free') {
+        if (
+          !email
+          || deletedEmailSet.has(email)
+          || String(row?.membershipOverrideStatus || '').trim().toLowerCase() !== 'free'
+        ) {
           return;
         }
         overrides[email] = row;
       });
-      if (!Object.keys(overrides).length || !Array.isArray(results?.items)) {
-        return results;
+      if (!Object.keys(overrides).length || !Array.isArray(resultsWithDeletionState?.items)) {
+        return resultsWithDeletionState;
       }
       let changed = false;
-      const items = results.items.map((item) => {
+      const items = resultsWithDeletionState.items.map((item) => {
         const email = normalizeUpiCredentialMembershipEmail(item?.email);
         const override = email ? overrides[email] : null;
-        if (!override) {
+        if (!override || deletedEmailSet.has(email)) {
           return item;
         }
         const itemStatus = String(item.status || '').trim().toLowerCase();
@@ -957,7 +1085,7 @@
           redeemReason: ['success', 'skipped'].includes(redeemStatus) ? '' : item.redeemReason,
         };
       });
-      return changed ? { ...results, items } : results;
+      return changed ? { ...resultsWithDeletionState, items } : resultsWithDeletionState;
     }
 
     function buildUpiRedeemSuccessEmailExportRows(records = [], options = {}) {
@@ -1165,10 +1293,28 @@
 
     function getUpiCredentialMembershipCheckResults(currentState = state.getLatestState()) {
       const raw = currentState?.upiCredentialMembershipCheckResults || {};
-      const deletedEmailSet = new Set((Array.isArray(raw.redeemAutoDeletedEmails) ? raw.redeemAutoDeletedEmails : [])
+      const rawDeletedEmails = (Array.isArray(raw.redeemAutoDeletedEmails) ? raw.redeemAutoDeletedEmails : [])
         .map(normalizeUpiCredentialMembershipEmail)
-        .filter(Boolean));
-      const redeemPlusDeletedEmailsByChannel = normalizeRedeemPlusDeletedEmailsByChannel(raw.redeemPlusDeletedEmailsByChannel);
+        .filter(Boolean);
+      const rawDeletedEmailSet = new Set(rawDeletedEmails);
+      if (locallyDeletedUpiCredentialMembershipEmails.size) {
+        const restoredEmailSet = new Set((Array.isArray(raw.items) ? raw.items : [])
+          .filter((item) => {
+            const status = String(item?.status || '').trim().toLowerCase();
+            return status === 'free' || status === 'failed';
+          })
+          .map((item) => normalizeUpiCredentialMembershipEmail(item?.email))
+          .filter((email) => email && !rawDeletedEmailSet.has(email)));
+        restoredEmailSet.forEach((email) => locallyDeletedUpiCredentialMembershipEmails.delete(email));
+      }
+      const deletedEmailSet = new Set([
+        ...rawDeletedEmails,
+        ...locallyDeletedUpiCredentialMembershipEmails,
+      ]);
+      const redeemPlusDeletedEmailsByChannel = mergeRedeemPlusDeletedEmailsByChannel(
+        raw.redeemPlusDeletedEmailsByChannel,
+        getLocallyDeletedRedeemPlusEmailsByChannel()
+      );
       const plusDeletedEmailSets = buildRedeemPlusDeletedEmailSets(redeemPlusDeletedEmailsByChannel);
       const successLookup = buildUpiRedeemSuccessMembershipLookup(currentState);
       const items = (Array.isArray(raw.items) ? raw.items : [])
@@ -1383,9 +1529,10 @@
     function buildUpiCredentialMembershipDisplayRows(results = getUpiCredentialMembershipCheckResults()) {
       const rows = [];
       const seen = new Set();
-      const deletedEmailSet = new Set((Array.isArray(results.redeemAutoDeletedEmails) ? results.redeemAutoDeletedEmails : [])
-        .map(normalizeUpiCredentialMembershipEmail)
-        .filter(Boolean));
+      const deletedEmailSet = new Set([
+        ...(Array.isArray(results.redeemAutoDeletedEmails) ? results.redeemAutoDeletedEmails : []),
+        ...locallyDeletedUpiCredentialMembershipEmails,
+      ].map(normalizeUpiCredentialMembershipEmail).filter(Boolean));
       const plusDeletedEmailSets = buildRedeemPlusDeletedEmailSets(results.redeemPlusDeletedEmailsByChannel);
       const resultLookup = buildUpiCredentialMembershipResultLookup(results.items);
       const successLookup = buildUpiRedeemSuccessMembershipLookup({
@@ -1675,10 +1822,15 @@
       if (isUpiCredentialMembershipRedeemLocked(row)) {
         return false;
       }
+      if (isRedeemChannelDailyLimitBlocked(row, redeemChannel)) {
+        return false;
+      }
       const redeemStatus = String(row.redeemStatus || '').trim().toLowerCase();
       if (isDuplicateCdkeyPendingMembershipRow(row)) {
         const failureLimit = getUpiCredentialMembershipFailureLimit(row);
-        return failureLimit <= 0 || getRedeemChannelFailureCount(row, redeemChannel) < failureLimit;
+        return !shouldApplyRedeemFailureLimitForChannel(redeemChannel)
+          || failureLimit <= 0
+          || getRedeemChannelFailureCount(row, redeemChannel) < failureLimit;
       }
       if (isActiveUpiRedeemRemoteStatus(redeemStatus)) {
         return false;
@@ -1688,10 +1840,16 @@
       }
       if (redeemStatus === 'failed') {
         const failureLimit = getUpiCredentialMembershipFailureLimit(row);
-        return failureLimit <= 0 || getRedeemChannelFailureCount(row, redeemChannel) < failureLimit;
+        return !shouldApplyRedeemFailureLimitForChannel(redeemChannel)
+          || failureLimit <= 0
+          || getRedeemChannelFailureCount(row, redeemChannel) < failureLimit;
       }
       const failureLimit = getUpiCredentialMembershipFailureLimit(row);
-      if (failureLimit > 0 && getRedeemChannelFailureCount(row, redeemChannel) >= failureLimit) {
+      if (
+        shouldApplyRedeemFailureLimitForChannel(redeemChannel)
+        && failureLimit > 0
+        && getRedeemChannelFailureCount(row, redeemChannel) >= failureLimit
+      ) {
         return false;
       }
       return true;
@@ -1703,6 +1861,9 @@
     }
 
     function isUpiCredentialMembershipChannelFailureLimitReached(row = {}, channel = 'upi') {
+      if (!shouldApplyRedeemFailureLimitForChannel(channel)) {
+        return false;
+      }
       const failureLimit = getUpiCredentialMembershipFailureLimit(row);
       return failureLimit > 0 && getRedeemChannelFailureCount(row, channel) >= failureLimit;
     }
@@ -1737,9 +1898,6 @@
       const label = getRedeemChannelLabel(redeemChannel);
       if (channelRedeemableCount > 0) {
         return '';
-      }
-      if (redeemChannel === 'upi' && overallRedeemableCount > 0 && failureBlockedCount > 0) {
-        return `${failureBlockedCount} 个 Free 账号 UPI 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，按当前策略已转入 IDEAL 队列；请导入 IDEAL 卡密继续，或重新导入这些 Free 账号以清除失败计数后再跑 UPI。`;
       }
       if (redeemChannel === 'ideal' && overallRedeemableCount > 0 && failureBlockedCount > 0) {
         return `${failureBlockedCount} 个 Free 账号 IDEAL 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次并已封存，不会再参与兑换。`;
@@ -2069,7 +2227,21 @@
       const redeemableIdealFreeCount = redeemableIdealFreeRows.length;
       const upiFailureBlockedFreeCount = getChannelFailureLimitBlockedFreeRows(allFreeRows, 'upi').length;
       const idealFailureBlockedFreeCount = getChannelFailureLimitBlockedFreeRows(allFreeRows, 'ideal').length;
+      const upiDailyLimitBlockedFreeCount = allFreeRows.filter((row) => isRedeemChannelDailyLimitBlocked(row, 'upi')).length;
       const lockedRedeemCount = allFreeRows.filter(isUpiCredentialMembershipRedeemLocked).length;
+      const deletableFailedFreeCount = deletableFreeRows.filter((row) => {
+        const status = String(row.status || '').trim().toLowerCase();
+        const redeemStatus = String(row.redeemStatus || '').trim().toLowerCase();
+        return status === 'failed' || redeemStatus === 'failed';
+      }).length;
+      const deletableLockedFreeCount = deletableFreeRows.filter((row) => String(row.status || '').trim().toLowerCase() === 'free' && isUpiCredentialMembershipRedeemLocked(row)).length;
+      const deletableFreeTitle = [
+        `删除 Free/失败组中非兑换中的账号 ${deletableFreeRows.length} 条`,
+        `可兑换账号 ${redeemableFreeCount} 条`,
+        deletableLockedFreeCount ? `含封存账号 ${deletableLockedFreeCount} 条` : '',
+        deletableFailedFreeCount ? `含失败账号 ${deletableFailedFreeCount} 条` : '',
+        blockedFreeDeleteCount ? `将跳过 ${blockedFreeDeleteCount} 条正在兑换或等待远端结果的账号` : '',
+      ].filter(Boolean).join('；');
       const availableUpiCdkeyCount = getAvailableUpiRedeemCdkeyCount(state.getLatestState(), 'upi');
       const availableIdealCdkeyCount = getAvailableUpiRedeemCdkeyCount(state.getLatestState(), 'ideal');
       const redeemUpiNowCount = Math.min(redeemableUpiFreeCount, availableUpiCdkeyCount);
@@ -2083,9 +2255,9 @@
         .length;
       const redeemAllIdealNowCount = Math.min(redeemAllIdealRemainingCount, availableIdealCdkeyCount);
       const redeemAllNowCount = redeemUpiNowCount + redeemAllIdealNowCount;
-      const redeemUpiTitle = `UPI 可用 CDK ${availableUpiCdkeyCount}；UPI 可兑换账号 ${redeemableUpiFreeCount}/${redeemableFreeCount}${upiFailureBlockedFreeCount ? `；${upiFailureBlockedFreeCount} 个账号 UPI 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次，已转入 IDEAL 队列` : ''}`;
-      const redeemIdealTitle = `IDEAL 可用 CDK ${availableIdealCdkeyCount}；IDEAL 可兑换账号 ${redeemableIdealFreeCount}/${redeemableFreeCount}${idealFailureBlockedFreeCount ? `；${idealFailureBlockedFreeCount} 个账号 IDEAL 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次或已封存` : ''}`;
-      const redeemAllTitle = `先兑换 UPI ${redeemUpiNowCount}/${redeemableFreeCount}，完成后再兑换剩余 IDEAL ${redeemAllIdealNowCount}/${redeemableFreeCount}${upiFailureBlockedFreeCount ? `；${upiFailureBlockedFreeCount} 个账号 UPI 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次会直接等待 IDEAL` : ''}`;
+      const redeemUpiTitle = `UPI 可用 CDK ${availableUpiCdkeyCount}；UPI 候选 ${redeemableUpiFreeCount}；总可兑换 ${redeemableFreeCount}；普通 UPI 失败不会禁用 UPI${upiDailyLimitBlockedFreeCount ? `；${upiDailyLimitBlockedFreeCount} 个账号明确返回今日提交次数上限，已转 IDEAL 候选` : ''}`;
+      const redeemIdealTitle = `IDEAL 可用 CDK ${availableIdealCdkeyCount}；IDEAL 候选 ${redeemableIdealFreeCount}；总可兑换 ${redeemableFreeCount}${idealFailureBlockedFreeCount ? `；${idealFailureBlockedFreeCount} 个账号 IDEAL 已失败满 ${REDEEM_CHANNEL_FAILURE_LIMIT} 次或已封存` : ''}`;
+      const redeemAllTitle = `先兑换 UPI ${redeemUpiNowCount}/${redeemableFreeCount}，完成后再兑换剩余 IDEAL ${redeemAllIdealNowCount}/${redeemableFreeCount}；只有明确返回今日提交次数上限的账号会跳过 UPI 并进入 IDEAL 候选`;
       const verifyPlusCount = paidRows.filter((row) => row.enabled !== false && normalizeUpiCredentialMembershipText(row.accessToken)).length;
       const verifyPlusTotalCount = paidRows.filter((row) => row.enabled !== false).length;
       const verifyPlusMissingAtCount = Math.max(0, verifyPlusTotalCount - verifyPlusCount);
@@ -2121,6 +2293,11 @@
             const disableSingleCheck = mutatingBusy || isRowChecking || row.enabled === false;
             const disableLogin = mutatingBusy || isRowLoggingIn || row.enabled === false || !hasUpiCredentialMembershipLoginMaterial(row);
             const isFreeGroup = group === 'free';
+            const deleteChannel = group === 'paid-ideal'
+              ? 'ideal'
+              : group === 'paid-upi'
+                ? 'upi'
+                : normalizeUpiCredentialMembershipText(row.redeemChannel || row.channel);
             const targetMoveStatus = isFreeGroup ? 'paid' : 'free';
             const moveLabel = isFreeGroup ? '移到 Plus' : '移到 Free';
             const deleteLockedByRedeem = isActiveUpiCredentialMembershipRedeemRow(row, results);
@@ -2154,7 +2331,7 @@
                 ${cancelRedeemControl.visible
                   ? `<button class="icloud-tag warn upi-membership-check-cancel-redeem-action" type="button" data-upi-membership-cancel-redeem="${escapeHtml(email)}" data-upi-membership-cancel-cdkey="${escapeHtml(cancelRedeemControl.cdkey)}" data-upi-membership-cancel-channel="${escapeHtml(cancelRedeemControl.channel || 'upi')}" ${cancelRedeemControl.disabled ? 'disabled' : ''} title="${escapeHtml(cancelRedeemControl.title)}">取消</button>`
                   : '<span class="upi-membership-check-action-placeholder"></span>'}
-                <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" ${disableDelete ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">删除</button>
+                <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" data-upi-membership-delete-channel="${escapeHtml(deleteChannel)}" ${disableDelete ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">删除</button>
               </div>
               ${meta.detail ? `<div class="upi-membership-check-detail">${escapeHtml(meta.detail)}</div>` : ''}
             `;
@@ -2181,18 +2358,18 @@
         <div class="upi-membership-check-section" data-upi-membership-section="free">
           <div class="upi-membership-check-head upi-membership-section-head">
             <span class="upi-membership-section-title">Free 组</span>
-            <span class="upi-membership-section-meta">${escapeHtml(String(freeSectionCount))} 个账号 · 待兑换 ${escapeHtml(String(freeCount))} · 可兑换 ${escapeHtml(String(redeemableFreeCount))} · UPI候选 ${escapeHtml(String(redeemableUpiFreeCount))} · IDEAL候选 ${escapeHtml(String(redeemableIdealFreeCount))} · 失败 ${escapeHtml(String(failedCount))} · 封存 ${escapeHtml(String(lockedRedeemCount))} · 缺 AT ${escapeHtml(String(missingAtCount))}</span>
+            <span class="upi-membership-section-meta">${escapeHtml(String(freeSectionCount))} 个账号 · 待兑换 ${escapeHtml(String(freeCount))} · 可兑换 ${escapeHtml(String(redeemableFreeCount))} · UPI候选 ${escapeHtml(String(redeemableUpiFreeCount))} · IDEAL候选 ${escapeHtml(String(redeemableIdealFreeCount))}${upiDailyLimitBlockedFreeCount ? ` · UPI日限 ${escapeHtml(String(upiDailyLimitBlockedFreeCount))}` : ''} · 失败 ${escapeHtml(String(failedCount))} · 封存 ${escapeHtml(String(lockedRedeemCount))} · 缺 AT ${escapeHtml(String(missingAtCount))}</span>
           </div>
           ${autoRunBusy ? '<div class="upi-membership-check-detail">自动注册中，允许导入 Free、删除安全行和一键兑换 CDK；补 AT、识别、登录、移动仍锁定。</div>' : ''}
           <div class="upi-membership-check-actions">
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-import-free ${importActionBusy ? 'disabled' : ''}>导入 Free</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-export="free"${freeSectionRows.length || autoRunBusy ? '' : ' disabled'}>导出 Free(${escapeHtml(String(freeSectionRows.length))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="free" ${deletableFreeRows.length && !deleteActionBusy ? '' : 'disabled'} title="${blockedFreeDeleteCount ? escapeHtml(`将跳过 ${blockedFreeDeleteCount} 条正在兑换或等待远端结果的账号`) : '删除 Free'}">删除 Free(${escapeHtml(String(deletableFreeRows.length))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-delete-group="free" ${deletableFreeRows.length && !deleteActionBusy ? '' : 'disabled'} title="${escapeHtml(deletableFreeTitle)}">删除 Free/失败(${escapeHtml(String(deletableFreeRows.length))})</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-fill-free-at ${missingAtCount && !mutatingBusy ? '' : 'disabled'}>一键补充 AT(${escapeHtml(String(missingAtCount))})</button>
             <button class="btn btn-primary btn-xs" type="button" data-upi-membership-identify-free-plus ${identifyPlusCount && !mutatingBusy ? '' : 'disabled'}>一键识别 Plus(${escapeHtml(String(identifyPlusCount))})</button>
             <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-refresh-all-email-statuses ${refreshEmailStatusCount && !membershipBusy ? '' : 'disabled'} title="${escapeHtml(refreshEmailStatusTitle)}">一键刷新所有邮箱状态(${escapeHtml(String(refreshEmailStatusCount))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free data-upi-membership-redeem-channel="upi" ${redeemUpiNowCount && !redeemActionBusy ? '' : 'disabled'} title="${escapeHtml(redeemUpiTitle)}">一键兑换 UPI(${escapeHtml(String(redeemUpiNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
-            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free data-upi-membership-redeem-channel="ideal" ${redeemIdealNowCount && !redeemActionBusy ? '' : 'disabled'} title="${escapeHtml(redeemIdealTitle)}">一键兑换 IDEAL(${escapeHtml(String(redeemIdealNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free data-upi-membership-redeem-channel="upi" ${redeemUpiNowCount && !redeemActionBusy ? '' : 'disabled'} title="${escapeHtml(redeemUpiTitle)}">一键兑换 UPI(${escapeHtml(String(redeemUpiNowCount))}/${escapeHtml(String(redeemableUpiFreeCount))})</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-upi-membership-redeem-free data-upi-membership-redeem-channel="ideal" ${redeemIdealNowCount && !redeemActionBusy ? '' : 'disabled'} title="${escapeHtml(redeemIdealTitle)}">一键兑换 IDEAL(${escapeHtml(String(redeemIdealNowCount))}/${escapeHtml(String(redeemableIdealFreeCount))})</button>
             <button class="btn btn-primary btn-xs" type="button" data-upi-membership-redeem-all ${redeemAllNowCount && !redeemActionBusy ? '' : 'disabled'} title="${escapeHtml(redeemAllTitle)}">一键兑换全部(${escapeHtml(String(redeemAllNowCount))}/${escapeHtml(String(redeemableFreeCount))})</button>
             ${results.running ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check>停止补 AT/核验</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-check hidden>停止补 AT/核验</button>'}
             ${results.redeeming ? '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem>停止兑换</button>' : '<button class="btn btn-ghost btn-xs" type="button" data-upi-membership-stop-redeem hidden>停止兑换</button>'}
@@ -3547,6 +3724,13 @@
         })),
         source: 'txt-free',
       };
+      const restoredEmails = Array.isArray(response?.restoredEmails || response?.results?.restoredEmails)
+        ? (response?.restoredEmails || response?.results?.restoredEmails)
+        : [];
+      restoredEmails
+        .map(normalizeUpiCredentialMembershipEmail)
+        .filter(Boolean)
+        .forEach((email) => locallyDeletedUpiCredentialMembershipEmails.delete(email));
       state.syncLatestState({ upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(results) });
       renderUpiCredentialMembershipCheckResults();
       const importedCountValue = response?.importedCount ?? response?.results?.importedCount;
@@ -4305,16 +4489,43 @@
       const payloadStatus = rawStatus === 'paid-upi' || rawStatus === 'paid-ideal' || rawStatus === 'paid-all'
         ? rawStatus
         : status;
+      const normalizedStatus = rawStatus === 'paid-upi' || rawStatus === 'paid-ideal' || rawStatus === 'paid-all'
+        ? 'paid'
+        : rawStatus;
+      const targetChannel = rawStatus === 'paid-upi'
+        ? 'upi'
+        : rawStatus === 'paid-ideal'
+          ? 'ideal'
+          : '';
       if (typeof helpers.downloadTextFile !== 'function') {
         helpers.showToast?.('当前环境不支持导出 TXT。', 'error');
         return;
       }
       try {
         await refreshUpiCredentialMembershipCheckResults().catch(() => null);
+        const visibleResults = getUpiCredentialMembershipCheckResults();
+        const visibleRows = buildUpiCredentialMembershipDisplayRows(visibleResults)
+          .filter((item) => {
+            const itemStatus = String(item?.status || '').trim().toLowerCase();
+            const statusMatches = normalizedStatus === 'free'
+              ? itemStatus === 'free' || itemStatus === 'failed'
+              : itemStatus === normalizedStatus;
+            if (!statusMatches) {
+              return false;
+            }
+            return !targetChannel || normalizeRedeemChannel(item.redeemChannel || item.channel) === targetChannel;
+          });
+        const exportEmails = visibleRows
+          .map((item) => normalizeUpiCredentialMembershipEmail(item?.email))
+          .filter(Boolean);
+        if (!exportEmails.length) {
+          helpers.showToast?.(`${getMembershipStatusTitle(rawStatus)} 分组没有可导出的记录。`, 'warn', 1800);
+          return;
+        }
         const response = await runtime.sendMessage({
           type: 'EXPORT_UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS',
           source: 'sidepanel',
-          payload: { status: payloadStatus, removeAfterExport: false },
+          payload: { status: payloadStatus, emails: exportEmails, removeAfterExport: false },
         });
         if (response?.error) {
           throw new Error(response.error);
@@ -4411,10 +4622,14 @@
           : safeEmails;
         if (responseDeletedEmails.length && normalizedStatus === 'free') {
           const deletedSet = new Set(responseDeletedEmails);
+          responseDeletedEmails.forEach((email) => locallyDeletedUpiCredentialMembershipEmails.add(email));
           setUpiCredentialMembershipPoolRows(
             upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
             upiCredentialMembershipPoolSource
           );
+          responseDeletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
+        } else if (responseDeletedEmails.length && normalizedStatus === 'paid' && targetChannel) {
+          addLocallyDeletedRedeemPlusEmails(targetChannel, responseDeletedEmails);
           responseDeletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
         }
         const skippedCount = Math.max(blockedItems.length, Math.floor(Number(response?.skippedCount) || 0));
@@ -4430,25 +4645,31 @@
       }
     }
 
-    async function deleteUpiCredentialMembershipCredential(email = '') {
+    async function deleteUpiCredentialMembershipCredential(email = '', channel = '') {
       const normalizedEmail = normalizeUpiCredentialMembershipEmail(email);
       if (!normalizedEmail) {
         return;
       }
       const currentResults = getUpiCredentialMembershipCheckResults();
-      const row = getUpiCredentialMembershipDisplayRowByEmail(normalizedEmail);
+      const requestedChannel = normalizeUpiCredentialMembershipText(channel);
+      const row = getUpiCredentialMembershipDisplayRowByEmail(normalizedEmail, requestedChannel);
       if (row && isActiveUpiCredentialMembershipRedeemRowOrUsage(row, currentResults)) {
         helpers.showToast?.('正在兑换或等待远端结果的账号不能删除，请先取消对应 CDK 任务。', 'warn', 2600);
         return;
       }
-      const deleteBackups = upiCredentialMembershipPoolSource !== 'txt' && upiCredentialMembershipPoolSource !== 'txt-free';
+      const rowStatus = String(row?.status || '').trim().toLowerCase();
+      const deleteStatus = rowStatus === 'paid' ? 'paid' : 'free';
+      const deleteChannel = rowStatus === 'paid'
+        ? normalizeRedeemChannel(requestedChannel || row?.redeemChannel || row?.channel)
+        : '';
       try {
         const response = await runtime.sendMessage({
-          type: 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CREDENTIALS',
+          type: 'DELETE_UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS',
           source: 'sidepanel',
           payload: {
+            status: deleteStatus,
+            channel: deleteChannel,
             emails: [normalizedEmail],
-            deleteBackups,
           },
         });
         if (response?.error) {
@@ -4460,22 +4681,32 @@
           : (Number(response?.deletedCount) > 0 ? [normalizedEmail] : []);
         if (deletedEmails.length) {
           const deletedSet = new Set(deletedEmails);
+          if (deleteStatus === 'free') {
+            deletedEmails.forEach((email) => locallyDeletedUpiCredentialMembershipEmails.add(email));
+          } else if (deleteStatus === 'paid' && deleteChannel) {
+            addLocallyDeletedRedeemPlusEmails(deleteChannel, deletedEmails);
+          }
           deletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
           setUpiCredentialMembershipPoolRows(
             upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
             upiCredentialMembershipPoolSource
           );
         }
+        const stateUpdates = {};
         if (response?.results) {
-          state.syncLatestState({
-            upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(response.results),
-          });
+          stateUpdates.upiCredentialMembershipCheckResults = mergeManualFreeMembershipOverridesIntoResults(response.results);
+        }
+        if (response?.updates && typeof response.updates === 'object') {
+          Object.assign(stateUpdates, response.updates);
+        }
+        if (Object.keys(stateUpdates).length) {
+          state.syncLatestState(stateUpdates);
         }
         if (skippedCount || !deletedEmails.length) {
           helpers.showToast?.(`${normalizedEmail} 正在兑换或等待远端结果，已跳过删除。`, 'warn', 2200);
         } else {
           helpers.showToast?.(
-            deleteBackups ? `已从本地备份核验池删除 ${normalizedEmail}` : `已从当前核验池删除 ${normalizedEmail}`,
+            `已从当前 ${getMembershipStatusTitle(deleteStatus === 'paid' && deleteChannel ? `paid-${deleteChannel}` : deleteStatus)} 分组删除 ${normalizedEmail}`,
             'success',
             1800
           );
@@ -4487,13 +4718,22 @@
       }
     }
 
-    function getUpiCredentialMembershipDisplayRowByEmail(email = '') {
+    function getUpiCredentialMembershipDisplayRowByEmail(email = '', channel = '') {
       const targetEmail = normalizeUpiCredentialMembershipEmail(email);
       if (!targetEmail) {
         return null;
       }
-      return buildUpiCredentialMembershipDisplayRows()
-        .find((row) => normalizeUpiCredentialMembershipEmail(row.email) === targetEmail) || null;
+      const requestedChannel = normalizeUpiCredentialMembershipText(channel);
+      const rows = buildUpiCredentialMembershipDisplayRows()
+        .filter((row) => normalizeUpiCredentialMembershipEmail(row.email) === targetEmail);
+      if (requestedChannel) {
+        const targetChannel = normalizeRedeemChannel(requestedChannel);
+        const channelMatchedRow = rows.find((row) => normalizeRedeemChannel(row.redeemChannel || row.channel) === targetChannel);
+        if (channelMatchedRow) {
+          return channelMatchedRow;
+        }
+      }
+      return rows[0] || null;
     }
 
     function mergeUpiCredentialMembershipResultItem(item = {}) {
@@ -4758,7 +4998,10 @@
 
       const deleteNode = findClosest(event?.target, '[data-upi-membership-delete]');
       if (deleteNode) {
-        deleteUpiCredentialMembershipCredential(getDatasetValue(deleteNode, 'data-upi-membership-delete'));
+        deleteUpiCredentialMembershipCredential(
+          getDatasetValue(deleteNode, 'data-upi-membership-delete'),
+          getDatasetValue(deleteNode, 'data-upi-membership-delete-channel')
+        );
       }
     }
 

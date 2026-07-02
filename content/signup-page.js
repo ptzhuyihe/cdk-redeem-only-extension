@@ -309,7 +309,6 @@ const LOGIN_EXTERNAL_IDP_PATTERN = /google|microsoft|apple|sso|single\s+sign[-\s
 const LOGIN_CODE_ONLY_ACTION_PATTERN = /one[-\s]*time|passcode|use\s+(?:a\s+)?code|验证码|一次性/i;
 const LOGIN_TOTP_VERIFICATION_PATTERN = /authenticator|authentication\s+app|one[-\s]*time\s+password\s+application|two[-\s]*factor|2fa|mfa|multi[-\s]*factor|verification\s+app|totp|身份验证器|认证器|双重验证|两步验证|多重验证|动态验证码/i;
 const LOGIN_EMAIL_VERIFICATION_PATTERN = /检查您的收件箱|输入我们刚刚向|重新发送电子邮件|email\s+verification|check\s+your\s+inbox|we\s+(?:just\s+)?(?:sent|emailed)|sent\s+(?:a\s+)?code\s+to|emailed\s+(?:a\s+)?code|email\s+(?:address|code)|收件箱|邮箱|电子邮件|(?:अपना\s+)?इनबॉक्स\s+देखें|(?:सत्यापन|वेरिफिकेशन)\s+कोड|(?:ई-?मेल|मेल)\s+(?:कोड|पता)|हमने.*(?:कोड|ई-?मेल)/i;
-const EXTERNAL_IDENTITY_VERIFICATION_PAGE_PATTERN = /continue\s+on\s+another\s+device|access\s+to\s+your\s+camera|scan\s+the\s+qr\s+code|receive\s+a\s+secure\s+link\s+to\s+switch\s+devices|no\s+app\s+download\s+is\s+required|persona|perso\.na/i;
 const STEP6_PASSWORD_SUBMIT_TRANSITION_TIMEOUT_MS = 30000;
 
 const RESEND_VERIFICATION_CODE_PATTERN = /重新发送(?:验证码)?|再次发送(?:验证码)?|重发(?:验证码)?|未收到(?:验证码|邮件)|resend(?:\s+code)?|send\s+(?:a\s+)?new\s+code|send\s+(?:it\s+)?again|request\s+(?:a\s+)?new\s+code|didn'?t\s+receive|(?:कोड|ई-?मेल|मेल)\s+(?:फिर\s+से|दोबारा|पुनः)\s+भेजें|(?:फिर\s+से|दोबारा|पुनः)\s+(?:कोड|ई-?मेल|मेल)\s+भेजें|प्राप्त\s+नहीं\s+हुआ/i;
@@ -1009,14 +1008,6 @@ function getSignupPasswordDisplayedEmail() {
 }
 
 function inspectSignupEntryState() {
-  if (isExternalIdentityVerificationPage()) {
-    return {
-      state: 'external_identity_verification_page',
-      externalIdentityVerificationPage: true,
-      url: location.href,
-    };
-  }
-
   if (typeof isPhoneVerificationPageReady === 'function' && isPhoneVerificationPageReady()) {
     return {
       state: 'phone_verification_page',
@@ -1121,10 +1112,6 @@ function getSignupEntryStateSummary(snapshot = inspectSignupEntryState()) {
   if (snapshot?.displayedEmail) {
     summary.displayedEmail = snapshot.displayedEmail;
   }
-  if (snapshot?.externalIdentityVerificationPage) {
-    summary.externalIdentityVerificationPage = true;
-  }
-
   if (snapshot?.signupTrigger) {
     summary.signupTrigger = {
       tag: (snapshot.signupTrigger.tagName || '').toLowerCase(),
@@ -3185,7 +3172,6 @@ const STEP4_405_RECOVERY_LIMIT = 3;
 const SIGNUP_USER_ALREADY_EXISTS_ERROR_PREFIX = 'SIGNUP_USER_ALREADY_EXISTS::';
 const SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX = 'SIGNUP_PHONE_PASSWORD_MISMATCH::';
 const STEP8_EMAIL_IN_USE_ERROR_PREFIX = 'STEP8_EMAIL_IN_USE::';
-const EXTERNAL_IDENTITY_VERIFICATION_ERROR_PREFIX = 'EXTERNAL_IDENTITY_VERIFICATION_REQUIRED::';
 const SIGNUP_EMAIL_EXISTS_PATTERN = /与此电子邮件地址相关联的帐户已存在|account\s+associated\s+with\s+this\s+email\s+address\s+already\s+exists|email\s+address.*already\s+exists/i;
 const SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN = /incorrect\s+phone\s+number\s+or\s+password|phone\s+number\s+or\s+password|与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i;
 
@@ -3274,26 +3260,6 @@ function createSignupPhonePasswordMismatchError(detailText = '') {
 
 function createAuthMaxCheckAttemptsError() {
   return new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
-}
-
-function isExternalIdentityVerificationPage() {
-  const text = getPageTextSnapshot();
-  const title = typeof document !== 'undefined' ? String(document.title || '') : '';
-  const url = typeof location !== 'undefined' ? String(location.href || '') : '';
-  const personaLink = typeof document !== 'undefined'
-    ? document.querySelector('a[href*="perso.na" i], a[href*="withpersona.com" i]')
-    : null;
-  return Boolean(
-    personaLink
-    || EXTERNAL_IDENTITY_VERIFICATION_PAGE_PATTERN.test(text)
-    || EXTERNAL_IDENTITY_VERIFICATION_PAGE_PATTERN.test(title)
-    || EXTERNAL_IDENTITY_VERIFICATION_PAGE_PATTERN.test(url)
-  );
-}
-
-function createExternalIdentityVerificationError(context = '') {
-  const prefix = String(context || '').trim() || '当前页面';
-  return new Error(`${EXTERNAL_IDENTITY_VERIFICATION_ERROR_PREFIX}${prefix}：OpenAI 要求在另一台设备完成 Persona 身份验证（Continue on another device / 扫码验证），当前邮箱将判失败并切换下一个。URL: ${location.href}`);
 }
 
 function isAuthMaxCheckAttemptsPage() {
@@ -4167,15 +4133,16 @@ function getAuthTimeoutErrorPageState(options = {}) {
   const detailMatched = AUTH_TIMEOUT_ERROR_DETAIL_PATTERN.test(text);
   const routeErrorMatched = AUTH_ROUTE_ERROR_PATTERN.test(text);
   const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
+  const httpErrorPage = /this\s+page\s+isn'?t\s+working|currently\s+unable\s+to\s+handle\s+this\s+request|HTTP\s+ERROR\s+5\d\d|ERR_HTTP_RESPONSE_CODE_FAILURE/i.test(`${document.title || ''} ${text}`);
   const maxCheckAttemptsBlocked = isAuthMaxCheckAttemptsPage();
   const emailInUseBlocked = /email_in_use/i.test(text);
   const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
   const retryButton = getAuthRetryButton({ allowDisabled: true });
 
-  if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
+  if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !httpErrorPage && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
     return null;
   }
-  if (!retryButton && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
+  if (!retryButton && !httpErrorPage && !maxCheckAttemptsBlocked && !emailInUseBlocked && !userAlreadyExistsBlocked) {
     return null;
   }
 
@@ -4188,6 +4155,7 @@ function getAuthTimeoutErrorPageState(options = {}) {
     detailMatched,
     routeErrorMatched,
     fetchFailedMatched,
+    httpErrorPage,
     maxCheckAttemptsBlocked,
     emailInUseBlocked,
     userAlreadyExistsBlocked,
@@ -4921,7 +4889,6 @@ function inspectLoginAuthState() {
   const phoneVerificationPage = isPhoneVerificationPageReady();
   const consentReady = isStep8Ready();
   const oauthConsentPage = isOAuthConsentPage();
-  const externalIdentityVerificationPage = isExternalIdentityVerificationPage();
   const phoneVerificationDelivery = phoneVerificationPage
     ? (phoneAuthHelpers.getPhoneVerificationDeliveryInfo?.() || { channel: '', text: '', candidates: [] })
     : { channel: '', text: '', candidates: [] };
@@ -4938,6 +4905,7 @@ function inspectLoginAuthState() {
     retryEnabled: Boolean(retryState?.retryEnabled),
     titleMatched: Boolean(retryState?.titleMatched),
     detailMatched: Boolean(retryState?.detailMatched),
+    authHttpErrorPage: Boolean(retryState?.httpErrorPage),
     maxCheckAttemptsBlocked: Boolean(retryState?.maxCheckAttemptsBlocked),
     emailInUseBlocked: Boolean(retryState?.emailInUseBlocked),
     verificationTarget,
@@ -4963,13 +4931,12 @@ function inspectLoginAuthState() {
     phoneVerificationWhatsApp: phoneVerificationDelivery.channel === 'whatsapp',
     oauthConsentPage,
     consentReady,
-    externalIdentityVerificationPage,
   };
 
-  if (externalIdentityVerificationPage) {
+  if (retryState?.httpErrorPage) {
     return {
       ...baseState,
-      state: 'external_identity_verification_page',
+      state: 'auth_http_error_page',
     };
   }
 
@@ -5092,6 +5059,7 @@ function serializeLoginAuthState(snapshot) {
     detailMatched: Boolean(snapshot?.detailMatched),
     maxCheckAttemptsBlocked: Boolean(snapshot?.maxCheckAttemptsBlocked),
     emailInUseBlocked: Boolean(snapshot?.emailInUseBlocked),
+    authHttpErrorPage: Boolean(snapshot?.authHttpErrorPage),
     hasVerificationTarget: Boolean(snapshot?.verificationTarget),
     hasPasswordInput: Boolean(snapshot?.passwordInput),
     hasEmailInput: Boolean(snapshot?.emailInput),
@@ -5114,7 +5082,6 @@ function serializeLoginAuthState(snapshot) {
     phoneVerificationWhatsApp: Boolean(snapshot?.phoneVerificationWhatsApp),
     oauthConsentPage: Boolean(snapshot?.oauthConsentPage),
     consentReady: Boolean(snapshot?.consentReady),
-    externalIdentityVerificationPage: Boolean(snapshot?.externalIdentityVerificationPage),
   };
 }
 
@@ -5133,6 +5100,8 @@ function getLoginAuthStateLabel(snapshot) {
       return '手机验证码页';
     case 'login_timeout_error_page':
       return '登录超时报错页';
+    case 'auth_http_error_page':
+      return '认证服务 HTTP 500 错误页';
     case 'oauth_consent_page':
       return 'OAuth 授权页';
     case 'entry_page':
@@ -5143,8 +5112,6 @@ function getLoginAuthStateLabel(snapshot) {
       return '添加邮箱页';
     case 'choose_account_page':
       return '已有账号选择页';
-    case 'external_identity_verification_page':
-      return '另一设备身份验证页';
     default:
       return '未知页面';
   }
@@ -5181,9 +5148,6 @@ async function waitForLoginVerificationPageReady(timeout = 10000, visibleStep = 
     snapshot = inspectLoginAuthState();
     if (snapshot.state === 'verification_page' || (allowPhoneVerificationPage && snapshot.state === 'phone_verification_page')) {
       return snapshot;
-    }
-    if (snapshot.state === 'external_identity_verification_page') {
-      throw createExternalIdentityVerificationError(`步骤 ${visibleStep} 登录验证`);
     }
     if (snapshot.state !== 'unknown') {
       break;
@@ -5479,9 +5443,6 @@ async function finalizeStep6VerificationReady(options = {}) {
       '登录验证码页面准备就绪前进入登录超时报错页。',
       { visibleStep, authPayload }
     );
-  }
-  if (snapshot.state === 'external_identity_verification_page') {
-    throw createExternalIdentityVerificationError(`步骤 ${visibleStep} 登录验证`);
   }
   if (snapshot.state === 'password_page' || snapshot.state === 'email_page') {
     return createStep6RecoverableResult('verification_page_unstable', snapshot, {
@@ -6309,6 +6270,15 @@ function getSetGptPasswordPageState() {
     }
     const retryState = getSetGptPasswordAuthRetryPageState();
     if (retryState) {
+      if (retryState.httpErrorPage) {
+        return {
+          state: 'auth_http_error_page',
+          url: retryState.url || location.href,
+          retryEnabled: false,
+          maxCheckAttemptsBlocked: false,
+          userAlreadyExistsBlocked: false,
+        };
+      }
       return {
         state: 'auth_retry_page',
         url: retryState.url || location.href,
@@ -6326,6 +6296,15 @@ function getSetGptPasswordPageState() {
   }
   const retryState = getSetGptPasswordAuthRetryPageState();
   if (retryState) {
+    if (retryState.httpErrorPage) {
+      return {
+        state: 'auth_http_error_page',
+        url: retryState.url || location.href,
+        retryEnabled: false,
+        maxCheckAttemptsBlocked: false,
+        userAlreadyExistsBlocked: false,
+      };
+    }
     return {
       state: 'auth_retry_page',
       url: retryState.url || location.href,
@@ -8346,7 +8325,6 @@ function getStep8State() {
     phoneVerificationDeliveryChannel: phoneVerificationDelivery.channel || '',
     phoneVerificationDeliveryText: phoneVerificationDelivery.text || '',
     phoneVerificationWhatsApp: phoneVerificationDelivery.channel === 'whatsapp',
-    externalIdentityVerificationPage: Boolean(authSnapshot?.externalIdentityVerificationPage),
     retryPage: Boolean(retryState),
     retryEnabled: Boolean(retryState?.retryEnabled),
     retryTitleMatched: Boolean(retryState?.titleMatched),
@@ -8435,9 +8413,6 @@ async function findContinueButton(timeout = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     throwIfStopped();
-    if (isExternalIdentityVerificationPage()) {
-      throw createExternalIdentityVerificationError('OAuth 授权前');
-    }
     if (isAddPhonePageReady()) {
       throw new Error('当前页面已进入手机号页面，不是 OAuth 授权同意页。URL: ' + location.href);
     }
@@ -8741,10 +8716,6 @@ function isStep5ProfileStillVisible() {
 }
 
 function getStep5PostSubmitSuccessState() {
-  if (isExternalIdentityVerificationPage()) {
-    return null;
-  }
-
   if (getStep5AuthRetryPageState()) {
     return null;
   }
@@ -8796,7 +8767,6 @@ function getStep5PostSubmitSuccessState() {
 function getStep5SubmitState() {
   const retryState = getStep5AuthRetryPageState();
   const maxCheckAttemptsBlocked = Boolean(retryState?.maxCheckAttemptsBlocked || isAuthMaxCheckAttemptsPage());
-  const externalIdentityVerificationPage = isExternalIdentityVerificationPage();
   const successState = getStep5PostSubmitSuccessState();
   const passkeyState = getCreateAccountEnrollPasskeyPageState();
   const submitButton = getStep5SubmitButton();
@@ -8815,7 +8785,6 @@ function getStep5SubmitState() {
     retryPage: Boolean(retryState || maxCheckAttemptsBlocked),
     retryEnabled: Boolean(retryState?.retryEnabled),
     maxCheckAttemptsBlocked,
-    externalIdentityVerificationPage,
     userAlreadyExistsBlocked: Boolean(retryState?.userAlreadyExistsBlocked),
     successState: successState?.state || '',
     passkeyEnrollPage: Boolean(passkeyState),
@@ -8828,7 +8797,6 @@ function getStep5SubmitState() {
       signupAuthHost
       && !retryState
       && !maxCheckAttemptsBlocked
-      && !externalIdentityVerificationPage
       && !successState
       && !passkeyState
       && !isStep5ProfileStillVisible()
@@ -8944,10 +8912,6 @@ async function waitForStep5SubmitOutcome(options = {}) {
   while (Date.now() - start < timeoutMs) {
     throwIfStopped();
 
-    if (isExternalIdentityVerificationPage()) {
-      throw createExternalIdentityVerificationError('步骤 5 资料提交后');
-    }
-
     const retryState = getStep5AuthRetryPageState();
     if (retryState?.userAlreadyExistsBlocked) {
       throw createSignupUserAlreadyExistsError();
@@ -9019,9 +8983,6 @@ async function waitForStep5SubmitOutcome(options = {}) {
   }
 
   const finalRetryState = getStep5AuthRetryPageState();
-  if (isExternalIdentityVerificationPage()) {
-    throw createExternalIdentityVerificationError('步骤 5 资料提交后');
-  }
   if (finalRetryState?.userAlreadyExistsBlocked) {
     throw createSignupUserAlreadyExistsError();
   }
@@ -9129,9 +9090,6 @@ async function waitForStep5ProfileReadyBeforeFill(timeout = 60000) {
 
     if (isAuthMaxCheckAttemptsPage()) {
       throw createAuthMaxCheckAttemptsError();
-    }
-    if (isExternalIdentityVerificationPage()) {
-      throw createExternalIdentityVerificationError('步骤 5 前置页面');
     }
 
     const retryState = getCurrentAuthRetryPageState('signup');

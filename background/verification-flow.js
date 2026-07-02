@@ -470,6 +470,34 @@
         && new RegExp(`(?:verification|verify|temporary|one[-\\s]*time|code|验证码|一次性|認証コード|認證コード|検証コード|確認コード|一時(?:的な)?(?:認証|検証)コード|一時(?:認証|検証)コード|コード|${HINDI_VERIFICATION_KEYWORD_PATTERN_SOURCE})`, 'i').test(searchable);
     }
 
+    function sanitizeVerificationBodyForBareCodeSearch(value = '') {
+      return htmlToVerificationSearchText(value)
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ')
+        .replace(/\b20\d{2}[-/年.]\s?\d{1,2}[-/月.]\s?\d{1,2}(?:[日T\s,，]+[0-2]?\d[:：]\d{2}(?::\d{2})?)?\b/g, ' ')
+        .replace(/\b[0-2]?\d[:：]\d{2}(?::\d{2})?\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function collectUniqueBareBodyVerificationCodes(value = '') {
+      const searchable = sanitizeVerificationBodyForBareCodeSearch(value);
+      if (!searchable) {
+        return [];
+      }
+      const codes = [];
+      const barePattern = /(?:^|[^0-9])((?:\d[\s-]*){6})(?![\s-]*\d)/g;
+      let match = barePattern.exec(searchable);
+      while (match) {
+        const code = normalizeDigits(match[1]);
+        if (code && !codes.includes(code)) {
+          codes.push(code);
+        }
+        match = barePattern.exec(searchable);
+      }
+      return codes;
+    }
+
     function extractCodeFromText(value = '', options = {}) {
       const excluded = new Set((options.excludeCodes || []).map((code) => String(code || '').trim()).filter(Boolean));
       const codes = collectCodesFromText(value, options).filter((code) => !excluded.has(code));
@@ -671,29 +699,136 @@
           && !Array.isArray(item)
           && (
             Object.prototype.hasOwnProperty.call(item, 'body')
+            || Object.prototype.hasOwnProperty.call(item, 'html')
+            || Object.prototype.hasOwnProperty.call(item, 'content')
+            || Object.prototype.hasOwnProperty.call(item, 'message')
+            || Object.prototype.hasOwnProperty.call(item, 'text')
+            || Object.prototype.hasOwnProperty.call(item, 'mail')
+            || Object.prototype.hasOwnProperty.call(item, 'email')
+            || Object.prototype.hasOwnProperty.call(item, 'payload')
             || Object.prototype.hasOwnProperty.call(item, 'subject')
+            || Object.prototype.hasOwnProperty.call(item, 'title')
             || Object.prototype.hasOwnProperty.call(item, 'from')
+            || Object.prototype.hasOwnProperty.call(item, 'sender')
+            || Object.prototype.hasOwnProperty.call(item, 'sender_email')
+            || Object.prototype.hasOwnProperty.call(item, 'mail_from')
           )
         ))
       );
+    }
+
+    function collectAssurivoFieldStrings(value, depth = 0, visited = new Set()) {
+      if (value === null || value === undefined || depth > 3) {
+        return [];
+      }
+      if (typeof value === 'string' || typeof value === 'number') {
+        const text = String(value || '').trim();
+        return text ? [text] : [];
+      }
+      if (typeof value !== 'object') {
+        return [];
+      }
+      if (visited.has(value)) {
+        return [];
+      }
+      visited.add(value);
+      const entries = Array.isArray(value)
+        ? value.map((item, index) => [String(index), item])
+        : Object.entries(value);
+      const texts = [];
+      for (const [_key, childValue] of entries) {
+        texts.push(...collectAssurivoFieldStrings(childValue, depth + 1, visited));
+      }
+      return texts;
+    }
+
+    function getAssurivoEntryBodyText(entry = {}) {
+      return [
+        entry.body,
+        entry.html,
+        entry.content,
+        entry.message,
+        entry.text,
+        entry.mail,
+        entry.email,
+        entry.payload,
+      ].flatMap((value) => collectAssurivoFieldStrings(value)).join(' ');
+    }
+
+    function getAssurivoEntryMetadataText(entry = {}) {
+      return [
+        entry.subject,
+        entry.title,
+        entry.from,
+        entry.sender,
+        entry.sender_email,
+        entry.mail_from,
+        entry.from_email,
+        entry.email_from,
+        entry.reply_to,
+        entry.to,
+        entry.recipient,
+        entry.mail_to,
+      ].flatMap((value) => collectAssurivoFieldStrings(value)).join(' ');
     }
 
     function isAssurivoFeedVerificationEntry(entry = {}) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
         return false;
       }
-      const body = htmlToVerificationSearchText(entry.body || '');
-      const metadata = [
-        entry.subject,
-        entry.from,
-        entry.to,
-      ].map((value) => String(value || '')).join(' ');
+      const body = htmlToVerificationSearchText(getAssurivoEntryBodyText(entry));
+      const metadata = getAssurivoEntryMetadataText(entry);
       const combined = `${metadata} ${body}`;
-      return /(?:chatgpt|openai)/i.test(combined)
-        && new RegExp(`(?:verification|verify|temporary|one[-\\s]*time|code|验证码|一次性|一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード|コードを入力して続行|${HINDI_VERIFICATION_KEYWORD_PATTERN_SOURCE})`, 'i').test(body);
+      const hasOpenAiSource = /(?:chatgpt|openai)/i.test(combined);
+      if (!hasOpenAiSource) {
+        return false;
+      }
+      const verificationKeywordPattern = new RegExp(`(?:verification|verify|temporary|one[-\\s]*time|code|验证码|一次性|一時(?:的な)?(?:認証|検証)コード|認証コード|認證コード|検証コード|確認コード|コードを入力して続行|${HINDI_VERIFICATION_KEYWORD_PATTERN_SOURCE})`, 'i');
+      if (verificationKeywordPattern.test(body)) {
+        return true;
+      }
+      if (verificationKeywordPattern.test(metadata)) {
+        return collectUniqueBareBodyVerificationCodes(body).length === 1;
+      }
+      return /(?:chatgpt|openai)/i.test(combined);
     }
 
-    function getStrictVerificationBodyCodeDetails(value = '') {
+    function extractSingleBareAssurivoBodyCodeDetails(entries = [], excluded = new Set(), options = {}) {
+      if (!options.allowSingleBareAssurivoCodeFallback) {
+        return null;
+      }
+      const orderedEntries = getOrderedAssurivoVerificationEntries(entries, options);
+      const codeRows = [];
+      for (const entry of orderedEntries) {
+        const emailTimestamp = extractAssurivoFeedEntryTimestamp(entry);
+        const rawCodes = collectUniqueBareBodyVerificationCodes(getAssurivoEntryBodyText(entry));
+        for (const code of rawCodes) {
+          if (!codeRows.some((row) => row.code === code)) {
+            codeRows.push({ code, emailTimestamp });
+          }
+        }
+      }
+      if (codeRows.length !== 1) {
+        return null;
+      }
+      const onlyCode = codeRows[0].code;
+      if (excluded.has(onlyCode)) {
+        return null;
+      }
+      return {
+        code: onlyCode,
+        emailTimestamp: codeRows[0].emailTimestamp || getLatestAssurivoEntryTimestamp(orderedEntries),
+        emailTimestampText: formatAssurivoTimestampForLog(codeRows[0].emailTimestamp || getLatestAssurivoEntryTimestamp(orderedEntries)),
+        source: 'assurivo-feed',
+        promptMatched: false,
+        candidateCodes: [onlyCode],
+        onlyExcludedCodes: false,
+        reusedExcludedCode: false,
+        failureDetail: '',
+      };
+    }
+
+    function getStrictVerificationBodyCodeDetails(value = '', options = {}) {
       const text = htmlToVerificationSearchText(value).replace(/\s+/g, ' ').trim();
       if (!text) {
         return { codes: [], promptMatched: false };
@@ -724,22 +859,12 @@
           match = pattern.exec(text);
         }
       }
-      if (!codes.length && promptMatched && /(?:chatgpt|openai)/i.test(text)) {
-        const searchable = text
-          .replace(/https?:\/\/\S+/gi, ' ')
-          .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        const bareCodes = [];
-        const barePattern = /(?:^|[^0-9])((?:\d[\s-]*){6})(?![\s-]*\d)/g;
-        let bareMatch = barePattern.exec(searchable);
-        while (bareMatch) {
-          const code = normalizeDigits(bareMatch[1]);
-          if (code && !bareCodes.includes(code)) {
-            bareCodes.push(code);
-          }
-          bareMatch = barePattern.exec(searchable);
-        }
+      if (
+        !codes.length
+        && (promptMatched || options.trustedOpenAiMail)
+        && (options.trustedOpenAiMail || /(?:chatgpt|openai)/i.test(text))
+      ) {
+        const bareCodes = collectUniqueBareBodyVerificationCodes(text);
         if (bareCodes.length === 1) {
           codes.push(bareCodes[0]);
         }
@@ -1000,6 +1125,10 @@
         options
       );
       if (!candidates.length) {
+        const bareFallbackResult = extractSingleBareAssurivoBodyCodeDetails(entries, excluded, options);
+        if (bareFallbackResult?.code) {
+          return bareFallbackResult;
+        }
         const hasMailEntries = entries.length > 0;
         const latestTimestamp = getLatestAssurivoEntryTimestamp(entries);
         return {
@@ -1012,37 +1141,57 @@
         };
       }
 
-      const latestEntry = candidates[0];
-      const emailTimestamp = extractAssurivoFeedEntryTimestamp(latestEntry);
-      const bodyDetails = getStrictVerificationBodyCodeDetails(latestEntry.body || '');
-      const rawCodes = bodyDetails.codes;
-      const codes = rawCodes
-        .filter((code) => !excluded.has(code));
       const allowExcludedAfterTimestamp = normalizeFilterAfterTimestamp(options.allowExcludedAfterTimestamp);
-      const canReuseExcludedFromFreshMail = Boolean(
-        !codes.length
-        && rawCodes.length
-        && allowExcludedAfterTimestamp > 0
-        && emailTimestamp > 0
-        && emailTimestamp >= allowExcludedAfterTimestamp - ASSURIVO_RESEND_SAME_CODE_GRACE_MS
-      );
-      const reusedExcludedCode = canReuseExcludedFromFreshMail ? rawCodes[0] : '';
-      let failureDetail = '';
-      if (!rawCodes.length) {
-        failureDetail = `最新邮件正文未匹配到验证码；邮件时间 ${formatAssurivoTimestampForLog(emailTimestamp) || '未知'}；正文验证码语义 ${bodyDetails.promptMatched ? '已匹配' : '未匹配'}。`;
-      } else if (!codes.length) {
-        failureDetail = `最新邮件正文只包含已被页面拒绝的验证码 ${rawCodes.join(', ')}；邮件时间 ${formatAssurivoTimestampForLog(emailTimestamp) || '未知'}。`;
+      let firstFailureResult = null;
+      for (const candidateEntry of candidates) {
+        const emailTimestamp = extractAssurivoFeedEntryTimestamp(candidateEntry);
+        const bodyDetails = getStrictVerificationBodyCodeDetails(getAssurivoEntryBodyText(candidateEntry), {
+          trustedOpenAiMail: true,
+        });
+        const rawCodes = bodyDetails.codes;
+        const codes = rawCodes
+          .filter((code) => !excluded.has(code));
+        const canReuseExcludedFromFreshMail = Boolean(
+          !codes.length
+          && rawCodes.length
+          && allowExcludedAfterTimestamp > 0
+          && emailTimestamp > 0
+          && emailTimestamp >= allowExcludedAfterTimestamp - ASSURIVO_RESEND_SAME_CODE_GRACE_MS
+        );
+        const reusedExcludedCode = canReuseExcludedFromFreshMail ? rawCodes[0] : '';
+        let failureDetail = '';
+        if (!rawCodes.length) {
+          failureDetail = `最新邮件正文未匹配到验证码；邮件时间 ${formatAssurivoTimestampForLog(emailTimestamp) || '未知'}；正文验证码语义 ${bodyDetails.promptMatched ? '已匹配' : '未匹配'}。`;
+        } else if (!codes.length) {
+          failureDetail = `最新邮件正文只包含已被页面拒绝的验证码 ${rawCodes.join(', ')}；邮件时间 ${formatAssurivoTimestampForLog(emailTimestamp) || '未知'}。`;
+        }
+        const result = {
+          code: codes.length ? codes[0] : reusedExcludedCode,
+          emailTimestamp,
+          emailTimestampText: formatAssurivoTimestampForLog(emailTimestamp),
+          source: 'assurivo-feed',
+          promptMatched: bodyDetails.promptMatched,
+          candidateCodes: rawCodes,
+          onlyExcludedCodes: Boolean(rawCodes.length && !codes.length && !reusedExcludedCode),
+          reusedExcludedCode: Boolean(reusedExcludedCode),
+          failureDetail,
+        };
+        if (result.code) {
+          return result;
+        }
+        if (!firstFailureResult) {
+          firstFailureResult = result;
+        }
       }
-      return {
-        code: codes.length ? codes[0] : reusedExcludedCode,
-        emailTimestamp,
-        emailTimestampText: formatAssurivoTimestampForLog(emailTimestamp),
+      const bareFallbackResult = extractSingleBareAssurivoBodyCodeDetails(entries, excluded, options);
+      if (bareFallbackResult?.code) {
+        return bareFallbackResult;
+      }
+      return firstFailureResult || {
+        code: '',
+        emailTimestamp: getLatestAssurivoEntryTimestamp(candidates),
         source: 'assurivo-feed',
-        promptMatched: bodyDetails.promptMatched,
-        candidateCodes: rawCodes,
-        onlyExcludedCodes: Boolean(rawCodes.length && !codes.length && !reusedExcludedCode),
-        reusedExcludedCode: Boolean(reusedExcludedCode),
-        failureDetail,
+        failureDetail: 'Assurivo JSON 返回了 OpenAI/ChatGPT 邮件，但正文未匹配到验证码。',
       };
     }
 
@@ -2768,14 +2917,19 @@
           throw lastError;
         }
 
-        const codeDetails = extractCustomEmailVerificationCodeDetails(payload, {
-          excludeCodes: options.excludeCodes || [],
-          filterAfterTimestamp,
-          preferFirstCode: request.preferFirstCode,
-          assurivoOpenPage: request.assurivoOpenPage,
-          ignoreTimestampFilter: request.ignoreTimestampFilter,
-          allowExcludedAfterTimestamp: options.allowExcludedAfterTimestamp,
-        });
+	        const codeDetails = extractCustomEmailVerificationCodeDetails(payload, {
+	          excludeCodes: options.excludeCodes || [],
+	          filterAfterTimestamp,
+	          preferFirstCode: request.preferFirstCode,
+	          assurivoOpenPage: request.assurivoOpenPage,
+	          ignoreTimestampFilter: request.ignoreTimestampFilter,
+	          allowExcludedAfterTimestamp: options.allowExcludedAfterTimestamp,
+	          allowSingleBareAssurivoCodeFallback: Boolean(
+	            assurivoVerificationUrl
+	            || buildAssurivoFeedVerificationUrlFromUrl(request.url)
+	            || isAssurivoOpenVerificationUrl(request.url)
+	          ),
+	        });
         const code = codeDetails.code || '';
         if (code) {
           const timestampSuffix = codeDetails.emailTimestampText
@@ -2826,6 +2980,9 @@
       const completionStep = getCompletionStep(step, options);
       activeVerificationLogStep = completionStep;
       const stateKey = getVerificationCodeStateKey(step);
+      const beforeFetchAttempt = typeof options.beforeFetchAttempt === 'function'
+        ? options.beforeFetchAttempt
+        : null;
       const rejectedCodes = new Set(
         [
           state?.[stateKey],
@@ -2881,6 +3038,16 @@
             ? (assurivoEmptyFeedFirstSeenAt ? '继续等待 Assurivo 新邮件送达' : '避免继续读取刚被拒绝的旧验证码')
             : '等待新邮件到达'
         );
+        if (beforeFetchAttempt) {
+          await beforeFetchAttempt({
+            step,
+            completionStep,
+            attempt,
+            maxAttempts,
+            provider: 'custom',
+            filterAfterTimestamp: nextFilterAfterTimestamp || options.filterAfterTimestamp,
+          });
+        }
         let result = null;
         try {
           result = await fetchCustomEmailVerificationCode(step, attemptState, {
@@ -3061,6 +3228,9 @@
       const beforeSubmit = typeof options.beforeSubmit === 'function'
         ? options.beforeSubmit
         : null;
+      const beforeFetchAttempt = typeof options.beforeFetchAttempt === 'function'
+        ? options.beforeFetchAttempt
+        : null;
       const ignorePersistedLastCode = Boolean(hotmailPollConfig?.ignorePersistedLastCode);
       if (state[stateKey] && !ignorePersistedLastCode) {
         rejectedCodes.add(state[stateKey]);
@@ -3142,6 +3312,17 @@
             maxSubmitAttempts,
             attempt > 1 ? '避免继续读取刚被拒绝的旧验证码' : '等待新邮件到达'
           );
+          if (beforeFetchAttempt) {
+            await beforeFetchAttempt({
+              step,
+              completionStep,
+              attempt,
+              maxAttempts: maxSubmitAttempts,
+              provider: mail.provider,
+              filterAfterTimestamp: nextFilterAfterTimestamp ?? undefined,
+              lastResendAt,
+            });
+          }
           const pollOptions = {
             excludeCodes: [...rejectedCodes],
             disableTimeBudgetCap: Boolean(options.disableTimeBudgetCap),

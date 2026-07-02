@@ -275,17 +275,6 @@
       return /UPI_ACCOUNT_INELIGIBLE::|UPI\s*资格检查失败[：:][\s\S]*账号无资格|UPI[\s\S]*(?:account|账号)[\s\S]*(?:ineligible|无资格)/i.test(combinedMessage);
     }
 
-    function isExternalIdentityVerificationRequiredFailure(error) {
-      const rawMessage = String(typeof error === 'string' ? error : error?.message || '');
-      const message = String(
-        typeof getErrorMessage === 'function'
-          ? getErrorMessage(error)
-          : rawMessage
-      );
-      const combinedMessage = `${rawMessage}\n${message}`;
-      return /EXTERNAL_IDENTITY_VERIFICATION_REQUIRED::|Continue\s+on\s+another\s+device|Persona\s+身份验证|扫码验证|另一台设备完成/i.test(combinedMessage);
-    }
-
     async function logAutoRunFinalSummary(totalRuns, roundSummaries = []) {
       const summaries = buildAutoRunRoundSummaries(totalRuns, roundSummaries);
       const successRounds = summaries.filter((item) => item.status === 'success');
@@ -746,7 +735,6 @@
               && isUpiRedeemBackendFailure(err);
             const blockedByUpiRedeemNetworkFailure = typeof isUpiRedeemNetworkFailure === 'function'
               && isUpiRedeemNetworkFailure(err);
-            const blockedByExternalIdentityVerification = isExternalIdentityVerificationRequiredFailure(err);
             const blockedByCardHelperTaskEnded = typeof isCardHelperTaskEndedFailure === 'function'
               ? isCardHelperTaskEndedFailure(err)
               : /CARD_HELPER_TASK_ENDED::/i.test(err?.message || String(err || ''));
@@ -786,7 +774,6 @@
               && !blockedByPlusNonFreeTrial
               && !blockedByUpiRedeemBackendFailure
               && !blockedByUpiRedeemNetworkFailure
-              && !blockedByExternalIdentityVerification
               && !blockedByCardHelperTaskEnded
               && !blockedByHostedCheckoutGenericError
               && !blockedByHostedCheckoutCardFallback
@@ -802,7 +789,6 @@
               && !blockedByPlusNonFreeTrial
               && !blockedByUpiRedeemBackendFailure
               && !blockedByUpiRedeemNetworkFailure
-              && !blockedByExternalIdentityVerification
               && !blockedByCardHelperTaskEnded
               && !blockedByHostedCheckoutGenericError
               && !blockedByHostedCheckoutCardFallback
@@ -1305,20 +1291,6 @@
                   : `第 ${targetRun}/${totalRuns} 轮因 UPI 接口网络异常提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
-              forceFreshTabsNextRun = true;
-              break;
-            }
-
-            if (blockedByExternalIdentityVerification) {
-              roundSummary.status = 'failed';
-              roundSummary.finalFailureReason = reason;
-              await setState({
-                autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
-              });
-              await appendRoundRecordIfNeeded('failed', reason, err);
-              cancelPendingCommands('当前轮因 OpenAI 要求另一设备身份验证已终止。');
-              await broadcastStopToContentScripts();
-              await addLog(`第 ${targetRun}/${totalRuns} 轮触发另一设备/扫码身份验证，本轮将直接失败并切换下一邮箱：${reason}`, 'warn');
               forceFreshTabsNextRun = true;
               break;
             }

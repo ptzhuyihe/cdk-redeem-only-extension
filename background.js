@@ -503,7 +503,6 @@ const STOP_ERROR_MESSAGE = '流程已被用户停止。';
 const CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX = 'CF_SECURITY_BLOCKED::';
 const CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE = '您已触发Cloudflare 安全防护系统，已完全停止流程，请不要短时间内多次进行重新发送验证码，连续刷新、反复点击重试会加重风控；请先关闭页面等待 15-30 分钟，让系统的临时限制自动解除。或者更换浏览器';
 const BROWSER_SWITCH_REQUIRED_ERROR_PREFIX = 'BROWSER_SWITCH_REQUIRED::';
-const EXTERNAL_IDENTITY_VERIFICATION_ERROR_PREFIX = 'EXTERNAL_IDENTITY_VERIFICATION_REQUIRED::';
 const HOTMAIL_MAILBOX_UNAVAILABLE_PREFIX = 'HOTMAIL_MAILBOX_UNAVAILABLE::';
 const STEP9_WHATSAPP_PAGE_RESTART_ERROR_PREFIX = 'STEP9_WHATSAPP_PAGE_RESTART::';
 const HUMAN_STEP_DELAY_MIN = 700;
@@ -10837,7 +10836,6 @@ function getErrorMessage(error) {
   return String(message || '')
     .replace(/^CARD_HELPER_TASK_ENDED::/i, '')
     .replace(/^UPI_REDEEM_BACKEND_FAILED::/i, '')
-    .replace(new RegExp(`^${EXTERNAL_IDENTITY_VERIFICATION_ERROR_PREFIX}`, 'i'), '')
     .replace(new RegExp(`^${HOTMAIL_MAILBOX_UNAVAILABLE_PREFIX}`, 'i'), '')
     .replace(/^AUTO_RUN_STEP_IDLE_RESTART::/i, '');
 }
@@ -10885,12 +10883,6 @@ function getBrowserSwitchRequiredMessage(error) {
   return message.startsWith(BROWSER_SWITCH_REQUIRED_ERROR_PREFIX)
     ? message.slice(BROWSER_SWITCH_REQUIRED_ERROR_PREFIX.length).trim()
     : message;
-}
-
-function createExternalIdentityVerificationRequiredError(context = '', url = '') {
-  const label = String(context || '').trim() || '当前页面';
-  const urlSuffix = String(url || '').trim() ? ` URL: ${String(url).trim()}` : '';
-  return new Error(`${EXTERNAL_IDENTITY_VERIFICATION_ERROR_PREFIX}${label}：OpenAI 要求在另一台设备完成 Persona 身份验证（Continue on another device / 扫码验证），当前邮箱将判失败并切换下一个。${urlSuffix}`);
 }
 
 function broadcastSecurityBlockedAlert(title = '流程已完全停止', message = CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE, alertText = '检测到 Cloudflare 风控，请暂停当前操作。') {
@@ -10953,10 +10945,10 @@ function getLoginAuthStateLabel(state) {
     case 'email_page': return '邮箱输入页';
     case 'phone_entry_page': return '手机号输入页';
     case 'login_timeout_error_page': return '登录超时报错页';
+    case 'auth_http_error_page': return '认证服务 HTTP 500 错误页';
     case 'oauth_consent_page': return 'OAuth 授权页';
     case 'add_phone_page': return '手机号页';
     case 'add_email_page': return '添加邮箱页';
-    case 'external_identity_verification_page': return '另一设备身份验证页';
     default: return '未知页面';
   }
 }
@@ -15863,6 +15855,7 @@ const totpMfaExecutor = self.MultiPageBackgroundEnableTotpMfa?.createEnableTotpM
   waitForTabCompleteUntilStopped,
 });
 let upiCredentialMembershipChecker = null;
+let messageRouter = null;
 const upiRedeemExecutor = self.MultiPageBackgroundUpiRedeem?.createUpiRedeemExecutor({
   addLog,
   appendAccountRunRecord: (...args) => appendAndBroadcastAccountRunRecord(...args),
@@ -15880,6 +15873,7 @@ const upiRedeemExecutor = self.MultiPageBackgroundUpiRedeem?.createUpiRedeemExec
   setPersistentSettings,
   setState,
   broadcastDataUpdate,
+  refreshPendingUpiCredentialMembershipRedeemStatuses: (...args) => messageRouter?.refreshPendingUpiCredentialMembershipRedeemStatuses?.(...args),
   sleepWithStop,
   throwIfStopped,
   upsertTrialEligibleFreeCredential: (...args) => upiCredentialMembershipChecker?.upsertTrialEligibleFreeCredential?.(...args),
@@ -15897,6 +15891,7 @@ upiCredentialMembershipChecker = self.MultiPageBackgroundUpiCredentialMembership
   isTabAlive,
   registerTab,
   redeemUpiCredentialWithAccessToken: (...args) => upiRedeemExecutor.redeemUpiCredentialWithAccessToken(...args),
+  refreshPendingUpiCredentialMembershipRedeemStatuses: (...args) => messageRouter?.refreshPendingUpiCredentialMembershipRedeemStatuses?.(...args),
   reuseOrCreateTab,
   sendTabMessageUntilStopped,
   setState,
@@ -16016,7 +16011,7 @@ const stepExecutorsByKey = {
   'confirm-oauth': (state) => step9Executor.executeStep9(state),
   'platform-verify': (state) => executeStep10(state),
 };
-const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
+messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   addLog,
   appendAccountRunRecord: (...args) => appendAndBroadcastAccountRunRecord(...args),
   batchUpdateLuckmailPurchases,
@@ -16824,26 +16819,91 @@ async function getPostStep6AutoRestartDecision(step, error) {
   };
 }
 
+function isAuthHttpErrorPageState(pageState = {}) {
+  const state = String(pageState?.state || '').trim().toLowerCase();
+  return state === 'auth_http_error_page'
+    || pageState?.authHttpErrorPage === true
+    || pageState?.httpErrorPage === true;
+}
+
+function isReloadableAuthHttpErrorUrl(url = '') {
+  try {
+    const parsed = new URL(String(url || ''));
+    return parsed.hostname === 'auth.openai.com'
+      && /\/(?:u\/)?email-verification(?:[/?#]|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function reloadSignupAuthTabForHttpError(options = {}) {
+  const visibleStep = Math.floor(Number(options.visibleStep || options.step || options.logStep) || 0);
+  const logStep = visibleStep > 0 ? visibleStep : null;
+  const logStepKey = options.logStepKey || 'fetch-login-code';
+  const force = options.force === true;
+  const tabId = await getTabId('signup-page').catch(() => null);
+  if (!tabId) {
+    return false;
+  }
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const currentUrl = String(options.url || tab?.url || '').trim();
+  if (!force && !isReloadableAuthHttpErrorUrl(currentUrl)) {
+    return false;
+  }
+  await addLog(
+    `认证页返回 HTTP 500，正在刷新 OpenAI 验证码页后重试。${options.reason ? `原因：${options.reason}` : ''}`,
+    'warn',
+    {
+      step: logStep,
+      stepKey: logStepKey,
+    }
+  );
+  await chrome.tabs.reload(tabId, { bypassCache: true }).catch(() => {});
+  await waitForTabCompleteUntilStopped(tabId, {
+    timeoutMs: Math.max(5000, Math.floor(Number(options.timeoutMs) || 20000)),
+    retryDelayMs: 300,
+  }).catch(() => null);
+  await sleepWithStop(Math.max(300, Math.floor(Number(options.settleMs) || 1000))).catch(() => {});
+  return true;
+}
+
 async function getLoginAuthStateFromContent(options = {}) {
   const visibleStep = Math.floor(Number(options.visibleStep || options.logStep || options.step) || 0);
   const logStep = visibleStep > 0 ? visibleStep : null;
   const { logMessage = '认证页正在切换，等待页面重新就绪后继续确认验证码页状态...' } = options;
-  const result = await sendToContentScriptResilient(
-    'signup-page',
-    {
-      type: 'GET_LOGIN_AUTH_STATE',
-      source: 'background',
-      payload: {},
-    },
-    {
-      timeoutMs: options.timeoutMs ?? 15000,
-      retryDelayMs: options.retryDelayMs ?? 600,
-      responseTimeoutMs: options.responseTimeoutMs ?? (options.timeoutMs ?? 15000),
-      logMessage,
-      logStep,
+  const request = {
+    type: 'GET_LOGIN_AUTH_STATE',
+    source: 'background',
+    payload: {},
+  };
+  const requestOptions = {
+    timeoutMs: options.timeoutMs ?? 15000,
+    retryDelayMs: options.retryDelayMs ?? 600,
+    responseTimeoutMs: options.responseTimeoutMs ?? (options.timeoutMs ?? 15000),
+    logMessage,
+    logStep,
+    logStepKey: options.logStepKey || '',
+  };
+  let result = null;
+
+  try {
+    result = await sendToContentScriptResilient('signup-page', request, requestOptions);
+  } catch (error) {
+    if (options.disableAuthHttpErrorReload !== true && await reloadSignupAuthTabForHttpError({
+      visibleStep,
       logStepKey: options.logStepKey || '',
+      reason: getErrorMessage(error),
+    })) {
+      result = await sendToContentScriptResilient('signup-page', request, {
+        ...requestOptions,
+        timeoutMs: Math.max(5000, Math.floor(Number(requestOptions.timeoutMs) || 15000)),
+        responseTimeoutMs: Math.max(5000, Math.floor(Number(requestOptions.responseTimeoutMs) || 15000)),
+        logMessage: '认证页 HTTP 500 已刷新，正在重新确认验证码页状态...',
+      });
+    } else {
+      throw error;
     }
-  );
+  }
 
   if (result?.error) {
     throw new Error(result.error);
@@ -17102,14 +17162,6 @@ function startStep5ProfileSubmitRecoveryWatchdog(nodeId, options = {}) {
         await failNodeFromBackground(normalizedNodeId, createAuthMaxCheckAttemptsBlockedError());
         return;
       }
-      if (pageState?.externalIdentityVerificationPage) {
-        completing = true;
-        await failNodeFromBackground(
-          normalizedNodeId,
-          createExternalIdentityVerificationRequiredError('步骤 5 资料提交后', pageState.url)
-        );
-        return;
-      }
       if (pageState?.userAlreadyExistsBlocked) {
         completing = true;
         await failNodeFromBackground(
@@ -17275,10 +17327,6 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
     if (pageState.maxCheckAttemptsBlocked) {
       throw new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
     }
-    if (pageState.externalIdentityVerificationPage) {
-      throw createExternalIdentityVerificationRequiredError('步骤 5 资料提交后', pageState.url || currentUrl);
-    }
-
     if (pageState.retryPage) {
       if (authRetryRecoveryCount >= maxAuthRetryRecoveries) {
         throw new Error(`步骤 5：资料提交后连续进入认证重试页 ${maxAuthRetryRecoveries} 次，页面仍未恢复。URL: ${pageState.url || currentUrl || 'unknown'}`);
@@ -17387,7 +17435,6 @@ async function validateStep5PostCompletion(tabId, completionPayload = {}) {
     lastPageState?.successState ? `success=${lastPageState.successState}` : '',
     lastPageState?.retryPage ? 'retry_page' : '',
     lastPageState?.passkeyEnrollPage ? 'passkey_page' : '',
-    lastPageState?.externalIdentityVerificationPage ? 'external_identity_verification_page' : '',
     lastPageState?.profileVisible ? 'profile_visible' : '',
     lastPageState?.unknownAuthPage ? 'unknown_auth_page' : '',
   ].filter(Boolean).join(', ') || 'unknown';
@@ -17423,10 +17470,33 @@ async function ensureStep8VerificationPageReady(options = {}) {
   if (pageState.maxCheckAttemptsBlocked) {
     throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
   }
-  if (pageState.externalIdentityVerificationPage || pageState.state === 'external_identity_verification_page') {
-    throw createExternalIdentityVerificationRequiredError(`步骤 ${visibleStep} 登录验证`, pageState.url);
+  if (isAuthHttpErrorPageState(pageState)) {
+    const recovered = await reloadSignupAuthTabForHttpError({
+      visibleStep,
+      logStepKey: 'fetch-login-code',
+      url: pageState.url,
+      reason: 'auth_http_error_page',
+      force: true,
+    });
+    if (recovered) {
+      pageState = await inspectState({
+        timeoutMs: 12000,
+        responseTimeoutMs: 12000,
+        retryDelayMs: 600,
+        logMessage: '认证页 HTTP 500 已刷新，正在重新确认验证码页状态...',
+        logStepKey: 'fetch-login-code',
+        disableAuthHttpErrorReload: true,
+      });
+      if (
+        pageState.state === 'verification_page'
+        || pageState.state === 'oauth_consent_page'
+        || isAllowedPhonePageState(pageState)
+        || (options.allowAddEmailPage && pageState.state === 'add_email_page')
+      ) {
+        return pageState;
+      }
+    }
   }
-
   if (pageState.state === 'login_timeout_error_page') {
     let recovered = false;
     try {

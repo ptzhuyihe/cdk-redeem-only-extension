@@ -124,6 +124,8 @@
           return '邮箱输入页';
         case 'login_timeout_error_page':
           return '登录超时报错页';
+        case 'auth_http_error_page':
+          return '认证服务 HTTP 500 错误页';
         case 'oauth_consent_page':
           return 'OAuth 授权页';
         case 'add_phone_page':
@@ -254,6 +256,5 @@
     createLoggingStatus,
   };
 });
-
 
 

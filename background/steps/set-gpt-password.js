@@ -482,6 +482,50 @@
       };
     }
 
+    function isSetPasswordAuthHttpErrorPage(snapshot = {}) {
+      return normalizeString(snapshot?.state).toLowerCase() === 'auth_http_error_page'
+        || snapshot?.authHttpErrorPage === true
+        || snapshot?.httpErrorPage === true;
+    }
+
+    function isReloadableAuthHttpErrorUrl(url = '') {
+      try {
+        const parsed = new URL(normalizeString(url));
+        return parsed.hostname === 'auth.openai.com'
+          && /\/(?:u\/)?email-verification(?:[/?#]|$)/i.test(parsed.pathname);
+      } catch {
+        return false;
+      }
+    }
+
+    async function reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, context = '') {
+      if (!tabId || !chrome?.tabs?.get || !chrome?.tabs?.reload) {
+        return false;
+      }
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      const url = normalizeString(tab?.url);
+      if (!isReloadableAuthHttpErrorUrl(url)) {
+        return false;
+      }
+      await addStepLog(
+        visibleStep,
+        `设置 GPT 密码：OpenAI 邮箱验证码页返回 HTTP 500，正在刷新页面后重试。${context ? `原因：${context}` : ''}`,
+        'warn'
+      );
+      await chrome.tabs.reload(tabId, { bypassCache: true }).catch(() => {});
+      if (typeof waitForTabStableComplete === 'function') {
+        await waitForTabStableComplete(tabId, {
+          timeoutMs: 30000,
+          retryDelayMs: 300,
+          stableMs: 800,
+          initialDelayMs: 500,
+        }).catch(() => null);
+      } else {
+        await sleepWithStop(1200).catch(() => {});
+      }
+      return true;
+    }
+
     async function readSetPasswordPageState(tabId, visibleStep, options = {}) {
       if (!tabId) {
         return { state: 'unknown', url: '' };
@@ -502,6 +546,13 @@
         const url = options.waitForUrlAfterError === false
           ? await getCurrentAuthTabUrl(tabId).catch(() => '')
           : await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId).catch(() => '');
+        if (isReloadableAuthHttpErrorUrl(url)) {
+          return {
+            state: 'auth_http_error_page',
+            url,
+            errorText: normalizeString(error?.message || error),
+          };
+        }
         return {
           state: url && !isSetGptPasswordNewPasswordUrl(url)
             ? 'left_new_password_page'
@@ -617,6 +668,10 @@
         'warn'
       );
       let currentUrl = await getCurrentAuthTabUrl(tabId);
+      if (isReloadableAuthHttpErrorUrl(currentUrl)) {
+        await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '验证码提交后进入 HTTP 500');
+        return null;
+      }
       if (isSetGptPasswordNewPasswordUrl(currentUrl)) {
         await addStepLog(visibleStep, '设置 GPT 密码：已检测到页面进入新密码页，继续填写 GPT 密码。', 'success');
         return {
@@ -627,6 +682,10 @@
         };
       }
       currentUrl = await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId);
+      if (isReloadableAuthHttpErrorUrl(currentUrl)) {
+        await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '验证码提交后短等仍为 HTTP 500');
+        return null;
+      }
       if (isSetGptPasswordNewPasswordUrl(currentUrl)) {
         await addStepLog(visibleStep, '设置 GPT 密码：短等后已确认进入新密码页，继续填写 GPT 密码。', 'success');
         return {
@@ -649,6 +708,16 @@
         'warn'
       );
       let currentUrl = await getCurrentAuthTabUrl(tabId);
+      if (isReloadableAuthHttpErrorUrl(currentUrl)) {
+        await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '密码提交后进入 HTTP 500');
+        return {
+          success: false,
+          retryPasswordSubmit: true,
+          recoveredAuthHttpErrorPage: true,
+          pageState: 'auth_http_error_page',
+          url: currentUrl,
+        };
+      }
       if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
         await addStepLog(visibleStep, '设置 GPT 密码：已检测到页面离开新密码页，按密码设置成功继续。', 'success');
         return {
@@ -659,6 +728,16 @@
         };
       }
       currentUrl = await waitBrieflyForAuthTabUrlAfterTransportLoss(tabId);
+      if (isReloadableAuthHttpErrorUrl(currentUrl)) {
+        await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '密码提交后短等仍为 HTTP 500');
+        return {
+          success: false,
+          retryPasswordSubmit: true,
+          recoveredAuthHttpErrorPage: true,
+          pageState: 'auth_http_error_page',
+          url: currentUrl,
+        };
+      }
       if (currentUrl && !isSetGptPasswordNewPasswordUrl(currentUrl)) {
         await addStepLog(visibleStep, '设置 GPT 密码：短等后已确认页面离开新密码页，按密码设置成功继续。', 'success');
         return {
@@ -670,6 +749,16 @@
       }
 
       const pageState = await readSetPasswordPageState(tabId, visibleStep);
+      if (isSetPasswordAuthHttpErrorPage(pageState)) {
+        await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '页面状态为 HTTP 500');
+        return {
+          success: false,
+          retryPasswordSubmit: true,
+          recoveredAuthHttpErrorPage: true,
+          pageState: pageState.state,
+          url: pageState.url,
+        };
+      }
       if (pageState.url && !isSetGptPasswordNewPasswordUrl(pageState.url)) {
         await addStepLog(visibleStep, '设置 GPT 密码：页面状态探测确认已离开新密码页，按密码设置成功继续。', 'success');
         return {
@@ -746,6 +835,9 @@
     async function confirmPasswordSubmitSuccessFromUrl(tabId, visibleStep, url, expectedEmail = '', confirmState = {}) {
       const currentUrl = normalizeString(url);
       if (!currentUrl || isSetGptPasswordNewPasswordUrl(currentUrl)) {
+        return null;
+      }
+      if (isReloadableAuthHttpErrorUrl(currentUrl)) {
         return null;
       }
       confirmState.lastUrl = currentUrl;
@@ -827,6 +919,16 @@
           };
         }
 
+        if (isSetPasswordAuthHttpErrorPage(pageState)) {
+          await reloadSetPasswordAuthHttpErrorPage(tabId, visibleStep, '后台轮询检测到 HTTP 500');
+          return {
+            success: false,
+            retryPasswordSubmit: true,
+            recoveredAuthHttpErrorPage: true,
+            pageState: pageState.state,
+            url: pageState.url,
+          };
+        }
         if (pageState.state === 'auth_retry_page') {
           return recoverSetPasswordAuthRetryPageFromBackground(tabId, visibleStep, pageState);
         }

@@ -65,16 +65,17 @@
       const routeErrorMatched = routeErrorPattern instanceof RegExp
         ? routeErrorPattern.test(text)
         : false;
+      const httpErrorPage = /this\s+page\s+isn'?t\s+working|currently\s+unable\s+to\s+handle\s+this\s+request|HTTP\s+ERROR\s+5\d\d|ERR_HTTP_RESPONSE_CODE_FAILURE/i.test(`${title} ${text}`);
       const maxCheckAttemptsBlocked = /max_check_attempts|試行回数が多すぎ|数分待ってからもう一度|too\s+many\s+(?:attempts|checks|tries)|try\s+again\s+in\s+(?:a\s+)?few\s+minutes|बहुत\s+(?:ज़्यादा|ज्यादा)\s+(?:प्रयास|कोशिश)|कुछ\s+मिनट\s+बाद/i.test(text);
       const userAlreadyExistsBlocked = /user_already_exists/i.test(text);
       const fetchFailedMatched = /failed\s+to\s+fetch|network\s+error|fetch\s+failed/i.test(text);
       const invalidAuthStepMatched = /invalid\s+authorization\s+step|invalid_auth_step/i.test(text);
       const retryButton = getAuthRetryButton({ allowDisabled: true });
 
-      if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !invalidAuthStepMatched && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
+      if (!titleMatched && !detailMatched && !routeErrorMatched && !fetchFailedMatched && !invalidAuthStepMatched && !httpErrorPage && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
         return null;
       }
-      if (!retryButton && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
+      if (!retryButton && !httpErrorPage && !maxCheckAttemptsBlocked && !userAlreadyExistsBlocked) {
         return null;
       }
 
@@ -88,6 +89,7 @@
         routeErrorMatched,
         fetchFailedMatched,
         invalidAuthStepMatched,
+        httpErrorPage,
         maxCheckAttemptsBlocked,
         userAlreadyExistsBlocked,
       };

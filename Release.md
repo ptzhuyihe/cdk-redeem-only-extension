@@ -1,5 +1,27 @@
 # Release Notes
 
+## CDK Redeem Only V0.2.10
+
+本版本修复第 4 步 Assurivo 取码在 OpenAI 认证页 500、邮件模板变化和多封邮件混杂时无法继续的问题。
+
+### 主要变化
+
+- 第 4 步取码轮询期间会检测 `auth.openai.com/email-verification` 的 HTTP 500 错误页，并自动刷新认证页后继续等待邮件。
+- Assurivo JSON 邮件识别支持更多字段结构，包括 `title`、`sender`、`sender_email`、`mail_from`、`html`、`content`、`message`、`text` 等。
+- Assurivo 返回多封邮件时会按时间扫描候选邮件，不再只看第一封。
+- 对 Assurivo 增加唯一 6 位正文验证码兜底，避免邮件正文模板变化导致“没有邮件正文匹配验证语义”。
+
+### 修复
+
+- 修复第 4 步已在取码等待中，但认证页变成 HTTP 500 后后台仍继续空等的问题。
+- 修复 Assurivo 已返回 ChatGPT/OpenAI 验证邮件，却因为标题/发件人字段变化未进入候选的问题。
+- 修复最新邮件不是验证码通知时，旧一封有效验证码邮件被忽略的问题。
+
+### 说明
+
+- 验证码仍只从邮件正文提取；URL、邮箱地址、日期时间会被排除，避免误取。
+- 更新后需要在 Chrome 扩展管理页重新加载扩展，确保后台 service worker 使用新代码。
+
 ## CDK Redeem Only V0.2.9
 
 本版本修复 Assurivo JSON 空收件箱导致第 4 步过早停止的问题。
