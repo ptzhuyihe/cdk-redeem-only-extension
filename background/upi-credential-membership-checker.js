@@ -121,6 +121,66 @@
     };
   }
 
+  function normalizeResultsTimestamp(value = '') {
+    const timestamp = Date.parse(normalizeString(value));
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  function getResultItemUpdatedAt(item = {}) {
+    return Math.max(
+      0,
+      normalizeResultsTimestamp(item?.updatedAt),
+      normalizeResultsTimestamp(item?.checkedAt),
+      normalizeResultsTimestamp(item?.trialEligibilityCheckedAt),
+      normalizeResultsTimestamp(item?.accessTokenUpdatedAt),
+      normalizeResultsTimestamp(item?.redeemAttemptedAt),
+      normalizeResultsTimestamp(item?.redeemLastFailedAt),
+      normalizeResultsTimestamp(item?.redeemSuccessAt)
+    );
+  }
+
+  function mergeFreshMissingResultItems(previousPayload = {}, nextPayload = {}) {
+    const previousItems = Array.isArray(previousPayload?.items) ? previousPayload.items : [];
+    const nextItems = Array.isArray(nextPayload?.items) ? nextPayload.items : [];
+    if (!previousItems.length) {
+      return nextPayload;
+    }
+    const deletedEmailSet = new Set(normalizeEmailList(nextPayload?.redeemAutoDeletedEmails));
+    const nextEmailSet = new Set(nextItems.map((item) => normalizeEmail(item?.email)).filter(Boolean));
+    const nextUpdatedAt = normalizeResultsTimestamp(nextPayload?.updatedAt);
+    const previousUpdatedAt = normalizeResultsTimestamp(previousPayload?.updatedAt);
+    const recoveredItems = [];
+    previousItems.forEach((item) => {
+      const email = normalizeEmail(item?.email);
+      if (!email || nextEmailSet.has(email) || deletedEmailSet.has(email)) {
+        return;
+      }
+      const itemUpdatedAt = getResultItemUpdatedAt(item);
+      if (previousUpdatedAt > nextUpdatedAt || itemUpdatedAt >= nextUpdatedAt) {
+        recoveredItems.push(item);
+        nextEmailSet.add(email);
+      }
+    });
+    if (!recoveredItems.length) {
+      return nextPayload;
+    }
+    const items = [...nextItems, ...recoveredItems].map((item) => normalizeResultItem(item));
+    return normalizeResultsPayload({
+      ...nextPayload,
+      items,
+      total: Math.max(
+        Math.floor(Number(nextPayload.total) || 0),
+        Math.floor(Number(previousPayload.total) || 0),
+        items.length
+      ),
+      completed: Math.max(
+        Math.floor(Number(nextPayload.completed) || 0),
+        Math.floor(Number(previousPayload.completed) || 0),
+        items.length
+      ),
+    });
+  }
+
   function normalizeRetryCount(value = 0) {
     return Math.max(0, Math.floor(Number(value) || 0));
   }
@@ -1833,6 +1893,9 @@
         ? currentResults.redeemAutoDeletedEmails
         : []
       ).map(normalizeEmail).filter((item) => item && item !== email);
+      const currentRedeemPlusDeletedEmailsByChannel = normalizeRedeemPlusDeletedEmailsByChannel(
+        currentResults.redeemPlusDeletedEmailsByChannel
+      );
       const existingItem = currentResults.items.find((item) => normalizeEmail(item?.email) === email) || {};
       let backupCredential = {};
       try {
@@ -1841,6 +1904,7 @@
       } catch {
         backupCredential = {};
       }
+      const source = normalizeString(input.source || credential.source);
       const reason = normalizeString(input.reason || input.message || credential.reason) || '账号有试用资格，可进行 CDK 兑换';
       const trialEligibilityStatus = normalizeString(
         input.trialEligibilityStatus
@@ -1869,30 +1933,37 @@
       const getRedeemField = (key) => (
         Object.prototype.hasOwnProperty.call(input, key) ? input[key] : credential[key]
       );
-      const nextRedeemStatus = hasRedeemField('redeemStatus')
-        ? normalizeString(getRedeemField('redeemStatus'))
-        : (existingItem.redeemStatus === 'success' ? existingItem.redeemStatus : normalizeString(existingItem.redeemStatus));
-      const nextRedeemReason = hasRedeemField('redeemReason')
-        ? normalizeString(getRedeemField('redeemReason'))
-        : existingItem.redeemReason;
-      const nextRedeemFailureCount = hasRedeemField('redeemFailureCount')
-        ? normalizeRetryCount(getRedeemField('redeemFailureCount'))
-        : (existingItem.redeemStatus === 'success' ? 0 : existingItem.redeemFailureCount);
-      const nextRedeemChannel = hasRedeemField('redeemChannel') || hasRedeemField('channel')
-        ? normalizeRedeemChannel(getRedeemField('redeemChannel') || getRedeemField('channel'))
-        : normalizeString(existingItem.redeemChannel);
       const hasRedeemCdkey = (
         Object.prototype.hasOwnProperty.call(input, 'cdkey')
         || hasRedeemField('upiRedeemCdkey')
         || hasRedeemField('cdkey')
       );
+      const resetRedeemStateRequested = input.resetRedeemState === true
+        || credential.resetRedeemState === true
+        || source === 'registration-free-entry'
+        || source === 'registration-upi-eligibility';
+      const shouldResetRedeemState = resetRedeemStateRequested
+        && !isActiveUpiCredentialMembershipRedeemResultItem(existingItem, currentResults);
+      const nextRedeemPlusDeletedEmailsByChannel = currentRedeemPlusDeletedEmailsByChannel;
+      const nextRedeemStatus = hasRedeemField('redeemStatus')
+        ? normalizeString(getRedeemField('redeemStatus'))
+        : (shouldResetRedeemState ? '' : (existingItem.redeemStatus === 'success' ? existingItem.redeemStatus : normalizeString(existingItem.redeemStatus)));
+      const nextRedeemReason = hasRedeemField('redeemReason')
+        ? normalizeString(getRedeemField('redeemReason'))
+        : (shouldResetRedeemState ? '' : existingItem.redeemReason);
+      const nextRedeemFailureCount = hasRedeemField('redeemFailureCount')
+        ? normalizeRetryCount(getRedeemField('redeemFailureCount'))
+        : (shouldResetRedeemState || existingItem.redeemStatus === 'success' ? 0 : existingItem.redeemFailureCount);
+      const nextRedeemChannel = hasRedeemField('redeemChannel') || hasRedeemField('channel')
+        ? normalizeRedeemChannel(getRedeemField('redeemChannel') || getRedeemField('channel'))
+        : (shouldResetRedeemState ? '' : normalizeString(existingItem.redeemChannel));
       const nextRedeemCdkey = hasRedeemCdkey
         ? normalizeString(
             Object.prototype.hasOwnProperty.call(input, 'cdkey')
               ? input.cdkey
               : (getRedeemField('upiRedeemCdkey') || getRedeemField('cdkey'))
           )
-        : normalizeString(existingItem.upiRedeemCdkey);
+        : (shouldResetRedeemState ? '' : normalizeString(existingItem.upiRedeemCdkey));
       const nextItems = upsertResultItem(currentResults.items, {
         ...existingItem,
         ...backupCredential,
@@ -1913,26 +1984,65 @@
         redeemStatus: nextRedeemStatus,
         redeemReason: nextRedeemReason,
         redeemFailureCount: nextRedeemFailureCount,
-        redeemFailureLimit: hasRedeemField('redeemFailureLimit') ? normalizeRetryCount(getRedeemField('redeemFailureLimit')) : existingItem.redeemFailureLimit,
-        upiRedeemFailureCount: hasRedeemField('upiRedeemFailureCount') ? normalizeRetryCount(getRedeemField('upiRedeemFailureCount')) : existingItem.upiRedeemFailureCount,
-        idealRedeemFailureCount: hasRedeemField('idealRedeemFailureCount') ? normalizeRetryCount(getRedeemField('idealRedeemFailureCount')) : existingItem.idealRedeemFailureCount,
-        redeemLocked: hasRedeemField('redeemLocked') ? getRedeemField('redeemLocked') === true : existingItem.redeemLocked,
-        redeemLockedReason: hasRedeemField('redeemLockedReason') ? normalizeString(getRedeemField('redeemLockedReason')) : existingItem.redeemLockedReason,
-        redeemLockedAt: hasRedeemField('redeemLockedAt') ? normalizeString(getRedeemField('redeemLockedAt')) : existingItem.redeemLockedAt,
+        redeemFailureLimit: hasRedeemField('redeemFailureLimit')
+          ? normalizeRetryCount(getRedeemField('redeemFailureLimit'))
+          : (shouldResetRedeemState ? REDEEM_CHANNEL_FAILURE_LIMIT : existingItem.redeemFailureLimit),
+        upiRedeemFailureCount: hasRedeemField('upiRedeemFailureCount')
+          ? normalizeRetryCount(getRedeemField('upiRedeemFailureCount'))
+          : (shouldResetRedeemState ? 0 : existingItem.upiRedeemFailureCount),
+        idealRedeemFailureCount: hasRedeemField('idealRedeemFailureCount')
+          ? normalizeRetryCount(getRedeemField('idealRedeemFailureCount'))
+          : (shouldResetRedeemState ? 0 : existingItem.idealRedeemFailureCount),
+        redeemLocked: hasRedeemField('redeemLocked') ? getRedeemField('redeemLocked') === true : (shouldResetRedeemState ? false : existingItem.redeemLocked),
+        redeemLockedReason: hasRedeemField('redeemLockedReason') ? normalizeString(getRedeemField('redeemLockedReason')) : (shouldResetRedeemState ? '' : existingItem.redeemLockedReason),
+        redeemLockedAt: hasRedeemField('redeemLockedAt') ? normalizeString(getRedeemField('redeemLockedAt')) : (shouldResetRedeemState ? '' : existingItem.redeemLockedAt),
         redeemChannel: nextRedeemChannel,
         redeemLastFailedAt: hasRedeemField('redeemLastFailedAt')
           ? normalizeString(getRedeemField('redeemLastFailedAt'))
-          : (existingItem.redeemStatus === 'success' ? '' : existingItem.redeemLastFailedAt),
-        redeemAttemptedAt: hasRedeemField('redeemAttemptedAt') ? normalizeString(getRedeemField('redeemAttemptedAt')) : existingItem.redeemAttemptedAt,
-        lastFailedUpiRedeemCdkey: hasRedeemField('lastFailedUpiRedeemCdkey') ? normalizeString(getRedeemField('lastFailedUpiRedeemCdkey')) : existingItem.lastFailedUpiRedeemCdkey,
+          : (shouldResetRedeemState || existingItem.redeemStatus === 'success' ? '' : existingItem.redeemLastFailedAt),
+        redeemAttemptedAt: hasRedeemField('redeemAttemptedAt') ? normalizeString(getRedeemField('redeemAttemptedAt')) : (shouldResetRedeemState ? '' : existingItem.redeemAttemptedAt),
+        redeemSuccessAt: hasRedeemField('redeemSuccessAt') ? normalizeString(getRedeemField('redeemSuccessAt')) : (shouldResetRedeemState ? '' : existingItem.redeemSuccessAt),
+        lastFailedUpiRedeemCdkey: hasRedeemField('lastFailedUpiRedeemCdkey') ? normalizeString(getRedeemField('lastFailedUpiRedeemCdkey')) : (shouldResetRedeemState ? '' : existingItem.lastFailedUpiRedeemCdkey),
         upiRedeemCdkey: nextRedeemCdkey,
+        upiRedeemPendingVerifySince: hasRedeemField('upiRedeemPendingVerifySince') ? normalizeString(getRedeemField('upiRedeemPendingVerifySince')) : (shouldResetRedeemState ? '' : existingItem.upiRedeemPendingVerifySince),
+        upiRedeemPendingVerifyLastCheckedAt: hasRedeemField('upiRedeemPendingVerifyLastCheckedAt') ? normalizeString(getRedeemField('upiRedeemPendingVerifyLastCheckedAt')) : (shouldResetRedeemState ? '' : existingItem.upiRedeemPendingVerifyLastCheckedAt),
+        upiRedeemPendingVerifyLoggedAt: hasRedeemField('upiRedeemPendingVerifyLoggedAt') ? normalizeString(getRedeemField('upiRedeemPendingVerifyLoggedAt')) : (shouldResetRedeemState ? '' : existingItem.upiRedeemPendingVerifyLoggedAt),
+        upiRedeemPendingVerifyReason: hasRedeemField('upiRedeemPendingVerifyReason') ? normalizeString(getRedeemField('upiRedeemPendingVerifyReason')) : (shouldResetRedeemState ? '' : existingItem.upiRedeemPendingVerifyReason),
+        membershipOverrideStatus: hasRedeemField('membershipOverrideStatus')
+          ? normalizeString(getRedeemField('membershipOverrideStatus'))
+          : (shouldResetRedeemState ? 'free' : existingItem.membershipOverrideStatus),
+        membershipOverrideCheckedAt: hasRedeemField('membershipOverrideCheckedAt')
+          ? normalizeString(getRedeemField('membershipOverrideCheckedAt'))
+          : (shouldResetRedeemState ? checkedAt : existingItem.membershipOverrideCheckedAt),
+        ...(hasRedeemField('upiRedeemSubscriptionActive') || shouldResetRedeemState || Object.prototype.hasOwnProperty.call(existingItem, 'upiRedeemSubscriptionActive')
+          ? {
+              upiRedeemSubscriptionActive: hasRedeemField('upiRedeemSubscriptionActive')
+                ? getRedeemField('upiRedeemSubscriptionActive') === true
+                : (shouldResetRedeemState ? false : existingItem.upiRedeemSubscriptionActive),
+            }
+          : {}),
+        ...(hasRedeemField('upiRedeemSubscriptionPlanType') || shouldResetRedeemState || Object.prototype.hasOwnProperty.call(existingItem, 'upiRedeemSubscriptionPlanType')
+          ? {
+              upiRedeemSubscriptionPlanType: hasRedeemField('upiRedeemSubscriptionPlanType')
+                ? normalizePlanType(getRedeemField('upiRedeemSubscriptionPlanType'))
+                : (shouldResetRedeemState ? '' : existingItem.upiRedeemSubscriptionPlanType),
+            }
+          : {}),
+        ...(hasRedeemField('upiRedeemSubscriptionCheckedAt') || shouldResetRedeemState || Object.prototype.hasOwnProperty.call(existingItem, 'upiRedeemSubscriptionCheckedAt')
+          ? {
+              upiRedeemSubscriptionCheckedAt: hasRedeemField('upiRedeemSubscriptionCheckedAt')
+                ? normalizeString(getRedeemField('upiRedeemSubscriptionCheckedAt'))
+                : (shouldResetRedeemState ? '' : existingItem.upiRedeemSubscriptionCheckedAt),
+            }
+          : {}),
       });
       return saveResults({
         ...currentResults,
         items: nextItems,
         redeemAutoDeletedEmails: nextRedeemAutoDeletedEmails,
+        redeemPlusDeletedEmailsByChannel: nextRedeemPlusDeletedEmailsByChannel,
         updatedAt: checkedAt,
-        source: normalizeString(input.source || currentResults.source || 'registration-upi-eligibility'),
+        source: source || normalizeString(currentResults.source || 'registration-upi-eligibility'),
         total: Math.max(currentResults.total || 0, nextItems.length),
         completed: Math.max(currentResults.completed || 0, nextItems.length),
       });

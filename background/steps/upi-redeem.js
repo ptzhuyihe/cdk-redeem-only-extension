@@ -23,6 +23,7 @@
     const UPI_AUTO_REDEEM_REMOTE_REFRESH_INTERVAL_MS = 5000;
     const UPI_AUTO_REDEEM_REMOTE_REFRESH_TIMEOUT_MS = 120000;
     const UPI_AUTO_REDEEM_REMOTE_REFRESH_ERROR_LOG_INTERVAL_MS = 30000;
+    const UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY = 'upiCredentialMembershipCheckResults';
 
   function createUpiRedeemExecutor(deps = {}) {
     const {
@@ -2940,57 +2941,6 @@
       return cleanupUpdates;
     }
 
-    async function upsertRegistrationFreeCredential({
-      runtimeState = {},
-      visibleStep = 0,
-      sessionState = {},
-      email = '',
-      reason = '',
-      checkedAt = '',
-      trialEligibilityStatus = 'pending',
-    } = {}) {
-      if (typeof upsertTrialEligibleFreeCredential !== 'function') {
-        await addStepLog(visibleStep, '主流程 Free 写入能力未接入，暂时无法同步到 Free 组。', 'warn');
-        return null;
-      }
-      const normalizedEmail = parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(runtimeState, sessionState);
-      if (!normalizedEmail) {
-        await addStepLog(visibleStep, '主流程 Free 写入：未读取到当前账号邮箱，暂时无法同步到 Free 组。', 'warn');
-        return null;
-      }
-      const sessionPayload = sessionState?.session || sessionState;
-      const accessToken = getChatGptSessionAccessToken(sessionPayload)
-        || normalizeString(sessionState?.accessToken || runtimeState.accessToken || runtimeState.upiRedeemAccessToken);
-      const upsertedAt = normalizeString(checkedAt) || toIsoTimestamp();
-      const upsertReason = normalizeString(reason) || '主流程注册完成，等待 UPI 资格/兑换检测';
-      try {
-        const freeResults = await upsertTrialEligibleFreeCredential({
-          source: 'registration-free-entry',
-          email: normalizedEmail,
-          credential: buildCurrentUpiCredentialForMembership({
-            ...runtimeState,
-            email: normalizedEmail,
-          }, normalizedEmail),
-          accessToken,
-          accessTokenMasked: maskAccessToken(accessToken),
-          reason: upsertReason,
-          checkedAt: upsertedAt,
-          trialEligibilityStatus,
-          trialEligibilityReason: upsertReason,
-          trialEligibilityCheckedAt: upsertedAt,
-        });
-        await addStepLog(visibleStep, `主流程已同步到 Free 组：${normalizedEmail}。`, 'ok');
-        return freeResults;
-      } catch (error) {
-        await addStepLog(
-          visibleStep,
-          `主流程同步 Free 组失败：${normalizedEmail}：${getErrorMessage(error) || error}`,
-          'warn'
-        );
-        return null;
-      }
-    }
-
     async function checkRegistrationUpiTrialEligibility(input = {}) {
       throwIfStopped();
       const runtimeState = await getMergedState(input.state || {});
@@ -3013,7 +2963,7 @@
 
       await addStepLog(
         visibleStep,
-        `UPI 注册后试用资格检查：正在检测 ${email || 'unknown'}，结果将更新已有 Free 记录。`,
+        `UPI 注册后试用资格检查：正在检测 ${email || 'unknown'}，确认有试用资格后才会进入 Free 组。`,
         'info'
       );
 
@@ -3058,28 +3008,30 @@
         }
         const reason = normalizeString(eligibility?.item?.message || eligibility?.item?.reason)
           || '账号有试用资格，已进入 Free 分组';
-        let freeResults = null;
-        if (typeof upsertTrialEligibleFreeCredential === 'function') {
-          freeResults = await upsertTrialEligibleFreeCredential({
-            source: 'registration-upi-eligibility',
-            email,
-            credential: buildCurrentUpiCredentialForMembership({
-              ...runtimeState,
-              ...patch,
-              email,
-            }, email),
-            accessToken,
-            accessTokenMasked: maskAccessToken(accessToken),
-            reason,
-            checkedAt,
-            trialEligibilityStatus: 'eligible',
-            trialEligibilityReason: reason,
-            trialEligibilityCheckedAt: checkedAt,
-          });
+        if (typeof upsertTrialEligibleFreeCredential !== 'function') {
+          throw new Error('资格已通过，但 Free 分组写入能力未接入，无法保存账号。');
         }
+        const freeResults = await upsertTrialEligibleFreeCredential({
+          source: 'registration-upi-eligibility',
+          email,
+          credential: buildCurrentUpiCredentialForMembership({
+            ...runtimeState,
+            ...patch,
+            email,
+          }, email),
+          accessToken,
+          accessTokenMasked: maskAccessToken(accessToken),
+          reason,
+          checkedAt,
+          trialEligibilityStatus: 'eligible',
+          trialEligibilityReason: reason,
+          trialEligibilityCheckedAt: checkedAt,
+          resetRedeemState: true,
+        });
+        const persistedFreeResults = await ensureTrialEligibleFreeCredentialPersisted(freeResults, email, visibleStep);
         await addStepLog(
           visibleStep,
-          `UPI 注册后试用资格检查通过，已进入 Free 分组：${email || 'unknown'}。`,
+          `UPI 注册后试用资格检查通过，已保存到 Free 结果表：${email || 'unknown'}；侧边栏刷新后会按当前 Free/Plus 显示规则重新计算数量。`,
           'ok'
         );
         return {
@@ -3087,7 +3039,7 @@
           email,
           reason,
           checkedAt,
-          freeResults,
+          freeResults: persistedFreeResults,
         };
       } catch (error) {
         if (isFlowStoppedError(error)) {
@@ -3096,22 +3048,9 @@
         const message = getErrorMessage(error) || 'UPI 试用资格检测失败。';
         const failedAt = toIsoTimestamp();
         const trialEligibilityStatus = isUpiAccountIneligibleError(error) ? 'ineligible' : 'failed';
-        const freeResults = await upsertRegistrationFreeCredential({
-          runtimeState: {
-            ...runtimeState,
-            ...patch,
-            email,
-          },
-          visibleStep,
-          sessionState: chatGptSession,
-          email,
-          reason: message,
-          checkedAt: failedAt,
-          trialEligibilityStatus,
-        });
         await addStepLog(
           visibleStep,
-          `UPI 注册后试用资格检查${trialEligibilityStatus === 'ineligible' ? '确认无资格' : '失败'}，账号保留在 Free 组：${email || 'unknown'}：${message}`,
+          `UPI 注册后试用资格检查${trialEligibilityStatus === 'ineligible' ? '确认无资格' : '失败'}，账号未进入 Free 组：${email || 'unknown'}：${message}`,
           trialEligibilityStatus === 'ineligible' ? 'warn' : 'error'
         );
         return {
@@ -3119,7 +3058,7 @@
           email,
           reason: message,
           checkedAt: failedAt,
-          freeResults,
+          freeResults: null,
           trialEligibilityStatus,
         };
       }
@@ -3489,6 +3428,123 @@
         .find((item) => parsePoolEntryEmail(item?.email) === targetEmail) || null;
     }
 
+    function assertTrialEligibleFreeCredentialSaved(results = {}, email = '', context = '') {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      const item = findMembershipResultItem(results, normalizedEmail);
+      const status = normalizeString(item?.status).toLowerCase();
+      if (!normalizedEmail || !item || status !== 'free') {
+        const prefix = normalizeString(context) || '资格已通过';
+        throw new Error(`${prefix}，但 Free 分组写入后没有找到账号 ${normalizedEmail || 'unknown'}，请重新加载扩展后再试。`);
+      }
+      return item;
+    }
+
+    async function readPersistedUpiCredentialMembershipResults() {
+      if (!chrome?.storage?.local?.get) {
+        return null;
+      }
+      const stored = await chrome.storage.local
+        .get([UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY])
+        .catch(() => ({}));
+      const results = stored?.[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY];
+      return results && typeof results === 'object' && !Array.isArray(results)
+        ? results
+        : null;
+    }
+
+    function buildTrialEligibleFreeCredentialPersistRepairPayload(persistedResults = {}, expectedResults = {}, email = '') {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      const expectedItem = assertTrialEligibleFreeCredentialSaved(expectedResults, normalizedEmail, '资格已通过');
+      const persisted = persistedResults && typeof persistedResults === 'object' && !Array.isArray(persistedResults)
+        ? persistedResults
+        : {};
+      const persistedItems = Array.isArray(persisted.items) ? persisted.items : [];
+      const expectedItems = Array.isArray(expectedResults.items) ? expectedResults.items : [];
+      const nextItems = persistedItems
+        .filter((item) => parsePoolEntryEmail(item?.email) !== normalizedEmail);
+      if (!nextItems.some((item) => parsePoolEntryEmail(item?.email) === normalizedEmail)) {
+        nextItems.push(expectedItem);
+      }
+      const updatedAt = normalizeString(expectedResults.updatedAt)
+        || normalizeString(expectedItem.checkedAt)
+        || toIsoTimestamp();
+      const nextDeletedEmails = (Array.isArray(persisted.redeemAutoDeletedEmails)
+        ? persisted.redeemAutoDeletedEmails
+        : []
+      ).map(parsePoolEntryEmail).filter((item) => item && item !== normalizedEmail);
+      return {
+        ...persisted,
+        items: nextItems,
+        redeemAutoDeletedEmails: nextDeletedEmails,
+        redeemAutoDeletedCount: nextDeletedEmails.length,
+        redeemPlusDeletedEmailsByChannel: expectedResults.redeemPlusDeletedEmailsByChannel
+          || persisted.redeemPlusDeletedEmailsByChannel,
+        redeemPlusDeletedCountByChannel: expectedResults.redeemPlusDeletedCountByChannel
+          || persisted.redeemPlusDeletedCountByChannel,
+        updatedAt,
+        source: normalizeString(expectedResults.source || persisted.source || 'registration-upi-eligibility'),
+        total: Math.max(
+          Math.floor(Number(persisted.total) || 0),
+          Math.floor(Number(expectedResults.total) || 0),
+          expectedItems.length,
+          nextItems.length
+        ),
+        completed: Math.max(
+          Math.floor(Number(persisted.completed) || 0),
+          Math.floor(Number(expectedResults.completed) || 0),
+          expectedItems.length,
+          nextItems.length
+        ),
+      };
+    }
+
+    async function writeUpiCredentialMembershipResults(results = {}) {
+      if (typeof setState === 'function') {
+        await setState({
+          [UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]: results,
+        }).catch(() => {});
+      }
+      if (chrome?.storage?.session?.set) {
+        await chrome.storage.session.set({
+          [UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]: results,
+        }).catch(() => {});
+      }
+      if (chrome?.storage?.local?.set) {
+        await chrome.storage.local.set({
+          [UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]: results,
+        });
+      }
+      if (typeof broadcastDataUpdate === 'function') {
+        broadcastDataUpdate({
+          [UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY]: results,
+        });
+      }
+      return readPersistedUpiCredentialMembershipResults();
+    }
+
+    async function ensureTrialEligibleFreeCredentialPersisted(results = {}, email = '', visibleStep = 7) {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      assertTrialEligibleFreeCredentialSaved(results, normalizedEmail, '资格已通过');
+      const persistedResults = await readPersistedUpiCredentialMembershipResults();
+      const persistedItem = findMembershipResultItem(persistedResults, normalizedEmail);
+      if (normalizeString(persistedItem?.status).toLowerCase() === 'free') {
+        return persistedResults || results;
+      }
+      const repairedResults = buildTrialEligibleFreeCredentialPersistRepairPayload(
+        persistedResults,
+        results,
+        normalizedEmail
+      );
+      await addStepLog(
+        visibleStep,
+        `检测到 Free 分组写入未落到当前持久存储，已重新同步：${normalizedEmail}`,
+        'warn'
+      );
+      const confirmedResults = await writeUpiCredentialMembershipResults(repairedResults);
+      assertTrialEligibleFreeCredentialSaved(confirmedResults || repairedResults, normalizedEmail, '资格已通过并重新同步');
+      return confirmedResults || repairedResults;
+    }
+
     function isAutoRedeemResultInFlight(item = {}) {
       return [
         item?.redeemStatus,
@@ -3685,7 +3741,7 @@
       patch = {},
     } = {}) {
       if (typeof upsertTrialEligibleFreeCredential !== 'function') {
-        return null;
+        throw new Error('Free 分组写入能力未接入，无法保存主流程兑换状态。');
       }
       const normalizedEmail = parsePoolEntryEmail(email);
       if (!normalizedEmail) {
@@ -3697,7 +3753,7 @@
       };
       const hasPatchCdkey = Object.prototype.hasOwnProperty.call(patch, 'upiRedeemCdkey')
         || Object.prototype.hasOwnProperty.call(patch, 'cdkey');
-      return upsertTrialEligibleFreeCredential({
+      const results = await upsertTrialEligibleFreeCredential({
         source: 'registration-auto-redeem',
         email: normalizedEmail,
         credential: {
@@ -3711,6 +3767,8 @@
         cdkey: hasPatchCdkey ? (patch.upiRedeemCdkey ?? patch.cdkey ?? '') : cdkey,
         ...patch,
       });
+      assertTrialEligibleFreeCredentialSaved(results, normalizedEmail, '主流程兑换状态保存');
+      return results;
     }
 
     async function attemptAutoRedeemTrialEligibleFreeCredentialChannel({
@@ -4017,7 +4075,7 @@
       {
       await addStepLog(
         visibleStep,
-        '主流程 UPI 节点会检测试用资格并写入 Free 组；如果有可用 CDK，将自动提交兑换。',
+        '主流程 UPI 节点会先检测试用资格；只有资格通过才写入 Free 组，如果有可用 CDK，将自动提交兑换。',
         'info'
       );
       const tabId = await resolveSessionTabId(runtimeState);
@@ -4038,19 +4096,6 @@
         `已读取 ChatGPT session：${sessionEmail || 'unknown'} -> session字段 ${getChatGptSessionFieldCount(sessionState)}。`,
         'ok'
       );
-      const freeEntryResults = await upsertRegistrationFreeCredential({
-        runtimeState: {
-          ...runtimeState,
-          email: sessionEmail || runtimeState.email,
-          visibleStep,
-        },
-        visibleStep,
-        sessionState,
-        email: sessionEmail || runtimeState.email,
-        reason: '主流程注册完成，等待 UPI 资格/兑换检测',
-        checkedAt: toIsoTimestamp(),
-        trialEligibilityStatus: 'pending',
-      });
       const eligibility = await checkRegistrationUpiTrialEligibility({
         state: {
           ...runtimeState,
@@ -4067,7 +4112,7 @@
       });
       const eligibilityForRedeem = {
         ...eligibility,
-        freeResults: eligibility?.freeResults || freeEntryResults,
+        freeResults: eligibility?.freeResults || null,
       };
       const autoRedeem = eligibility?.eligible === true
         ? await autoRedeemTrialEligibleFreeCredential({
@@ -4083,13 +4128,15 @@
           })
         : {
             status: 'skipped',
-            reason: eligibility?.reason || 'UPI 资格检测未通过，账号已保留在 Free 组',
+            reason: eligibility?.reason || 'UPI 资格检测未通过，账号未进入 Free 组',
           };
       await addStepLog(
         visibleStep,
-        autoRedeem?.status === 'submitted'
-          ? `主流程 UPI 资格检测完成，账号已进入 Free，并已自动提交 ${getRedeemChannelLabel(autoRedeem.channel)} 兑换：${eligibility?.email || sessionEmail || 'unknown'} -> ${autoRedeem.cdkey || 'unknown'}。`
-          : `主流程 UPI 资格检测完成，账号已进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`,
+        eligibility?.eligible === true
+          ? (autoRedeem?.status === 'submitted'
+              ? `主流程 UPI 资格检测完成，账号已进入 Free，并已自动提交 ${getRedeemChannelLabel(autoRedeem.channel)} 兑换：${eligibility?.email || sessionEmail || 'unknown'} -> ${autoRedeem.cdkey || 'unknown'}。`
+              : `主流程 UPI 资格检测完成，账号已进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`)
+          : `主流程 UPI 资格检测未通过，账号未进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`,
         autoRedeem?.status === 'submitted' ? 'success' : 'warn'
       );
       await completeNodeFromBackground(state?.nodeId || 'upi-redeem', {
@@ -4238,20 +4285,7 @@
               lastError: retryMessage,
             }));
             if (isUpiAccountIneligibleError(retryError)) {
-              await upsertRegistrationFreeCredential({
-                runtimeState: {
-                  ...runtimeState,
-                  ...latestForSubscription,
-                  email: currentEmail || latestForSubscription.email || runtimeState.email,
-                },
-                visibleStep,
-                sessionState,
-                email: currentEmail,
-                reason: retryMessage,
-                checkedAt: toIsoTimestamp(),
-                trialEligibilityStatus: 'ineligible',
-              });
-              await addStepLog(visibleStep, `刷新 ChatGPT 页面后 UPI 资格检查确认账号无资格，账号保留在 Free 组，未提交到兑换后端 ${apiUrl}：${retryMessage}`, 'error');
+              await addStepLog(visibleStep, `刷新 ChatGPT 页面后 UPI 资格检查确认账号无资格，账号未进入 Free 组，未提交到兑换后端 ${apiUrl}：${retryMessage}`, 'error');
               throw retryError;
             }
             if (isUpiAccessTokenExpiredError(retryError)) {
@@ -4293,20 +4327,7 @@
             lastError: message,
           }));
           if (isUpiAccountIneligibleError(error)) {
-            await upsertRegistrationFreeCredential({
-              runtimeState: {
-                ...runtimeState,
-                ...latestForSubscription,
-                email: currentEmail || latestForSubscription.email || runtimeState.email,
-              },
-              visibleStep,
-              sessionState,
-              email: currentEmail,
-              reason: message,
-              checkedAt: toIsoTimestamp(),
-              trialEligibilityStatus: 'ineligible',
-            });
-            await addStepLog(visibleStep, `UPI 资格检查确认账号无资格，账号保留在 Free 组，未提交到兑换后端 ${apiUrl}：${message}`, 'error');
+            await addStepLog(visibleStep, `UPI 资格检查确认账号无资格，账号未进入 Free 组，未提交到兑换后端 ${apiUrl}：${message}`, 'error');
             throw error;
           }
           await addStepLog(visibleStep, `UPI 资格检查接口失败，将继续提交兑换后端 ${apiUrl} 留痕：${message}`, 'warn');

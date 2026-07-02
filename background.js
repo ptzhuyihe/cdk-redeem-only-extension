@@ -388,6 +388,60 @@ function buildStatePatchWithRuntimeState(currentState = {}, updates = {}) {
   return updates;
 }
 
+function normalizeMembershipResultsTimestamp(results = {}) {
+  const timestamp = Date.parse(String(results?.updatedAt || results?.checkedAt || ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getMembershipResultsItemCount(results = {}) {
+  return Array.isArray(results?.items) ? results.items.length : 0;
+}
+
+function shouldKeepPersistedMembershipResults(persistedResults = null, incomingResults = null) {
+  if (!persistedResults || typeof persistedResults !== 'object' || Array.isArray(persistedResults)) {
+    return false;
+  }
+  if (!incomingResults || typeof incomingResults !== 'object' || Array.isArray(incomingResults)) {
+    return true;
+  }
+  const persistedUpdatedAt = normalizeMembershipResultsTimestamp(persistedResults);
+  const incomingUpdatedAt = normalizeMembershipResultsTimestamp(incomingResults);
+  if (persistedUpdatedAt > incomingUpdatedAt) {
+    return true;
+  }
+  return persistedUpdatedAt === incomingUpdatedAt
+    && getMembershipResultsItemCount(persistedResults) > getMembershipResultsItemCount(incomingResults);
+}
+
+async function protectFreshMembershipResultsInStatePatch(sessionUpdates = {}) {
+  if (
+    !sessionUpdates
+    || typeof sessionUpdates !== 'object'
+    || !Object.prototype.hasOwnProperty.call(sessionUpdates, UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY)
+  ) {
+    return sessionUpdates;
+  }
+  const stored = await chrome.storage.local
+    .get([UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY])
+    .catch(() => ({}));
+  const persistedResults = stored?.[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY];
+  const incomingResults = sessionUpdates[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY];
+  if (shouldKeepPersistedMembershipResults(persistedResults, incomingResults)) {
+    console.warn(
+      LOG_PREFIX,
+      'Skipped stale upiCredentialMembershipCheckResults state patch:',
+      JSON.stringify({
+        persistedUpdatedAt: persistedResults?.updatedAt || '',
+        incomingUpdatedAt: incomingResults?.updatedAt || '',
+        persistedItems: getMembershipResultsItemCount(persistedResults),
+        incomingItems: getMembershipResultsItemCount(incomingResults),
+      })
+    );
+    sessionUpdates[UPI_CREDENTIAL_MEMBERSHIP_CHECK_RESULTS_STORAGE_KEY] = persistedResults;
+  }
+  return sessionUpdates;
+}
+
 function alignUpiRedeemCdkeyAliasStatePatch(patch = {}) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
     return patch;
@@ -4228,6 +4282,7 @@ async function setState(updates) {
       ...DEFAULT_STATE,
       ...currentSessionState,
     }, updates));
+    await protectFreshMembershipResultsInStatePatch(sessionUpdates);
     await chrome.storage.session.set(sessionUpdates);
     const persistentAliasUpdates = {};
     if (Object.prototype.hasOwnProperty.call(sessionUpdates, 'manualAliasUsage')) {

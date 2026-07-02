@@ -19219,6 +19219,9 @@ async function importSettingsFromFile(file) {
     }
 
     applySettingsState(response.state);
+    if (typeof accountRecordsManager?.reloadUpiCredentialMembershipAfterRuntimeImport === 'function') {
+      await accountRecordsManager.reloadUpiCredentialMembershipAfterRuntimeImport({ silent: true }).catch(() => null);
+    }
     updateStatusDisplay(latestState);
     showToast('\u914d\u7f6e\u5df2\u5bfc\u5165\uff0c\u5f53\u524d\u914d\u7f6e\u5df2\u8986\u76d6\u3002', 'success', 2200);
   } catch (err) {
@@ -23189,8 +23192,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         || message.payload.pixRedeemCdkeyUsage !== undefined
         || message.payload.idealRedeemCdkeyPoolText !== undefined
         || message.payload.idealRedeemCdkeyUsage !== undefined
+        || message.payload.upiAccountCredentialBackups !== undefined
       ) {
         renderAccountRecords(latestState);
+        if (message.payload.upiAccountCredentialBackups !== undefined) {
+          accountRecordsManager?.reloadUpiCredentialMembershipAfterRuntimeImport?.({ silent: true }).catch(() => null);
+        }
       }
       if (message.payload.operationDelayEnabled !== undefined && typeof applyOperationDelayState === 'function') {
         applyOperationDelayState(message.payload);

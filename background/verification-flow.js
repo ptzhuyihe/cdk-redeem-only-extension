@@ -122,7 +122,7 @@
     function isAssurivoEmptyFeedVerificationFetchError(error) {
       const message = String(typeof error === 'string' ? error : error?.message || '').trim();
       return /Assurivo\s+JSON\s+接口暂未返回有效验证码/i.test(message)
-        && /(?:"data"\s*:\s*\[\]|Assurivo\s+JSON\s+未返回\s+ChatGPT\/OpenAI\s+验证邮件)/i.test(message);
+        && /(?:"data"\s*:\s*\[\]|Assurivo\s+JSON\s+未返回\s+ChatGPT\/OpenAI\s+验证邮件|只返回了早于本轮发码时间的验证码邮件|未收到本轮验证码邮件)/i.test(message);
     }
 
     function getVerificationCodeStateKey(step) {
@@ -2947,6 +2947,7 @@
           };
         }
 
+        let oldOnlyAssurivoDetail = '';
         if (
           assurivoVerificationUrl
           && (
@@ -2964,9 +2965,10 @@
           const timingSuffix = isAssurivoVerificationPayload(payload)
             ? describeAssurivoFilterTiming(payload.data, filterAfterTimestamp)
             : '';
-          await addLog(`步骤 ${completionStep}：${request.label}只返回了早于本轮发码时间的验证码邮件${timingSuffix}，将继续等待新邮件。`, 'warn');
+          oldOnlyAssurivoDetail = `${request.label}只返回了早于本轮发码时间的验证码邮件${timingSuffix}`;
+          await addLog(`步骤 ${completionStep}：${oldOnlyAssurivoDetail}，将继续等待新邮件。`, 'warn');
         }
-        const detail = codeDetails.failureDetail || describeCustomEmailVerificationPayload(payload);
+        const detail = oldOnlyAssurivoDetail || codeDetails.failureDetail || describeCustomEmailVerificationPayload(payload);
         lastError = new Error(`步骤 ${completionStep}：${request.label}暂未返回有效验证码${detail ? `：${detail}` : ''}`);
         if (requestIndex < requests.length - 1) {
           await addLog(`${request.label}暂未返回有效验证码，将回退到下一种取码方式。`, 'warn');
@@ -3064,7 +3066,7 @@
               assurivoEmptyFeedFirstSeenAt = Date.now();
               extendStep4AttemptsForAssurivoEmptyFeed(attemptState, attempt);
               await addLog(
-                `步骤 ${completionStep}：Assurivo JSON 接口当前没有返回邮件(data=[]/无 ChatGPT 邮件)，将最多继续等待 ${Math.round(STEP4_ASSURIVO_EMPTY_FEED_WAIT_MS / 1000)} 秒。`,
+                `步骤 ${completionStep}：Assurivo JSON 接口当前未收到本轮验证码邮件(data=[]/无新邮件/无 ChatGPT 邮件)，将最多继续等待 ${Math.round(STEP4_ASSURIVO_EMPTY_FEED_WAIT_MS / 1000)} 秒。`,
                 'warn'
               );
             }
@@ -3087,7 +3089,7 @@
           if (!retryableFetchError || attempt >= maxAttempts) {
             if (assurivoEmptyFeedError && assurivoEmptyFeedFirstSeenAt) {
               const waitedSeconds = Math.max(0, Math.round((Date.now() - assurivoEmptyFeedFirstSeenAt) / 1000));
-              throw new Error(`步骤 ${completionStep}：Assurivo JSON 在 ${waitedSeconds} 秒内仍未收到本轮验证码邮件(data=[]/无 ChatGPT 邮件)，请检查邮箱是否收信或接口是否延迟。最后结果：${err?.message || err}`);
+              throw new Error(`步骤 ${completionStep}：Assurivo JSON 在 ${waitedSeconds} 秒内仍未收到本轮验证码邮件(data=[]/无新邮件/无 ChatGPT 邮件)，请检查邮箱是否收信或接口是否延迟。最后结果：${err?.message || err}`);
             }
             if (step === 4 && allowExcludedAfterTimestamp > 0 && isRetryableCustomEmailVerificationFetchError(err)) {
               const waitedSeconds = Math.max(0, Math.round((Date.now() - allowExcludedAfterTimestamp) / 1000));

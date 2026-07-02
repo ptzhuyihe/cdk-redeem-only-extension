@@ -3115,6 +3115,17 @@
       }
     }
 
+    async function reloadUpiCredentialMembershipAfterRuntimeImport(options = {}) {
+      locallyDeletedUpiCredentialMembershipEmails.clear();
+      locallyDeletedRedeemPlusEmailsByChannel.upi.clear();
+      locallyDeletedRedeemPlusEmailsByChannel.ideal.clear();
+      upiCredentialMembershipPoolLoaded = false;
+      return refreshUpiCredentialMembershipCredentialPool({
+        silent: true,
+        ...(options || {}),
+      });
+    }
+
     function getEnabledUpiCredentialMembershipPoolRows() {
       return upiCredentialMembershipPoolRows
         .filter((item) => item?.email && !disabledUpiCredentialMembershipEmails.has(item.email))
@@ -3702,6 +3713,14 @@
 
     async function importUpiCredentialMembershipFreeText(text = '') {
       const credentials = parseUpiCredentialMembershipText(text);
+      const importedEmailSet = new Set(
+        credentials
+          .map((credential) => normalizeUpiCredentialMembershipEmail(credential?.email))
+          .filter(Boolean)
+      );
+      importedEmailSet.forEach((email) => {
+        locallyDeletedUpiCredentialMembershipEmails.delete(email);
+      });
       setUpiCredentialMembershipPoolRows(mergeUpiCredentialMembershipFreeImportPoolRows(credentials), 'txt-free');
       upiCredentialMembershipPoolLoaded = true;
       const response = await runtime.sendMessage({
@@ -5126,6 +5145,7 @@
       exportUpiCredentialBackupTextFile,
       exportUpiRedeemSuccessEmailTextFile,
       openPanel,
+      reloadUpiCredentialMembershipAfterRuntimeImport,
       render,
       reset,
       resumeFreeRedeemAfterCdkImport,
