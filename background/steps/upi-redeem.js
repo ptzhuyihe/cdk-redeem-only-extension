@@ -45,6 +45,7 @@
       setState = async () => {},
       broadcastDataUpdate = null,
       refreshPendingUpiCredentialMembershipRedeemStatuses = null,
+      redeemUpiCredentialMembershipFree = null,
       sleepWithStop = async () => {},
       throwIfStopped = () => {},
       upsertTrialEligibleFreeCredential = null,
@@ -209,6 +210,22 @@
         return true;
       }
       return getRedeemChannelFailureCount(item, channel) < REDEEM_CHANNEL_FAILURE_LIMIT;
+    }
+
+    function getRedeemChannelSkipReason(item = {}, channel = 'upi') {
+      const redeemChannel = normalizeRedeemChannel(channel);
+      if (isRedeemAccountLocked(item)) {
+        return normalizeString(item?.redeemLockedReason) || '账号已封存';
+      }
+      if (isRedeemChannelDailyLimitBlocked(item, redeemChannel)) {
+        return normalizeString(item?.[getRedeemChannelDailyLimitReasonField(redeemChannel)])
+          || normalizeString(item?.redeemReason || item?.reason)
+          || `${getRedeemChannelLabel(redeemChannel)} 今日提交次数已达上限`;
+      }
+      if (redeemChannel === 'ideal' && getRedeemChannelFailureCount(item, redeemChannel) >= REDEEM_CHANNEL_FAILURE_LIMIT) {
+        return 'IDEAL 已达到失败上限';
+      }
+      return '';
     }
 
     function getRedeemChannelPoolKey(channel = 'upi') {
@@ -3566,6 +3583,100 @@
       ].includes(normalizeUpiRedeemRemoteStatus(value)));
     }
 
+    function buildQueuedFreeAutoRedeemCandidates(results = {}, channel = 'upi', options = {}) {
+      const redeemChannel = normalizeRedeemChannel(channel);
+      const excludedEmail = parsePoolEntryEmail(options.excludeEmail || '');
+      return (Array.isArray(results?.items) ? results.items : [])
+        .map((item) => ({
+          ...(item && typeof item === 'object' && !Array.isArray(item) ? item : {}),
+          email: parsePoolEntryEmail(item?.email),
+          accessToken: normalizeString(item?.accessToken || item?.upiRedeemAccessToken || item?.chatGptAccessToken),
+        }))
+        .filter((item) => {
+          if (!item.email || item.email === excludedEmail) {
+            return false;
+          }
+          if (normalizeString(item.status).toLowerCase() !== 'free' || item.enabled === false) {
+            return false;
+          }
+          if (!item.accessToken || isAutoRedeemResultInFlight(item)) {
+            return false;
+          }
+          return shouldRedeemItemUseChannel(item, redeemChannel);
+        });
+    }
+
+    async function autoRedeemQueuedFreeCredentialsForChannel({
+      runtimeState = {},
+      visibleStep = 7,
+      channel = 'upi',
+      excludeEmail = '',
+      skipReason = '',
+    } = {}) {
+      const redeemChannel = normalizeRedeemChannel(channel);
+      const redeemChannelLabel = getRedeemChannelLabel(redeemChannel);
+      if (typeof redeemUpiCredentialMembershipFree !== 'function') {
+        return { status: 'skipped', reason: 'Free 队列兑换能力未接入' };
+      }
+      const latestState = await getMergedState(runtimeState);
+      const availableCdkeyCount = countAvailableRedeemCdkeys(latestState, redeemChannel);
+      if (availableCdkeyCount <= 0) {
+        return { status: 'skipped', reason: `${redeemChannelLabel} 没有可用 CDK` };
+      }
+      const latestResults = latestState?.upiCredentialMembershipCheckResults
+        || await readPersistedUpiCredentialMembershipResults()
+        || {};
+      const candidates = buildQueuedFreeAutoRedeemCandidates(latestResults, redeemChannel, {
+        excludeEmail,
+      });
+      if (!candidates.length) {
+        await addStepLog(
+          visibleStep,
+          `${redeemChannelLabel} 主流程自动兑换：当前账号${skipReason ? `不可用（${skipReason}）` : '不可用'}，但 Free 队列里没有其它可自动兑换的 ${redeemChannelLabel} 候选。`,
+          'warn'
+        );
+        return { status: 'skipped', reason: `没有其它可自动兑换的 ${redeemChannelLabel} 候选` };
+      }
+      const queuedCredentials = candidates.slice(0, availableCdkeyCount);
+      await addStepLog(
+        visibleStep,
+        `${redeemChannelLabel} 主流程自动兑换：当前账号${skipReason ? `不可用（${skipReason}）` : '不可用'}，检测到 ${availableCdkeyCount} 个可用 CDK，将自动处理 Free 队列候选 ${queuedCredentials.length}/${candidates.length} 个。`,
+        'info'
+      );
+      try {
+        const results = await redeemUpiCredentialMembershipFree({
+          source: `registration-auto-${redeemChannel}-queue`,
+          channel: redeemChannel,
+          manualTrigger: false,
+          disableGroupContinuation: true,
+          credentials: queuedCredentials,
+          deleteBackups: false,
+          settings: latestState,
+        });
+        return {
+          status: 'queue_submitted',
+          channel: redeemChannel,
+          reason: `${redeemChannelLabel} 已自动处理 Free 队列候选 ${queuedCredentials.length} 个`,
+          queuedCount: queuedCredentials.length,
+          candidateCount: candidates.length,
+          results,
+        };
+      } catch (error) {
+        const reason = getErrorMessage(error) || normalizeString(error?.message || error) || '队列兑换失败';
+        await addStepLog(
+          visibleStep,
+          `${redeemChannelLabel} 主流程自动兑换：Free 队列续兑未启动：${reason}`,
+          'warn'
+        );
+        return {
+          status: 'skipped',
+          channel: redeemChannel,
+          reason,
+          error,
+        };
+      }
+    }
+
     function findPendingAutoRedeemResultItem(state = {}, {
       email = '',
       channel = 'upi',
@@ -4038,7 +4149,18 @@
       } else if (upiAvailable <= 0) {
         await addStepLog(visibleStep, `主流程自动兑换：UPI 当前没有可用 CDK，${normalizedEmail} 将尝试 IDEAL。`, 'warn');
       } else {
-        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} UPI 当前不可用，将尝试 IDEAL。`, 'warn');
+        const upiSkipReason = getRedeemChannelSkipReason(currentItem, 'upi') || '当前账号不符合 UPI 自动兑换条件';
+        const queuedUpiResult = await autoRedeemQueuedFreeCredentialsForChannel({
+          runtimeState: latestState,
+          visibleStep,
+          channel: 'upi',
+          excludeEmail: normalizedEmail,
+          skipReason: upiSkipReason,
+        });
+        if (queuedUpiResult.status === 'queue_submitted') {
+          return queuedUpiResult;
+        }
+        await addStepLog(visibleStep, `主流程自动兑换：${normalizedEmail} UPI 当前不可用（${upiSkipReason}），将尝试 IDEAL。`, 'warn');
       }
 
       if (idealAvailable > 0 && shouldRedeemItemUseChannel(currentItem, 'ideal')) {
@@ -4135,9 +4257,11 @@
         eligibility?.eligible === true
           ? (autoRedeem?.status === 'submitted'
               ? `主流程 UPI 资格检测完成，账号已进入 Free，并已自动提交 ${getRedeemChannelLabel(autoRedeem.channel)} 兑换：${eligibility?.email || sessionEmail || 'unknown'} -> ${autoRedeem.cdkey || 'unknown'}。`
+              : autoRedeem?.status === 'queue_submitted'
+                ? `主流程 UPI 资格检测完成，账号已进入 Free；本轮账号未直接兑换，已自动接力 ${getRedeemChannelLabel(autoRedeem.channel)} Free 队列：${autoRedeem.reason || '已处理队列候选'}。`
               : `主流程 UPI 资格检测完成，账号已进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`)
           : `主流程 UPI 资格检测未通过，账号未进入 Free；自动兑换未提交：${autoRedeem?.reason || '未满足自动兑换条件'}。`,
-        autoRedeem?.status === 'submitted' ? 'success' : 'warn'
+        (autoRedeem?.status === 'submitted' || autoRedeem?.status === 'queue_submitted') ? 'success' : 'warn'
       );
       await completeNodeFromBackground(state?.nodeId || 'upi-redeem', {
         email: eligibility?.email || sessionEmail || runtimeState.email || '',

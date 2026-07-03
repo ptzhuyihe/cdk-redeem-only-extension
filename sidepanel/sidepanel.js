@@ -2797,16 +2797,65 @@ async function settlePendingSettingsBeforeImport() {
   await waitForSettingsSaveIdle();
 }
 
-function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8') {
-  const blob = new Blob([content], { type: mimeType });
-  const objectUrl = URL.createObjectURL(blob);
+function buildDownloadFileTimestamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function inferDownloadExtension(mimeType = '') {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('text/plain')) return 'txt';
+  if (normalized.includes('json')) return 'json';
+  return 'txt';
+}
+
+function normalizeDownloadFileName(fileName = '', mimeType = '') {
+  const extension = inferDownloadExtension(mimeType);
+  const sanitized = String(fileName || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/^\.+/g, '')
+    .trim();
+  const fallback = `download-${buildDownloadFileTimestamp()}.${extension}`;
+  const safeName = sanitized || fallback;
+  return /\.[a-z0-9]{1,8}$/i.test(safeName) ? safeName : `${safeName}.${extension}`;
+}
+
+function triggerAnchorDownload(objectUrl, fileName) {
   const anchor = document.createElement('a');
   anchor.href = objectUrl;
   anchor.download = fileName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  const downloadFileName = normalizeDownloadFileName(fileName, mimeType);
+  const revokeObjectUrl = () => setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  if (typeof chrome !== 'undefined' && chrome?.downloads?.download) {
+    try {
+      chrome.downloads.download({
+        url: objectUrl,
+        filename: downloadFileName,
+        saveAs: false,
+      }, () => {
+        const error = chrome.runtime?.lastError;
+        if (error) {
+          triggerAnchorDownload(objectUrl, downloadFileName);
+        }
+        revokeObjectUrl();
+      });
+      return;
+    } catch {
+      // Fall through to the anchor fallback below.
+    }
+  }
+  triggerAnchorDownload(objectUrl, downloadFileName);
+  revokeObjectUrl();
 }
 
 function setCurrentSessionExportButtonsDisabled(disabled) {

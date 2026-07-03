@@ -15929,6 +15929,7 @@ const upiRedeemExecutor = self.MultiPageBackgroundUpiRedeem?.createUpiRedeemExec
   setState,
   broadcastDataUpdate,
   refreshPendingUpiCredentialMembershipRedeemStatuses: (...args) => messageRouter?.refreshPendingUpiCredentialMembershipRedeemStatuses?.(...args),
+  redeemUpiCredentialMembershipFree: (...args) => upiCredentialMembershipChecker?.redeemUpiCredentialMembershipFree?.(...args),
   sleepWithStop,
   throwIfStopped,
   upsertTrialEligibleFreeCredential: (...args) => upiCredentialMembershipChecker?.upsertTrialEligibleFreeCredential?.(...args),
