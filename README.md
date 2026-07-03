@@ -2,6 +2,11 @@
 
 这是 CDK 兑换专用版 Chrome 扩展。当前版本保留 UPI 主流程：邮箱注册、邮箱验证码、设置 GPT 密码、第 7 步开通 2FA、读取 AT、Free/Plus 分组、CDK 兑换、Plus 识别/验证、导入导出。
 
+## 教程文档
+
+- GitHub 首页可直接打开：[教程.docx](教程.docx)
+- Release 下载页也提供同一份教程：[tutorial.docx](https://github.com/kui123456789/cdk-redeem-only-extension/releases/latest/download/tutorial.docx)
+
 完整配置说明见 [docs/CONFIG-USAGE.md](docs/CONFIG-USAGE.md)。
 
 ## 保留能力
@@ -88,6 +93,5 @@ Plus 导出格式：
 - `_metadata`
 - `release-artifacts`
 - 本地日志、缓存和运行历史
-
 
 
