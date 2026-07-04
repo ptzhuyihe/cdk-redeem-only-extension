@@ -10,7 +10,6 @@
       buildLuckmailSessionSettingsPayload,
       buildPersistentSettingsPayload,
       broadcastDataUpdate,
-      applyRemovedNetworkSettingsFromState,
       cancelScheduledAutoRun,
       checkIcloudSession,
       clearAccountRunHistory,
@@ -156,9 +155,6 @@
       isStopError,
       isTabAlive,
       launchAutoRunTimerPlan,
-      ensureRemovedNetworkAutoSyncAlarm,
-      clearRemovedNetworkAutoSyncAlarm,
-      runRemovedNetworkAutoSync,
       listIcloudAliases,
       listLuckmailPurchasesForManagement,
       markCurrentCustomEmailPoolEntryUsed,
@@ -176,7 +172,6 @@
       pauseRemovedPaymentWorkerJob = null,
       registerTab,
       requestStop,
-      probeRemovedNetworkExit,
       handleCloudflareSecurityBlocked,
       resetState,
       resumeRemovedPaymentWorkerJob = null,
@@ -185,8 +180,6 @@
       sendTabMessageUntilStopped = null,
       selectLuckmailPurchase,
       sleepWithStop = async () => {},
-      switchRemovedNetwork,
-      changeRemovedNetworkExit,
       setCurrentLegacyWalletAccount,
       setCurrentMail2925Account,
       setCurrentHotmailAccount,
@@ -3645,47 +3638,6 @@
             stateUpdates.currentNodeId = '';
           }
           await setState(stateUpdates);
-          const mergedState = await getState();
-          const hasRemovedNetworkAutoSyncSettingChanged = (
-            Object.prototype.hasOwnProperty.call(updates, 'removedNetworkAutoSyncEnabled')
-            || Object.prototype.hasOwnProperty.call(updates, 'removedNetworkAutoSyncIntervalMinutes')
-          );
-          if (hasRemovedNetworkAutoSyncSettingChanged) {
-            if (Boolean(mergedState?.removedNetworkAutoSyncEnabled)) {
-              if (typeof ensureRemovedNetworkAutoSyncAlarm === 'function') {
-                await ensureRemovedNetworkAutoSyncAlarm(mergedState);
-              }
-            } else if (typeof clearRemovedNetworkAutoSyncAlarm === 'function') {
-              await clearRemovedNetworkAutoSyncAlarm();
-            }
-          }
-          const hasRemovedNetworkUpdates = Object.keys(updates).some((key) => key.startsWith('removedNetwork'));
-          const hasRemovedNetworkEnabledUpdate = Object.prototype.hasOwnProperty.call(updates, 'removedNetworkEnabled');
-          const previousRemovedNetworkEnabled = Boolean(currentState?.removedNetworkEnabled);
-          const nextRemovedNetworkEnabled = hasRemovedNetworkEnabledUpdate
-            ? Boolean(updates.removedNetworkEnabled)
-            : previousRemovedNetworkEnabled;
-          // 仅在“手动开关代理”时自动应用。
-          // 其他字段改动（host/账号/地区/session 等）需由“同步/下一条/检测出口/Change”显式触发。
-          const shouldApplyRemovedNetworkOnSave = hasRemovedNetworkUpdates
-            && hasRemovedNetworkEnabledUpdate
-            && previousRemovedNetworkEnabled !== nextRemovedNetworkEnabled;
-          let proxyRouting = null;
-          if (shouldApplyRemovedNetworkOnSave && typeof applyRemovedNetworkSettingsFromState === 'function') {
-            const isEnablingProxy = !previousRemovedNetworkEnabled && nextRemovedNetworkEnabled;
-            proxyRouting = await applyRemovedNetworkSettingsFromState(mergedState, {
-              // 手动开启时自动应用一次代理，不做出口探测；
-              // 出口探测由“同步/检测出口”按钮显式触发，避免开启即误判为失败。
-              skipExitProbe: true,
-              resetNetworkState: false,
-              forceAuthRebind: false,
-              suppressAuthRebind: !isEnablingProxy,
-            }).catch((error) => ({
-              applied: false,
-              reason: 'apply_failed',
-              error: error?.message || String(error || '代理应用失败'),
-            }));
-          }
           if (Boolean(currentState?.contributionMode) && typeof setContributionMode === 'function') {
             await setContributionMode(true);
           }
@@ -3711,97 +3663,8 @@
           return {
             ok: true,
             modeValidation,
-            proxyRouting,
             state: await getState(),
           };
-        }
-
-        case 'RUN_REMOVED_NETWORK_AUTO_SYNC_NOW': {
-          if (typeof runRemovedNetworkAutoSync !== 'function') {
-            throw new Error('IP 代理自动同步能力尚未接入。');
-          }
-          const result = await runRemovedNetworkAutoSync('manual');
-          return { ok: true, ...result };
-        }
-
-        case 'REFRESH_REMOVED_NETWORK_POOL': {
-          if (typeof refreshRemovedNetworkPool !== 'function') {
-            throw new Error('IP 代理池能力尚未接入。');
-          }
-          const result = await refreshRemovedNetworkPool({
-            maxItems: message.payload?.maxItems,
-            mode: message.payload?.mode,
-            skipExitProbe: message.payload?.skipExitProbe,
-          });
-          return { ok: true, ...result };
-        }
-
-        case 'SWITCH_REMOVED_NETWORK': {
-          if (typeof switchRemovedNetwork !== 'function') {
-            throw new Error('IP 代理切换能力尚未接入。');
-          }
-          const result = await switchRemovedNetwork(message.payload?.direction || 'next', {
-            maxItems: message.payload?.maxItems,
-            mode: message.payload?.mode,
-            forceRefresh: message.payload?.forceRefresh,
-            skipExitProbe: message.payload?.skipExitProbe,
-          });
-          return { ok: true, ...result };
-        }
-
-        case 'CHANGE_REMOVED_NETWORK_EXIT': {
-          if (typeof changeRemovedNetworkExit !== 'function') {
-            throw new Error('IP 代理 Change 能力尚未接入。');
-          }
-          const result = await changeRemovedNetworkExit({
-            mode: message.payload?.mode,
-            skipExitProbe: message.payload?.skipExitProbe,
-          });
-          return { ok: true, ...result };
-        }
-
-        case 'PROBE_REMOVED_NETWORK_EXIT': {
-          if (message.source === 'sidepanel') {
-            await lockAutomationWindowFromMessage(message, sender);
-          }
-          if (typeof probeRemovedNetworkExit !== 'function') {
-            throw new Error('IP 代理出口检测能力尚未接入。');
-          }
-          const probeState = await getState();
-          const mode = typeof normalizeRemovedNetworkMode === 'function'
-            ? normalizeRemovedNetworkMode(probeState?.removedNetworkMode)
-            : String(probeState?.removedNetworkMode || 'account').trim().toLowerCase();
-          const provider = typeof normalizeRemovedNetworkProviderValue === 'function'
-            ? normalizeRemovedNetworkProviderValue(probeState?.removedNetworkService)
-            : String(probeState?.removedNetworkService || '').trim().toLowerCase();
-          const is711AccountMode = mode === 'account' && provider === 'removed-network-service';
-          const previousReason = String(probeState?.removedNetworkAppliedReason || '').trim().toLowerCase();
-          const previousExitError = String(probeState?.removedNetworkAppliedExitError || '').trim();
-          const hadMissingAuthChallenge = /challenge=0|provided=0|未触发代理鉴权挑战|未收到 407/i.test(previousExitError);
-          const shouldPreRebindBeforeProbe = Boolean(
-            probeState?.removedNetworkEnabled
-            && is711AccountMode
-            && (hadMissingAuthChallenge || previousReason === 'connectivity_failed')
-          );
-          const timeoutMs = Number(message.payload?.timeoutMs) > 0
-            ? Number(message.payload.timeoutMs)
-            : (is711AccountMode ? (shouldPreRebindBeforeProbe ? 15000 : 12000) : undefined);
-
-          // 手动“检测出口”前先轻量应用当前配置，避免读取到旧代理链路状态。
-          if (probeState?.removedNetworkEnabled && typeof applyRemovedNetworkSettingsFromState === 'function') {
-            await applyRemovedNetworkSettingsFromState(probeState, {
-              skipExitProbe: true,
-              resetNetworkState: shouldPreRebindBeforeProbe,
-              forceAuthRebind: shouldPreRebindBeforeProbe,
-              suppressAuthRebind: !shouldPreRebindBeforeProbe,
-            }).catch(() => null);
-          }
-
-          const result = await probeRemovedNetworkExit({
-            timeoutMs,
-            authRebindMaxAttempts: is711AccountMode ? 1 : undefined,
-          });
-          return { ok: true, ...result };
         }
 
         case 'EXPORT_SETTINGS': {

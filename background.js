@@ -564,64 +564,10 @@ const DEFAULT_SUB2API_GROUP_NAMES = [
   CONTRIBUTION_SUB2API_PLUS_GROUP_NAME,
 ];
 const DEFAULT_SUB2API_REDIRECT_URI = 'http://localhost:1455/auth/callback';
-const DEFAULT_REMOVED_NETWORK_SERVICE = 'removed-network-service';
-const REMOVED_NETWORK_SERVICE_VALUES = ['removed-network-service', 'lumiproxy', 'iproyal', 'omegaproxy'];
-const REMOVED_NETWORK_ENABLED_SERVICE_VALUES = ['removed-network-service'];
-const DEFAULT_REMOVED_NETWORK_MODE = 'account';
-const REMOVED_NETWORK_MODE_VALUES = ['api', 'account'];
-const DEFAULT_REMOVED_NETWORK_PROTOCOL = 'http';
-const REMOVED_NETWORK_PROTOCOL_VALUES = ['http', 'https', 'socks4', 'socks5'];
-const REMOVED_NETWORK_FETCH_TIMEOUT_MS = 20000;
-const REMOVED_NETWORK_SETTINGS_SCOPE = 'regular';
-const REMOVED_NETWORK_BYPASS_LIST = ['<local>', 'localhost', '127.0.0.1'];
-const REMOVED_NETWORK_ROUTE_ALL_TRAFFIC = true;
-const REMOVED_NETWORK_FORCE_DIRECT_HOST_PATTERNS = [
-  'pm-redirects.stripe.com',
-  '*.pm-redirects.stripe.com',
-  'hwork.pro',
-  '*.hwork.pro',
-  'auth.openai.com',
-  'auth0.openai.com',
-  'accounts.openai.com',
-  'luckyous.com',
-  '*.luckyous.com',
-];
-const REMOVED_NETWORK_FORCE_DIRECT_FALLBACK = 'PROXY 127.0.0.1:7897';
-const REMOVED_NETWORK_ACCOUNT_LIST_ENABLED = false;
-const REMOVED_NETWORK_INIT_ENABLE_EXIT_PROBE = false;
-const REMOVED_NETWORK_INIT_SUPPRESS_AUTH_REBIND = true;
-const REMOVED_NETWORK_INIT_AUTO_APPLY = false;
-const LEGACY_REMOVED_NETWORK_FEATURE_ENABLED = false;
-const REMOVED_NETWORK_TARGET_HOST_PATTERNS = [
-  'openai.com',
-  '*.openai.com',
-  'chatgpt.com',
-  '*.chatgpt.com',
-  'ipwho.is',
-  '*.ipwho.is',
-  'ipapi.co',
-  '*.ipapi.co',
-  'ipinfo.io',
-  '*.ipinfo.io',
-  'api.ipify.org',
-  'api64.ipify.org',
-  'api.ip.cc',
-  'ifconfig.me',
-  'checkip.amazonaws.com',
-  'ipv4.icanhazip.com',
-  'ident.me',
-  'httpbin.org',
-  'ip-api.com',
-  'myip.ipip.net',
-];
 const AUTO_RUN_TIMER_ALARM_NAME = 'auto-run-timer';
-const REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME = 'removed-network-auto-sync';
 const AUTO_RUN_TIMER_KIND_SCHEDULED_START = 'scheduled_start';
 const AUTO_RUN_TIMER_KIND_BETWEEN_ROUNDS = 'between_rounds';
 const AUTO_RUN_TIMER_KIND_BEFORE_RETRY = 'before_retry';
-const REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MIN_MINUTES = 1;
-const REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MAX_MINUTES = 1440;
-const REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES = 15;
 const AUTO_RUN_DELAY_MIN_MINUTES = 1;
 const AUTO_RUN_DELAY_MAX_MINUTES = 1440;
 const AUTO_RUN_RETRY_DELAY_MS = 3000;
@@ -1114,23 +1060,6 @@ Object.assign(PERSISTED_SETTING_DEFAULTS, {
   // Keep this in sync with sidepanel collectSettingsPayload(). These newer UI
   // sections used to live only in session state, so export/import missed them.
   sub2apiDefaultProxyName: '',
-  removedNetworkEnabled: false,
-  removedNetworkService: DEFAULT_REMOVED_NETWORK_SERVICE,
-  removedNetworkMode: DEFAULT_REMOVED_NETWORK_MODE,
-  removedNetworkApiUrl: '',
-  removedNetworkServiceProfiles: {},
-  removedNetworkAccountList: '',
-  removedNetworkAccountSessionPrefix: '',
-  removedNetworkAccountLifeMinutes: '',
-  removedNetworkPoolTargetCount: '20',
-  removedNetworkAutoSyncEnabled: false,
-  removedNetworkAutoSyncIntervalMinutes: REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES,
-  removedNetworkHost: '',
-  removedNetworkPort: 0,
-  removedNetworkProtocol: DEFAULT_REMOVED_NETWORK_PROTOCOL,
-  removedNetworkUsername: '',
-  removedNetworkPassword: '',
-  removedNetworkRegion: '',
   chatgptSessionReaderMode: 'us_pp',
   chatgptSessionReaderProfiles: {},
   upiRedeemFailedAccountRetryLimit: 3,
@@ -1401,181 +1330,6 @@ function normalizeAutoRunDelayMinutes(value) {
 
 function normalizeAutoRunFallbackThreadIntervalMinutes(value) {
   return requireSettingsNormalizers().normalizeAutoRunFallbackThreadIntervalMinutes(value);
-}
-
-function normalizeRemovedNetworkAutoSyncIntervalMinutes(value, fallback = REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES) {
-  const rawValue = String(value ?? '').trim();
-  if (!rawValue) {
-    return Math.min(
-      REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MAX_MINUTES,
-      Math.max(REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MIN_MINUTES, Math.floor(Number(fallback) || REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES))
-    );
-  }
-  const numeric = Number(rawValue);
-  if (!Number.isFinite(numeric)) {
-    return Math.min(
-      REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MAX_MINUTES,
-      Math.max(REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MIN_MINUTES, Math.floor(Number(fallback) || REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES))
-    );
-  }
-  return Math.min(
-    REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MAX_MINUTES,
-    Math.max(REMOVED_NETWORK_AUTO_SYNC_INTERVAL_MIN_MINUTES, Math.floor(numeric))
-  );
-}
-
-function normalizeRemovedNetworkProviderForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkProviderValue === 'function') {
-    return normalizeRemovedNetworkProviderValue(value);
-  }
-  const normalized = String(value || '').trim().toLowerCase();
-  if (REMOVED_NETWORK_ENABLED_SERVICE_VALUES.includes(normalized)) {
-    return normalized;
-  }
-  if (REMOVED_NETWORK_SERVICE_VALUES.includes(normalized)) {
-    return DEFAULT_REMOVED_NETWORK_SERVICE;
-  }
-  return DEFAULT_REMOVED_NETWORK_SERVICE;
-}
-
-function normalizeRemovedNetworkModeForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkMode === 'function') {
-    return normalizeRemovedNetworkMode(value);
-  }
-  const normalized = String(value || '').trim().toLowerCase();
-  return REMOVED_NETWORK_MODE_VALUES.includes(normalized) ? normalized : DEFAULT_REMOVED_NETWORK_MODE;
-}
-
-function normalizeRemovedNetworkProtocolForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkProtocol === 'function') {
-    return normalizeRemovedNetworkProtocol(value);
-  }
-  const normalized = String(value || '').trim().toLowerCase();
-  return REMOVED_NETWORK_PROTOCOL_VALUES.includes(normalized) ? normalized : DEFAULT_REMOVED_NETWORK_PROTOCOL;
-}
-
-function normalizeRemovedNetworkPortForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkPort === 'function') {
-    return normalizeRemovedNetworkPort(value);
-  }
-  const numeric = Number.parseInt(String(value || '').trim(), 10);
-  return Number.isInteger(numeric) && numeric > 0 && numeric <= 65535 ? numeric : 0;
-}
-
-function normalizeRemovedNetworkAccountListForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkAccountList === 'function') {
-    return normalizeRemovedNetworkAccountList(value || '');
-  }
-  return String(value || '')
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join('\n');
-}
-
-function normalizeRemovedNetworkAccountSessionPrefixForSettings(value = '') {
-  if (typeof normalizeRemovedNetworkAccountSessionPrefix === 'function') {
-    return normalizeRemovedNetworkAccountSessionPrefix(value || '');
-  }
-  return String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
-}
-
-function normalizeRemovedNetworkAccountLifeMinutesForSettings(value = '', fallback = '') {
-  if (typeof normalizeRemovedNetworkAccountLifeMinutes === 'function') {
-    return normalizeRemovedNetworkAccountLifeMinutes(value || '', fallback);
-  }
-  const rawValue = String(value ?? '').trim();
-  if (!rawValue) {
-    return String(fallback || '').trim();
-  }
-  const numeric = Number.parseInt(rawValue, 10);
-  return Number.isInteger(numeric) ? String(Math.max(1, Math.min(1440, numeric))) : String(fallback || '').trim();
-}
-
-function normalizeRemovedNetworkPoolTargetCountForSettings(value = '', fallback = 20) {
-  if (typeof normalizeRemovedNetworkPoolTargetCount === 'function') {
-    return normalizeRemovedNetworkPoolTargetCount(value || '', fallback);
-  }
-  const rawValue = String(value ?? '').trim();
-  const numeric = rawValue ? Number.parseInt(rawValue, 10) : Number(fallback);
-  return String(Math.max(1, Math.min(500, Number.isInteger(numeric) ? numeric : Number(fallback) || 20)));
-}
-
-function normalizeRemovedNetworkCurrentIndexForSettings(value = 0, fallback = 0) {
-  if (typeof normalizeRemovedNetworkCurrentIndex === 'function') {
-    return normalizeRemovedNetworkCurrentIndex(value, fallback);
-  }
-  const numeric = Number.parseInt(String(value ?? '').trim(), 10);
-  return Number.isInteger(numeric) && numeric >= 0 ? numeric : Math.max(0, Number(fallback) || 0);
-}
-
-function normalizeProxyPoolEntriesForSettings(value = [], provider = DEFAULT_REMOVED_NETWORK_SERVICE) {
-  if (typeof normalizeProxyPoolEntries === 'function') {
-    return normalizeProxyPoolEntries(value, provider);
-  }
-  const fallbackProvider = normalizeRemovedNetworkProviderForSettings(provider);
-  return (Array.isArray(value) ? value : [])
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null;
-      }
-      return {
-        ...entry,
-        provider: normalizeRemovedNetworkProviderForSettings(entry.provider || fallbackProvider),
-        host: String(entry.host || '').trim(),
-        port: String(normalizeRemovedNetworkPortForSettings(entry.port || '') || ''),
-        protocol: normalizeRemovedNetworkProtocolForSettings(entry.protocol || DEFAULT_REMOVED_NETWORK_PROTOCOL),
-        username: String(entry.username || '').trim(),
-        password: String(entry.password || ''),
-        region: String(entry.region || '').trim(),
-      };
-    })
-    .filter(Boolean);
-}
-
-function buildRemovedNetworkServiceProfileForSettings(state = {}) {
-  if (typeof buildRemovedNetworkServiceProfileFromState === 'function') {
-    return buildRemovedNetworkServiceProfileFromState(state);
-  }
-  return {
-    mode: normalizeRemovedNetworkModeForSettings(state?.removedNetworkMode || DEFAULT_REMOVED_NETWORK_MODE),
-    apiUrl: String(state?.removedNetworkApiUrl || '').trim(),
-    accountList: normalizeRemovedNetworkAccountListForSettings(state?.removedNetworkAccountList || ''),
-    accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefixForSettings(state?.removedNetworkAccountSessionPrefix || ''),
-    accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutesForSettings(state?.removedNetworkAccountLifeMinutes || ''),
-    poolTargetCount: normalizeRemovedNetworkPoolTargetCountForSettings(state?.removedNetworkPoolTargetCount || '', 20),
-    host: String(state?.removedNetworkHost || '').trim(),
-    port: String(normalizeRemovedNetworkPortForSettings(state?.removedNetworkPort || '') || ''),
-    protocol: normalizeRemovedNetworkProtocolForSettings(state?.removedNetworkProtocol || DEFAULT_REMOVED_NETWORK_PROTOCOL),
-    username: String(state?.removedNetworkUsername || '').trim(),
-    password: String(state?.removedNetworkPassword || ''),
-    region: String(state?.removedNetworkRegion || '').trim(),
-  };
-}
-
-function normalizeRemovedNetworkServiceProfilesForSettings(value = {}, fallbackState = {}) {
-  if (typeof normalizeRemovedNetworkServiceProfiles === 'function') {
-    return normalizeRemovedNetworkServiceProfiles(value || {}, fallbackState);
-  }
-  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  const fallbackProfile = buildRemovedNetworkServiceProfileForSettings(fallbackState || {});
-  const services = Array.from(new Set([
-    normalizeRemovedNetworkProviderForSettings(fallbackState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE),
-    DEFAULT_REMOVED_NETWORK_SERVICE,
-    ...Object.keys(raw).map((key) => normalizeRemovedNetworkProviderForSettings(key)),
-  ]));
-  const profiles = {};
-  services.forEach((service) => {
-    const source = raw[service] && typeof raw[service] === 'object' && !Array.isArray(raw[service])
-      ? raw[service]
-      : fallbackProfile;
-    profiles[service] = buildRemovedNetworkServiceProfileForSettings({
-      ...(fallbackState || {}),
-      ...source,
-    });
-  });
-  return profiles;
 }
 
 function normalizeAutoStepDelaySeconds(value, fallback = null) {
@@ -13780,7 +13534,6 @@ let autoRunTotalRuns = 1;
 let autoRunAttemptRun = 0;
 let autoRunSessionId = 0;
 let autoRunSessionSeed = 0;
-let removedNetworkAutoSyncRunning = false;
 const EMAIL_FETCH_MAX_ATTEMPTS = 5;
 const VERIFICATION_POLL_MAX_ROUNDS = 5;
 const STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS = 25000;
@@ -13871,229 +13624,6 @@ async function deleteAndBroadcastAccountRunHistoryRecords(recordIds = [], stateO
   const result = await accountRunHistoryHelpers.deleteAccountRunHistoryRecords(recordIds, stateOverride);
   await broadcastAccountRunHistoryUpdate();
   return result;
-}
-
-function resolveRemovedNetworkCandidateCountForAutoSwitch(state = {}, mode = 'account', provider = DEFAULT_REMOVED_NETWORK_SERVICE) {
-  const normalizedMode = typeof normalizeRemovedNetworkMode === 'function'
-    ? normalizeRemovedNetworkMode(mode)
-    : String(mode || 'account').trim().toLowerCase();
-  const normalizedProvider = typeof normalizeRemovedNetworkProviderValue === 'function'
-    ? normalizeRemovedNetworkProviderValue(provider)
-    : String(provider || DEFAULT_REMOVED_NETWORK_SERVICE).trim().toLowerCase();
-  if (normalizedMode === 'account' && typeof getAccountModeProxyPoolFromState === 'function') {
-    const pool = getAccountModeProxyPoolFromState(state, normalizedProvider);
-    return Array.isArray(pool) ? pool.length : 0;
-  }
-  if (typeof getRemovedNetworkRuntimeSnapshot === 'function') {
-    const runtime = getRemovedNetworkRuntimeSnapshot(state, normalizedMode, normalizedProvider);
-    return Array.isArray(runtime?.pool) ? runtime.pool.length : 0;
-  }
-  return 0;
-}
-
-function resolveRemovedNetworkAutoSyncIntervalMinutes(value, fallback = REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES) {
-  return normalizeRemovedNetworkAutoSyncIntervalMinutes(value, fallback);
-}
-
-async function clearRemovedNetworkAutoSyncAlarm() {
-  await chrome.alarms.clear(REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME);
-}
-
-async function ensureRemovedNetworkAutoSyncAlarm(stateOverride = null) {
-  if (!LEGACY_REMOVED_NETWORK_FEATURE_ENABLED) {
-    await clearRemovedNetworkAutoSyncAlarm();
-    return false;
-  }
-  const state = stateOverride || await getState();
-  const enabled = Boolean(state?.removedNetworkAutoSyncEnabled);
-  if (!enabled) {
-    await clearRemovedNetworkAutoSyncAlarm();
-    return false;
-  }
-  const intervalMinutes = resolveRemovedNetworkAutoSyncIntervalMinutes(
-    state?.removedNetworkAutoSyncIntervalMinutes,
-    PERSISTED_SETTING_DEFAULTS.removedNetworkAutoSyncIntervalMinutes
-  );
-  const existingAlarm = await chrome.alarms.get(REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME);
-  const existingPeriod = Number(existingAlarm?.periodInMinutes) || 0;
-  if (!existingAlarm || Math.abs(existingPeriod - intervalMinutes) > 0.0001) {
-    await chrome.alarms.clear(REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME);
-    await chrome.alarms.create(REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME, {
-      periodInMinutes: intervalMinutes,
-      delayInMinutes: intervalMinutes,
-    });
-  }
-  return true;
-}
-
-async function runRemovedNetworkAutoSync(trigger = 'alarm') {
-  if (!LEGACY_REMOVED_NETWORK_FEATURE_ENABLED) {
-    await clearRemovedNetworkAutoSyncAlarm();
-    return { skipped: true, reason: 'feature_disabled' };
-  }
-  if (removedNetworkAutoSyncRunning) {
-    return { skipped: true, reason: 'running' };
-  }
-  removedNetworkAutoSyncRunning = true;
-  try {
-    const state = await getState();
-    if (!state?.removedNetworkAutoSyncEnabled) {
-      await clearRemovedNetworkAutoSyncAlarm();
-      return { skipped: true, reason: 'disabled' };
-    }
-    if (!state?.removedNetworkEnabled) {
-      return { skipped: true, reason: 'proxy_disabled' };
-    }
-    const mode = typeof normalizeRemovedNetworkMode === 'function'
-      ? normalizeRemovedNetworkMode(state?.removedNetworkMode)
-      : String(state?.removedNetworkMode || 'account').trim().toLowerCase();
-    const result = await refreshRemovedNetworkPool({
-      state,
-      mode,
-      skipExitProbe: true,
-    });
-    if (typeof addLog === 'function') {
-      const display = String(result?.display || '').trim();
-      await addLog(
-        display
-          ? `IP 代理自动同步完成（${trigger}）：${display}`
-          : `IP 代理自动同步完成（${trigger}）。`,
-        'info'
-      ).catch(() => {});
-    }
-    return { skipped: false, result };
-  } catch (error) {
-    if (typeof addLog === 'function') {
-      await addLog(
-        `IP 代理自动同步失败：${error?.message || String(error || '未知错误')}`,
-        'warn'
-      ).catch(() => {});
-    }
-    return { skipped: true, reason: 'error', error: error?.message || String(error || '未知错误') };
-  } finally {
-    removedNetworkAutoSyncRunning = false;
-  }
-}
-
-async function disableLegacyRemovedNetworkFeatureRuntime() {
-  if (typeof clearRemovedNetworkAutoSyncAlarm === 'function') {
-    await clearRemovedNetworkAutoSyncAlarm().catch(() => {});
-  }
-  if (typeof clearRemovedNetworkSettings === 'function') {
-    await clearRemovedNetworkSettings({ resetLastAppliedAuthSnapshot: true }).catch(() => {});
-  }
-  if (typeof setRemovedNetworkLeakGuardEnabled === 'function') {
-    await setRemovedNetworkLeakGuardEnabled(false).catch(() => {});
-  }
-
-  const state = await getState().catch(() => ({}));
-  const patch = {
-    removedNetworkEnabled: false,
-    removedNetworkAutoSyncEnabled: false,
-    removedNetworkApplied: false,
-    removedNetworkAppliedReason: 'feature_removed',
-    removedNetworkAppliedAt: 0,
-    removedNetworkAppliedHost: '',
-    removedNetworkAppliedPort: 0,
-    removedNetworkAppliedRegion: '',
-    removedNetworkAppliedHasAuth: false,
-    removedNetworkAppliedProvider: '',
-    removedNetworkAppliedError: '',
-    removedNetworkAppliedWarning: '',
-    removedNetworkAppliedExitIp: '',
-    removedNetworkAppliedExitRegion: '',
-    removedNetworkAppliedExitDetecting: false,
-    removedNetworkAppliedExitError: '',
-    removedNetworkAppliedExitSource: '',
-    removedNetworkAppliedExitEndpoint: '',
-    removedNetworkPool: [],
-    removedNetworkCurrentIndex: 0,
-    removedNetworkCurrent: null,
-    removedNetworkApiPool: [],
-    removedNetworkApiCurrentIndex: 0,
-    removedNetworkApiCurrent: null,
-    removedNetworkAccountPool: [],
-    removedNetworkAccountCurrentIndex: 0,
-    removedNetworkAccountCurrent: null,
-    removedNetworkExitRegion: '',
-  };
-  const shouldUpdateRuntime = Object.keys(patch).some((key) => {
-    const nextValue = patch[key];
-    const currentValue = state?.[key];
-    return JSON.stringify(currentValue) !== JSON.stringify(nextValue);
-  });
-  if (shouldUpdateRuntime) {
-    await setState(patch).catch(() => {});
-    broadcastDataUpdate(patch);
-  }
-  await setPersistentSettings({
-    removedNetworkEnabled: false,
-    removedNetworkAutoSyncEnabled: false,
-  }).catch(() => {});
-}
-
-async function maybeSwitchRemovedNetworkAfterAutoRunRoundSuccess(payload = {}) {
-  if (!LEGACY_REMOVED_NETWORK_FEATURE_ENABLED) {
-    return null;
-  }
-  if (typeof switchRemovedNetwork !== 'function') {
-    return null;
-  }
-  const successfulRuns = Number(payload?.successfulRuns) || 0;
-  if (successfulRuns <= 0) {
-    return null;
-  }
-
-  const state = await getState();
-  if (!state?.removedNetworkEnabled) {
-    return null;
-  }
-
-  const mode = typeof normalizeRemovedNetworkMode === 'function'
-    ? normalizeRemovedNetworkMode(state?.removedNetworkMode)
-    : String(state?.removedNetworkMode || 'account').trim().toLowerCase();
-  const provider = typeof normalizeRemovedNetworkProviderValue === 'function'
-    ? normalizeRemovedNetworkProviderValue(state?.removedNetworkService)
-    : String(state?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE).trim().toLowerCase();
-  const threshold = typeof resolveRemovedNetworkAutoSwitchThreshold === 'function'
-    ? resolveRemovedNetworkAutoSwitchThreshold(state)
-    : Math.max(1, Math.min(500, Number(state?.removedNetworkPoolTargetCount) || 20));
-  if (successfulRuns % threshold !== 0) {
-    return null;
-  }
-
-  const candidateCount = resolveRemovedNetworkCandidateCountForAutoSwitch(state, mode, provider);
-  if (candidateCount <= 1) {
-    await addLog(
-      `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），但当前仅 ${candidateCount} 条可切换代理，已跳过自动切换。`,
-      'info'
-    );
-    return {
-      skipped: true,
-      reason: 'insufficient_candidates',
-      candidateCount,
-      threshold,
-      successfulRuns,
-    };
-  }
-
-  const switchResult = await switchRemovedNetwork('next', {
-    mode,
-    state,
-    forceRefresh: mode === 'api',
-    maxItems: typeof resolveRemovedNetworkPoolTargetCountForMode === 'function'
-      ? resolveRemovedNetworkPoolTargetCountForMode(state, mode)
-      : undefined,
-  });
-  const display = String(switchResult?.display || '').trim();
-  const routingApplied = Boolean(switchResult?.proxyRouting?.applied);
-  await addLog(
-    routingApplied
-      ? `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），已自动切换代理：${display || '已切换到下一条'}。`
-      : `任务切换阈值命中（成功 ${successfulRuns} 轮 / 阈值 ${threshold}），已尝试自动切换代理，但连通性仍异常。`,
-    routingApplied ? 'ok' : 'warn'
-  );
-  return switchResult;
 }
 
 function resolveCardHelperHelperBaseUrl(apiUrl = '') {
@@ -14289,9 +13819,6 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isStopError,
   launchAutoRunTimerPlan,
   normalizeAutoRunFallbackThreadIntervalMinutes,
-  onAutoRunRoundSuccess: LEGACY_REMOVED_NETWORK_FEATURE_ENABLED
-    ? ((payload = {}) => maybeSwitchRemovedNetworkAfterAutoRunRoundSuccess(payload))
-    : null,
   persistAutoRunTimerPlan,
   resetState,
   runAutoSequenceFromNode: (...args) => runAutoSequenceFromNode(...args),
@@ -15548,7 +15075,6 @@ const chatgptSessionReaderBillingExecutor = self.MultiPageBackgroundChatgptSessi
   throwIfStopped,
   waitForTabCompleteUntilStopped,
   waitForTabUrlMatchUntilStopped,
-  probeRemovedNetworkExit: null,
 });
 const legacyPayManualConfirmExecutor = self.MultiPageBackgroundLegacyPayManualConfirm?.createLegacyPayManualConfirmExecutor({
   addLog,
@@ -15793,7 +15319,6 @@ messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   buildLuckmailSessionSettingsPayload,
   buildPersistentSettingsPayload,
   broadcastDataUpdate,
-  applyRemovedNetworkSettingsFromState: null,
   cancelScheduledAutoRun,
   checkIcloudSession,
   clearAccountRunHistory: (...args) => clearAndBroadcastAccountRunHistory(...args),
@@ -15888,9 +15413,6 @@ messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   isStopError,
   isTabAlive,
   launchAutoRunTimerPlan,
-  ensureRemovedNetworkAutoSyncAlarm: null,
-  clearRemovedNetworkAutoSyncAlarm: null,
-  runRemovedNetworkAutoSync: null,
   listIcloudAliases,
   listLuckmailPurchasesForManagement,
   markCurrentCustomEmailPoolEntryUsed,
@@ -15907,7 +15429,6 @@ messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   patchMail2925Account,
   registerTab,
   requestStop,
-  probeRemovedNetworkExit: null,
   resetState,
   resumeRemovedPaymentWorkerJob: null,
   resumeAutoRun,
@@ -15915,8 +15436,6 @@ messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   sendTabMessageUntilStopped,
   selectLuckmailPurchase,
   sleepWithStop,
-  switchRemovedNetwork: null,
-  changeRemovedNetworkExit: null,
   setCurrentHotmailAccount,
   setCurrentMail2925Account,
   setContributionMode,
@@ -18310,11 +17829,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     });
     return;
   }
-  if (LEGACY_REMOVED_NETWORK_FEATURE_ENABLED && alarm.name === REMOVED_NETWORK_AUTO_SYNC_ALARM_NAME) {
-    runRemovedNetworkAutoSync('alarm').catch((err) => {
-      console.error(LOG_PREFIX, 'Failed to run IP proxy auto sync alarm:', err);
-    });
-  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -18327,23 +17841,14 @@ chrome.runtime.onStartup.addListener(() => {
   restoreAutoRunTimerIfNeeded().catch((err) => {
     handleBackgroundStartupError('restore auto run timer on startup', err);
   });
-  disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
-    handleBackgroundStartupError('disable legacy IP proxy feature on startup', err);
-  });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   restoreAutoRunTimerIfNeeded().catch((err) => {
     handleBackgroundStartupError('restore auto run timer on install/update', err);
   });
-  disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
-    handleBackgroundStartupError('disable legacy IP proxy feature on install/update', err);
-  });
 });
 
 restoreAutoRunTimerIfNeeded().catch((err) => {
   handleBackgroundStartupError('restore auto run timer', err);
-});
-disableLegacyRemovedNetworkFeatureRuntime().catch((err) => {
-  handleBackgroundStartupError('disable legacy IP proxy feature', err);
 });

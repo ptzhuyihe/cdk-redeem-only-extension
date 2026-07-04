@@ -117,66 +117,6 @@ const rowSub2ApiAccountPriority = document.getElementById('row-sub2api-account-p
 const inputSub2ApiAccountPriority = document.getElementById('input-sub2api-account-priority');
 const rowSub2ApiDefaultProxy = document.getElementById('row-sub2api-default-proxy');
 const inputSub2ApiDefaultProxy = document.getElementById('input-sub2api-default-proxy');
-const rowRemovedNetworkEnabled = document.getElementById('row-removed-network-enabled');
-const inputRemovedNetworkEnabled = document.getElementById('input-removed-network-enabled');
-const btnToggleRemovedNetworkSection = document.getElementById('btn-toggle-removed-network-section');
-const removedNetworkEnabledStatus = document.getElementById('removed-network-enabled-status');
-const removedNetworkEnabledStatusDot = document.getElementById('removed-network-enabled-status-dot');
-const removedNetworkEnabledStatusText = document.getElementById('removed-network-enabled-status-text');
-const removedNetworkEnabledButtons = Array.from(document.querySelectorAll('[data-removed-network-enabled]'));
-const rowRemovedNetworkFold = document.getElementById('row-removed-network-fold');
-const rowRemovedNetworkService = document.getElementById('row-removed-network-service');
-const selectRemovedNetworkService = document.getElementById('select-removed-network-service');
-const btnRemovedNetworkServiceLogin = document.getElementById('btn-removed-network-service-login');
-const rowRemovedNetworkMode = document.getElementById('row-removed-network-mode');
-const removedNetworkModeButtons = Array.from(document.querySelectorAll('[data-removed-network-mode]'));
-const rowRemovedNetworkLayout = document.getElementById('row-removed-network-layout');
-const removedNetworkLayout = document.getElementById('removed-network-layout');
-const removedNetworkApiPanel = document.getElementById('removed-network-api-panel');
-const rowRemovedNetworkApiUrl = document.getElementById('row-removed-network-api-url');
-const inputRemovedNetworkApiUrl = document.getElementById('input-removed-network-api-url');
-const btnToggleRemovedNetworkApiUrl = document.getElementById('btn-toggle-removed-network-api-url');
-const rowRemovedNetworkAccountList = document.getElementById('row-removed-network-account-list');
-const inputRemovedNetworkAccountList = document.getElementById('input-removed-network-account-list');
-const rowRemovedNetworkAccountSessionPrefix = document.getElementById('row-removed-network-account-session-prefix');
-const inputRemovedNetworkAccountSessionPrefix = document.getElementById('input-removed-network-account-session-prefix');
-const rowRemovedNetworkAccountLifeMinutes = document.getElementById('row-removed-network-account-life-minutes');
-const inputRemovedNetworkAccountLifeMinutes = document.getElementById('input-removed-network-account-life-minutes');
-const rowRemovedNetworkPoolTargetCount = document.getElementById('row-removed-network-pool-target-count');
-const inputRemovedNetworkPoolTargetCount = document.getElementById('input-removed-network-pool-target-count');
-const rowRemovedNetworkAutoSyncEnabled = document.getElementById('row-removed-network-auto-sync-enabled');
-const inputRemovedNetworkAutoSyncEnabled = document.getElementById('input-removed-network-auto-sync-enabled');
-const rowRemovedNetworkAutoSyncInterval = document.getElementById('row-removed-network-auto-sync-interval');
-const inputRemovedNetworkAutoSyncIntervalMinutes = document.getElementById('input-removed-network-auto-sync-interval-minutes');
-const rowRemovedNetworkHost = document.getElementById('row-removed-network-host');
-const inputRemovedNetworkHost = document.getElementById('input-removed-network-host');
-const rowRemovedNetworkPort = document.getElementById('row-removed-network-port');
-const inputRemovedNetworkPort = document.getElementById('input-removed-network-port');
-const rowRemovedNetworkProtocol = document.getElementById('row-removed-network-protocol');
-const selectRemovedNetworkProtocol = document.getElementById('select-removed-network-protocol');
-const rowRemovedNetworkUsername = document.getElementById('row-removed-network-username');
-const inputRemovedNetworkUsername = document.getElementById('input-removed-network-username');
-const btnToggleRemovedNetworkUsername = document.getElementById('btn-toggle-removed-network-username');
-const rowRemovedNetworkPassword = document.getElementById('row-removed-network-password');
-const inputRemovedNetworkPassword = document.getElementById('input-removed-network-password');
-const btnToggleRemovedNetworkPassword = document.getElementById('btn-toggle-removed-network-password');
-const rowRemovedNetworkRegion = document.getElementById('row-removed-network-region');
-const inputRemovedNetworkRegion = document.getElementById('input-removed-network-region');
-const rowRemovedNetworkActions = document.getElementById('row-removed-network-actions');
-const removedNetworkActionButtons = document.getElementById('removed-network-action-buttons');
-const removedNetworkActionHint = document.getElementById('removed-network-action-hint');
-const btnRemovedNetworkRefresh = document.getElementById('btn-removed-network-refresh');
-const btnRemovedNetworkNext = document.getElementById('btn-removed-network-next');
-const btnRemovedNetworkChange = document.getElementById('btn-removed-network-change');
-const btnRemovedNetworkProbe = document.getElementById('btn-removed-network-probe');
-const btnRemovedNetworkCheckIp = document.getElementById('btn-removed-network-check-ip');
-const removedNetworkCurrent = document.getElementById('removed-network-current');
-const rowRemovedNetworkRuntimeStatus = document.getElementById('row-removed-network-runtime-status');
-const removedNetworkRuntimeStatus = document.getElementById('removed-network-runtime-status');
-const removedNetworkRuntimeDot = document.getElementById('removed-network-runtime-dot');
-const removedNetworkRuntimeText = document.getElementById('removed-network-runtime-text');
-const removedNetworkRuntimeDetails = document.getElementById('removed-network-runtime-details');
-const removedNetworkRuntimeDetailsText = document.getElementById('removed-network-runtime-details-text');
 const rowCodex2ApiUrl = document.getElementById('row-codex2api-url');
 const inputCodex2ApiUrl = document.getElementById('input-codex2api-url');
 const rowCodex2ApiAdminKey = document.getElementById('row-codex2api-admin-key');
@@ -1541,15 +1481,6 @@ const REMOVED_SMS_VENDOR_FALLBACK_COUNTRY_ITEMS = Object.freeze([
   { id: 6, label: '印度尼西亚 +62 (Indonesia)', searchText: '6 ID Indonesia 印度尼西亚 +62' },
   { id: 7, label: '马来西亚 +60 (Malaysia)', searchText: '7 MY Malaysia 马来西亚 +60' },
 ]);
-const DEFAULT_REMOVED_NETWORK_SERVICE = 'removed-network-service';
-const SUPPORTED_REMOVED_NETWORK_SERVICES = ['removed-network-service', 'lumiproxy', 'iproyal', 'omegaproxy'];
-const REMOVED_NETWORK_ENABLED_SERVICES = ['removed-network-service'];
-const DEFAULT_REMOVED_NETWORK_MODE = 'account';
-const SUPPORTED_REMOVED_NETWORK_MODES = ['api', 'account'];
-const DEFAULT_REMOVED_NETWORK_PROTOCOL = 'http';
-const SUPPORTED_REMOVED_NETWORK_PROTOCOLS = ['http', 'https', 'socks4', 'socks5'];
-const REMOVED_NETWORK_API_MODE_ENABLED = false;
-const REMOVED_NETWORK_ACCOUNT_LIST_ENABLED = false;
 
 function getManagedAliasUtils() {
   return window.MultiPageManagedAliasUtils || null;
@@ -1855,7 +1786,6 @@ function shouldAttachAutomationWindow(message = {}) {
     'RESUME_AUTO_RUN',
     'START_SCHEDULED_AUTO_RUN_NOW',
     'SKIP_AUTO_RUN_COUNTDOWN',
-    'PROBE_REMOVED_NETWORK_EXIT',
   ].includes(String(message?.type || '').trim());
 }
 
@@ -2168,13 +2098,6 @@ const MAIL_PROVIDER_LOGIN_CONFIGS = {
   '2925': {
     label: '2925 邮箱',
     url: 'https://2925.com/#/mailList',
-  },
-};
-const REMOVED_NETWORK_SERVICE_LOGIN_CONFIGS = {
-  'removed-network-service': {
-    label: 'RemovedNetworkService',
-    url: 'https://www.removed-network-service.com/',
-    buttonLabel: '注册',
   },
 };
 
@@ -6414,83 +6337,6 @@ function collectSettingsPayload() {
     : '';
   const normalizedIcloudTargetMailboxType = normalizeIcloudTargetMailboxType(icloudTargetMailboxTypeValue);
   const normalizedIcloudForwardMailProvider = normalizeIcloudForwardMailProvider(icloudForwardMailProviderValue);
-  const normalizeRemovedNetworkServiceSafe = typeof normalizeRemovedNetworkService === 'function'
-    ? normalizeRemovedNetworkService
-    : ((value = '') => {
-      const normalized = String(value || '').trim().toLowerCase();
-      return ['removed-network-service'].includes(normalized)
-        ? normalized
-        : 'removed-network-service';
-    });
-  const normalizeRemovedNetworkModeSafe = typeof normalizeRemovedNetworkMode === 'function'
-    ? normalizeRemovedNetworkMode
-    : ((value = '') => {
-      const normalized = String(value || '').trim().toLowerCase();
-      return ['api', 'account'].includes(normalized) ? normalized : 'account';
-    });
-  const normalizeRemovedNetworkProtocolSafe = typeof normalizeRemovedNetworkProtocol === 'function'
-    ? normalizeRemovedNetworkProtocol
-    : ((value = '') => {
-      const normalized = String(value || '').trim().toLowerCase();
-      return ['http', 'https', 'socks4', 'socks5'].includes(normalized) ? normalized : 'http';
-    });
-  const normalizeRemovedNetworkPortSafe = typeof normalizeRemovedNetworkPort === 'function'
-    ? normalizeRemovedNetworkPort
-    : ((value = '') => {
-      const numeric = Number.parseInt(String(value || '').trim(), 10);
-      if (!Number.isInteger(numeric) || numeric <= 0 || numeric > 65535) {
-        return 0;
-      }
-      return numeric;
-    });
-  const normalizeRemovedNetworkPoolTargetCountSafe = typeof normalizeRemovedNetworkPoolTargetCount === 'function'
-    ? normalizeRemovedNetworkPoolTargetCount
-    : ((value = '', fallback = 20) => {
-      const rawValue = String(value ?? '').trim();
-      if (!rawValue) {
-        return String(Math.max(1, Math.min(500, Number(fallback) || 20)));
-      }
-      const numeric = Number.parseInt(rawValue, 10);
-      if (!Number.isInteger(numeric)) {
-        return String(Math.max(1, Math.min(500, Number(fallback) || 20)));
-      }
-      return String(Math.max(1, Math.min(500, numeric)));
-    });
-  const normalizeRemovedNetworkAutoSyncIntervalMinutesSafe = (value = '', fallback = 15) => {
-    const rawValue = String(value ?? '').trim();
-    if (!rawValue) {
-      return Math.max(1, Math.min(1440, Number(fallback) || 15));
-    }
-    const numeric = Number.parseInt(rawValue, 10);
-    if (!Number.isFinite(numeric)) {
-      return Math.max(1, Math.min(1440, Number(fallback) || 15));
-    }
-    return Math.max(1, Math.min(1440, numeric));
-  };
-  const normalizeRemovedNetworkAccountLifeMinutesSafe = typeof normalizeRemovedNetworkAccountLifeMinutes === 'function'
-    ? normalizeRemovedNetworkAccountLifeMinutes
-    : ((value = '', fallback = '') => {
-      const rawValue = String(value ?? '').trim();
-      if (!rawValue) {
-        return String(fallback || '').trim();
-      }
-      const numeric = Number.parseInt(rawValue, 10);
-      if (!Number.isInteger(numeric)) {
-        return String(fallback || '').trim();
-      }
-      return String(Math.max(1, Math.min(1440, numeric)));
-    });
-  const normalizeRemovedNetworkAccountSessionPrefixSafe = typeof normalizeRemovedNetworkAccountSessionPrefix === 'function'
-    ? normalizeRemovedNetworkAccountSessionPrefix
-    : ((value = '') => String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32));
-  const normalizeRemovedNetworkAccountListSafe = typeof normalizeRemovedNetworkAccountList === 'function'
-    ? normalizeRemovedNetworkAccountList
-    : ((value = '') => String(value || '')
-      .replace(/\r/g, '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join('\n'));
   const normalizeUpiInfoOtpChannelSafe = typeof normalizeUpiInfoOtpChannelValue === 'function'
     ? normalizeUpiInfoOtpChannelValue
     : ((value = '') => {
@@ -6521,141 +6367,6 @@ function collectSettingsPayload() {
         return fallback;
       }
     });
-  const getSelectedRemovedNetworkEnabledSafe = typeof getSelectedRemovedNetworkEnabled === 'function'
-    ? getSelectedRemovedNetworkEnabled
-    : (() => false);
-  const getSelectedRemovedNetworkModeSafe = typeof getSelectedRemovedNetworkMode === 'function'
-    ? getSelectedRemovedNetworkMode
-    : (() => 'account');
-  const isRemovedNetworkApiModeEnabledSafe = typeof isRemovedNetworkApiModeAvailable === 'function'
-    ? Boolean(isRemovedNetworkApiModeAvailable())
-    : (typeof REMOVED_NETWORK_API_MODE_ENABLED !== 'undefined' ? Boolean(REMOVED_NETWORK_API_MODE_ENABLED) : false);
-  const normalizeRemovedNetworkServiceProfilesSafe = typeof normalizeRemovedNetworkServiceProfiles === 'function'
-    ? normalizeRemovedNetworkServiceProfiles
-    : ((rawValue = {}, fallbackState = {}) => {
-      const raw = (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue))
-        ? rawValue
-        : {};
-      const services = ['removed-network-service'];
-      const fallbackProfile = {
-        mode: normalizeRemovedNetworkModeSafe(fallbackState?.removedNetworkMode || 'account'),
-        apiUrl: String(fallbackState?.removedNetworkApiUrl || '').trim(),
-        accountList: normalizeRemovedNetworkAccountListSafe(fallbackState?.removedNetworkAccountList || ''),
-        accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefixSafe(fallbackState?.removedNetworkAccountSessionPrefix || ''),
-        accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutesSafe(fallbackState?.removedNetworkAccountLifeMinutes || ''),
-        poolTargetCount: normalizeRemovedNetworkPoolTargetCountSafe(fallbackState?.removedNetworkPoolTargetCount || '', 20),
-        host: String(fallbackState?.removedNetworkHost || '').trim(),
-        port: String(normalizeRemovedNetworkPortSafe(fallbackState?.removedNetworkPort || '') || ''),
-        protocol: normalizeRemovedNetworkProtocolSafe(fallbackState?.removedNetworkProtocol || ''),
-        username: String(fallbackState?.removedNetworkUsername || '').trim(),
-        password: String(fallbackState?.removedNetworkPassword || ''),
-        region: String(fallbackState?.removedNetworkRegion || '').trim(),
-      };
-      const result = {};
-      services.forEach((service) => {
-        const candidate = raw?.[service];
-        const source = (candidate && typeof candidate === 'object' && !Array.isArray(candidate))
-          ? candidate
-          : fallbackProfile;
-        result[service] = {
-          mode: normalizeRemovedNetworkModeSafe(source.mode || fallbackProfile.mode),
-          apiUrl: String(source.apiUrl || fallbackProfile.apiUrl || '').trim(),
-          accountList: normalizeRemovedNetworkAccountListSafe(source.accountList || fallbackProfile.accountList),
-          accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefixSafe(source.accountSessionPrefix || fallbackProfile.accountSessionPrefix),
-          accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutesSafe(source.accountLifeMinutes || fallbackProfile.accountLifeMinutes),
-          poolTargetCount: normalizeRemovedNetworkPoolTargetCountSafe(source.poolTargetCount || fallbackProfile.poolTargetCount, 20),
-          host: String(source.host || fallbackProfile.host || '').trim(),
-          port: String(normalizeRemovedNetworkPortSafe(source.port || fallbackProfile.port || '') || ''),
-          protocol: normalizeRemovedNetworkProtocolSafe(source.protocol || fallbackProfile.protocol),
-          username: String(source.username || fallbackProfile.username || '').trim(),
-          password: String(source.password || fallbackProfile.password || ''),
-          region: String(source.region || fallbackProfile.region || '').trim(),
-        };
-      });
-      return result;
-    });
-  const removedNetworkServiceRawValue = typeof selectRemovedNetworkService !== 'undefined'
-    ? selectRemovedNetworkService?.value
-    : '';
-  const removedNetworkApiUrlRawValue = typeof inputRemovedNetworkApiUrl !== 'undefined'
-    ? inputRemovedNetworkApiUrl?.value
-    : '';
-  const removedNetworkAccountListRawValue = typeof inputRemovedNetworkAccountList !== 'undefined'
-    ? inputRemovedNetworkAccountList?.value
-    : '';
-  const removedNetworkAccountSessionPrefixRawValue = typeof inputRemovedNetworkAccountSessionPrefix !== 'undefined'
-    ? inputRemovedNetworkAccountSessionPrefix?.value
-    : '';
-  const removedNetworkAccountLifeMinutesRawValue = typeof inputRemovedNetworkAccountLifeMinutes !== 'undefined'
-    ? inputRemovedNetworkAccountLifeMinutes?.value
-    : '';
-  const removedNetworkPoolTargetCountRawValue = typeof inputRemovedNetworkPoolTargetCount !== 'undefined'
-    ? inputRemovedNetworkPoolTargetCount?.value
-    : '';
-  const removedNetworkAutoSyncEnabledRawValue = typeof inputRemovedNetworkAutoSyncEnabled !== 'undefined'
-    ? Boolean(inputRemovedNetworkAutoSyncEnabled?.checked)
-    : Boolean(latestState?.removedNetworkAutoSyncEnabled);
-  const removedNetworkAutoSyncIntervalMinutesRawValue = typeof inputRemovedNetworkAutoSyncIntervalMinutes !== 'undefined'
-    ? inputRemovedNetworkAutoSyncIntervalMinutes?.value
-    : '';
-  const removedNetworkHostRawValue = typeof inputRemovedNetworkHost !== 'undefined'
-    ? inputRemovedNetworkHost?.value
-    : '';
-  const removedNetworkPortRawValue = typeof inputRemovedNetworkPort !== 'undefined'
-    ? inputRemovedNetworkPort?.value
-    : '';
-  const removedNetworkProtocolRawValue = typeof selectRemovedNetworkProtocol !== 'undefined'
-    ? selectRemovedNetworkProtocol?.value
-    : '';
-  const removedNetworkUsernameRawValue = typeof inputRemovedNetworkUsername !== 'undefined'
-    ? inputRemovedNetworkUsername?.value
-    : '';
-  const removedNetworkPasswordRawValue = typeof inputRemovedNetworkPassword !== 'undefined'
-    ? inputRemovedNetworkPassword?.value
-    : '';
-  const removedNetworkRegionRawValue = typeof inputRemovedNetworkRegion !== 'undefined'
-    ? inputRemovedNetworkRegion?.value
-    : '';
-  const selectedRemovedNetworkService = normalizeRemovedNetworkServiceSafe(
-    removedNetworkServiceRawValue || latestState?.removedNetworkService || 'removed-network-service'
-  );
-  const selectedRemovedNetworkModeRaw = normalizeRemovedNetworkModeSafe(getSelectedRemovedNetworkModeSafe());
-  const selectedRemovedNetworkMode = (!isRemovedNetworkApiModeEnabledSafe && selectedRemovedNetworkModeRaw === 'api')
-    ? 'account'
-    : selectedRemovedNetworkModeRaw;
-  const currentRemovedNetworkServiceProfile = {
-    mode: selectedRemovedNetworkMode,
-    apiUrl: String(removedNetworkApiUrlRawValue || '').trim(),
-    accountList: normalizeRemovedNetworkAccountListSafe(removedNetworkAccountListRawValue || ''),
-    accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefixSafe(removedNetworkAccountSessionPrefixRawValue || ''),
-    accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutesSafe(removedNetworkAccountLifeMinutesRawValue || ''),
-    poolTargetCount: normalizeRemovedNetworkPoolTargetCountSafe(removedNetworkPoolTargetCountRawValue || '', 20),
-    host: String(removedNetworkHostRawValue || '').trim(),
-    port: String(normalizeRemovedNetworkPortSafe(removedNetworkPortRawValue || '') || ''),
-    protocol: normalizeRemovedNetworkProtocolSafe(removedNetworkProtocolRawValue),
-    username: String(removedNetworkUsernameRawValue || '').trim(),
-    password: String(removedNetworkPasswordRawValue || ''),
-    region: String(removedNetworkRegionRawValue || '').trim(),
-  };
-  const removedNetworkServiceProfiles = normalizeRemovedNetworkServiceProfilesSafe({
-    ...(latestState?.removedNetworkServiceProfiles || {}),
-    [selectedRemovedNetworkService]: currentRemovedNetworkServiceProfile,
-  }, {
-    ...(latestState || {}),
-    removedNetworkService: selectedRemovedNetworkService,
-    removedNetworkMode: currentRemovedNetworkServiceProfile.mode,
-    removedNetworkApiUrl: currentRemovedNetworkServiceProfile.apiUrl,
-    removedNetworkAccountList: currentRemovedNetworkServiceProfile.accountList,
-    removedNetworkAccountSessionPrefix: currentRemovedNetworkServiceProfile.accountSessionPrefix,
-    removedNetworkAccountLifeMinutes: currentRemovedNetworkServiceProfile.accountLifeMinutes,
-    removedNetworkPoolTargetCount: currentRemovedNetworkServiceProfile.poolTargetCount,
-    removedNetworkHost: currentRemovedNetworkServiceProfile.host,
-    removedNetworkPort: currentRemovedNetworkServiceProfile.port,
-    removedNetworkProtocol: currentRemovedNetworkServiceProfile.protocol,
-    removedNetworkUsername: currentRemovedNetworkServiceProfile.username,
-    removedNetworkPassword: currentRemovedNetworkServiceProfile.password,
-    removedNetworkRegion: currentRemovedNetworkServiceProfile.region,
-  });
   const mail2925UseAccountPool = typeof inputMail2925UseAccountPool !== 'undefined'
     ? Boolean(inputMail2925UseAccountPool?.checked)
     : Boolean(latestState?.mail2925UseAccountPool);
@@ -7267,26 +6978,6 @@ function collectSettingsPayload() {
         : latestState?.sub2apiAccountPriority
     ),
     sub2apiDefaultProxyName: String(inputSub2ApiDefaultProxy?.value || latestState?.sub2apiDefaultProxyName || '').trim(),
-    removedNetworkEnabled: getSelectedRemovedNetworkEnabledSafe(),
-    removedNetworkService: selectedRemovedNetworkService,
-    removedNetworkMode: currentRemovedNetworkServiceProfile.mode,
-    removedNetworkApiUrl: currentRemovedNetworkServiceProfile.apiUrl,
-    removedNetworkServiceProfiles,
-    removedNetworkAccountList: currentRemovedNetworkServiceProfile.accountList,
-    removedNetworkAccountSessionPrefix: currentRemovedNetworkServiceProfile.accountSessionPrefix,
-    removedNetworkAccountLifeMinutes: currentRemovedNetworkServiceProfile.accountLifeMinutes,
-    removedNetworkPoolTargetCount: currentRemovedNetworkServiceProfile.poolTargetCount,
-    removedNetworkAutoSyncEnabled: Boolean(removedNetworkAutoSyncEnabledRawValue),
-    removedNetworkAutoSyncIntervalMinutes: normalizeRemovedNetworkAutoSyncIntervalMinutesSafe(
-      removedNetworkAutoSyncIntervalMinutesRawValue,
-      latestState?.removedNetworkAutoSyncIntervalMinutes
-    ),
-    removedNetworkHost: currentRemovedNetworkServiceProfile.host,
-    removedNetworkPort: normalizeRemovedNetworkPortSafe(currentRemovedNetworkServiceProfile.port),
-    removedNetworkProtocol: currentRemovedNetworkServiceProfile.protocol,
-    removedNetworkUsername: currentRemovedNetworkServiceProfile.username,
-    removedNetworkPassword: currentRemovedNetworkServiceProfile.password,
-    removedNetworkRegion: currentRemovedNetworkServiceProfile.region,
     codex2apiUrl: inputCodex2ApiUrl.value.trim(),
     codex2apiAdminKey: inputCodex2ApiAdminKey.value.trim(),
     plusModeEnabled: fixedPlusModeEnabled,
@@ -14915,52 +14606,6 @@ function applySettingsState(state) {
       totpMfaAfterProfileEnabled: state?.totpMfaAfterProfileEnabled !== false,
     });
   }
-  const fallbackRemovedNetworkService = 'removed-network-service';
-  const fallbackRemovedNetworkMode = 'account';
-  const fallbackRemovedNetworkProtocol = 'http';
-  const resolveRemovedNetworkService = (value) => (typeof normalizeRemovedNetworkService === 'function'
-    ? normalizeRemovedNetworkService(value)
-    : String(value || fallbackRemovedNetworkService).trim().toLowerCase() || fallbackRemovedNetworkService);
-  const resolveRemovedNetworkMode = (value) => {
-    if (typeof normalizeRemovedNetworkModeForCurrentRelease === 'function') {
-      return normalizeRemovedNetworkModeForCurrentRelease(value);
-    }
-    if (typeof normalizeRemovedNetworkMode === 'function') {
-      return normalizeRemovedNetworkMode(value);
-    }
-    const normalized = String(value || fallbackRemovedNetworkMode).trim().toLowerCase();
-    return normalized || fallbackRemovedNetworkMode;
-  };
-  const resolveRemovedNetworkProtocol = (value) => (typeof normalizeRemovedNetworkProtocol === 'function'
-    ? normalizeRemovedNetworkProtocol(value)
-    : String(value || fallbackRemovedNetworkProtocol).trim().toLowerCase() || fallbackRemovedNetworkProtocol);
-  const resolveRemovedNetworkPort = (value) => {
-    if (typeof normalizeRemovedNetworkPort === 'function') {
-      return normalizeRemovedNetworkPort(value);
-    }
-    const numeric = Number.parseInt(String(value || '').trim(), 10);
-    return Number.isInteger(numeric) && numeric > 0 && numeric <= 65535 ? numeric : 0;
-  };
-  const resolveRemovedNetworkAccountList = (value) => (typeof normalizeRemovedNetworkAccountList === 'function'
-    ? normalizeRemovedNetworkAccountList(value || '')
-    : String(value || '').replace(/\r/g, '').trim());
-  const resolveRemovedNetworkSessionPrefix = (value) => (typeof normalizeRemovedNetworkAccountSessionPrefix === 'function'
-    ? normalizeRemovedNetworkAccountSessionPrefix(value || '')
-    : String(value || '').trim());
-  const resolveRemovedNetworkAccountLifeMinutes = (value) => (typeof normalizeRemovedNetworkAccountLifeMinutes === 'function'
-    ? normalizeRemovedNetworkAccountLifeMinutes(value || '')
-    : String(value || '').trim());
-  const resolveRemovedNetworkPoolTargetCount = (value) => (typeof normalizeRemovedNetworkPoolTargetCount === 'function'
-    ? normalizeRemovedNetworkPoolTargetCount(value || '', 20)
-    : String(value || '20').trim() || '20');
-  const resolveRemovedNetworkAutoSyncEnabled = (value) => Boolean(value);
-  const resolveRemovedNetworkAutoSyncIntervalMinutes = (value) => {
-    const numeric = Number.parseInt(String(value ?? '').trim(), 10);
-    if (!Number.isFinite(numeric)) {
-      return 15;
-    }
-    return Math.max(1, Math.min(1440, numeric));
-  };
   syncLatestState(state);
   if (typeof applyOperationDelayState === 'function') {
     applyOperationDelayState(state);
@@ -15125,91 +14770,6 @@ function applySettingsState(state) {
   }
   if (inputSub2ApiDefaultProxy) {
     inputSub2ApiDefaultProxy.value = state?.sub2apiDefaultProxyName || '';
-  }
-  const normalizedRemovedNetworkService = resolveRemovedNetworkService(state?.removedNetworkService);
-  const normalizedRemovedNetworkServiceProfiles = typeof normalizeRemovedNetworkServiceProfiles === 'function'
-    ? normalizeRemovedNetworkServiceProfiles(state?.removedNetworkServiceProfiles || {}, state || {})
-    : (state?.removedNetworkServiceProfiles || {});
-  const activeRemovedNetworkProfile = typeof getRemovedNetworkServiceProfile === 'function'
-    ? getRemovedNetworkServiceProfile(normalizedRemovedNetworkService, {
-      ...(state || {}),
-      removedNetworkService: normalizedRemovedNetworkService,
-      removedNetworkServiceProfiles: normalizedRemovedNetworkServiceProfiles,
-    })
-    : {
-      mode: resolveRemovedNetworkMode(state?.removedNetworkMode),
-      apiUrl: String(state?.removedNetworkApiUrl || '').trim(),
-      accountList: resolveRemovedNetworkAccountList(state?.removedNetworkAccountList || ''),
-      accountSessionPrefix: resolveRemovedNetworkSessionPrefix(state?.removedNetworkAccountSessionPrefix || ''),
-      accountLifeMinutes: resolveRemovedNetworkAccountLifeMinutes(state?.removedNetworkAccountLifeMinutes || ''),
-      poolTargetCount: resolveRemovedNetworkPoolTargetCount(state?.removedNetworkPoolTargetCount || ''),
-      host: String(state?.removedNetworkHost || '').trim(),
-      port: String(resolveRemovedNetworkPort(state?.removedNetworkPort || '') || ''),
-      protocol: resolveRemovedNetworkProtocol(state?.removedNetworkProtocol),
-      username: String(state?.removedNetworkUsername || '').trim(),
-      password: String(state?.removedNetworkPassword || ''),
-      region: String(state?.removedNetworkRegion || '').trim(),
-    };
-  if (typeof selectRemovedNetworkService !== 'undefined' && selectRemovedNetworkService) {
-    selectRemovedNetworkService.value = normalizedRemovedNetworkService;
-  }
-  if (typeof inputRemovedNetworkApiUrl !== 'undefined' && inputRemovedNetworkApiUrl) {
-    inputRemovedNetworkApiUrl.value = String(activeRemovedNetworkProfile.apiUrl || '').trim();
-  }
-  if (typeof inputRemovedNetworkAccountList !== 'undefined' && inputRemovedNetworkAccountList) {
-    inputRemovedNetworkAccountList.value = activeRemovedNetworkProfile.accountList;
-  }
-  if (typeof inputRemovedNetworkAccountSessionPrefix !== 'undefined' && inputRemovedNetworkAccountSessionPrefix) {
-    inputRemovedNetworkAccountSessionPrefix.value = activeRemovedNetworkProfile.accountSessionPrefix;
-  }
-  if (typeof inputRemovedNetworkAccountLifeMinutes !== 'undefined' && inputRemovedNetworkAccountLifeMinutes) {
-    inputRemovedNetworkAccountLifeMinutes.value = activeRemovedNetworkProfile.accountLifeMinutes;
-  }
-  if (typeof inputRemovedNetworkPoolTargetCount !== 'undefined' && inputRemovedNetworkPoolTargetCount) {
-    inputRemovedNetworkPoolTargetCount.value = activeRemovedNetworkProfile.poolTargetCount;
-  }
-  if (typeof inputRemovedNetworkAutoSyncEnabled !== 'undefined' && inputRemovedNetworkAutoSyncEnabled) {
-    inputRemovedNetworkAutoSyncEnabled.checked = resolveRemovedNetworkAutoSyncEnabled(state?.removedNetworkAutoSyncEnabled);
-  }
-  if (typeof inputRemovedNetworkAutoSyncIntervalMinutes !== 'undefined' && inputRemovedNetworkAutoSyncIntervalMinutes) {
-    inputRemovedNetworkAutoSyncIntervalMinutes.value = String(
-      resolveRemovedNetworkAutoSyncIntervalMinutes(state?.removedNetworkAutoSyncIntervalMinutes)
-    );
-  }
-  if (typeof inputRemovedNetworkHost !== 'undefined' && inputRemovedNetworkHost) {
-    inputRemovedNetworkHost.value = activeRemovedNetworkProfile.host;
-  }
-  if (typeof inputRemovedNetworkPort !== 'undefined' && inputRemovedNetworkPort) {
-    const normalizedPort = resolveRemovedNetworkPort(activeRemovedNetworkProfile.port || '');
-    inputRemovedNetworkPort.value = normalizedPort > 0 ? String(normalizedPort) : '';
-  }
-  if (typeof selectRemovedNetworkProtocol !== 'undefined' && selectRemovedNetworkProtocol) {
-    selectRemovedNetworkProtocol.value = resolveRemovedNetworkProtocol(activeRemovedNetworkProfile.protocol);
-  }
-  if (typeof inputRemovedNetworkUsername !== 'undefined' && inputRemovedNetworkUsername) {
-    inputRemovedNetworkUsername.value = activeRemovedNetworkProfile.username;
-  }
-  if (typeof inputRemovedNetworkPassword !== 'undefined' && inputRemovedNetworkPassword) {
-    inputRemovedNetworkPassword.value = activeRemovedNetworkProfile.password;
-  }
-  if (typeof inputRemovedNetworkRegion !== 'undefined' && inputRemovedNetworkRegion) {
-    inputRemovedNetworkRegion.value = activeRemovedNetworkProfile.region;
-  }
-  if (typeof setRemovedNetworkMode === 'function') {
-    setRemovedNetworkMode(activeRemovedNetworkProfile.mode);
-  }
-  if (typeof setRemovedNetworkEnabled === 'function') {
-    setRemovedNetworkEnabled(Boolean(state?.removedNetworkEnabled));
-  }
-  syncLatestState({
-    removedNetworkService: normalizedRemovedNetworkService,
-    removedNetworkServiceProfiles: normalizedRemovedNetworkServiceProfiles,
-    ...(typeof buildRemovedNetworkStatePatchFromServiceProfile === 'function'
-      ? buildRemovedNetworkStatePatchFromServiceProfile(normalizedRemovedNetworkService, activeRemovedNetworkProfile)
-      : {}),
-  });
-  if (typeof updateRemovedNetworkUI === 'function') {
-    updateRemovedNetworkUI(latestState);
   }
   inputCodex2ApiUrl.value = state?.codex2apiUrl || '';
   inputCodex2ApiAdminKey.value = state?.codex2apiAdminKey || '';
@@ -16599,16 +16159,6 @@ function getMailProviderLoginUrl(provider = selectMailProvider.value) {
   return url ? url : '';
 }
 
-function getRemovedNetworkServiceLoginConfig(service = selectRemovedNetworkService?.value || latestState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE) {
-  return REMOVED_NETWORK_SERVICE_LOGIN_CONFIGS[String(service || '').trim()] || null;
-}
-
-function getRemovedNetworkServiceLoginUrl(service = selectRemovedNetworkService?.value || latestState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE) {
-  const config = getRemovedNetworkServiceLoginConfig(service);
-  const url = String(config?.url || '').trim();
-  return url ? url : '';
-}
-
 function isCurrentEmailManagedByHotmail(state = latestState) {
   const hotmailEmail = getCurrentHotmailEmail(state);
   if (!hotmailEmail) {
@@ -16681,29 +16231,6 @@ function updateMailLoginButtonState() {
   btnMailLogin.disabled = !loginUrl;
   btnMailLogin.textContent = config?.buttonLabel || '登录';
   btnMailLogin.title = loginUrl ? `打开 ${config.label} 登录页` : '当前邮箱服务没有可跳转的登录页';
-}
-
-function updateRemovedNetworkServiceLoginButtonState(options = {}) {
-  if (!btnRemovedNetworkServiceLogin) {
-    return;
-  }
-  const service = normalizeRemovedNetworkService(
-    options?.service
-    || selectRemovedNetworkService?.value
-    || latestState?.removedNetworkService
-    || DEFAULT_REMOVED_NETWORK_SERVICE
-  );
-  const loginConfig = getRemovedNetworkServiceLoginConfig(service);
-  const loginUrl = getRemovedNetworkServiceLoginUrl(service);
-  const enabled = options?.enabled !== undefined
-    ? Boolean(options.enabled)
-    : Boolean(getSelectedRemovedNetworkEnabled());
-  btnRemovedNetworkServiceLogin.disabled = !enabled || !loginUrl;
-  const buttonLabel = loginConfig?.buttonLabel || '登录';
-  btnRemovedNetworkServiceLogin.textContent = buttonLabel;
-  btnRemovedNetworkServiceLogin.title = loginUrl
-    ? `打开 ${loginConfig?.label || service} ${buttonLabel}页`
-    : '当前代理服务没有可跳转的登录页';
 }
 
 function updateMailProviderUI() {
@@ -18953,27 +18480,6 @@ function syncVpsPasswordToggleLabel() {
   });
 }
 
-function syncRemovedNetworkApiUrlToggleLabel() {
-  syncToggleButtonLabel(btnToggleRemovedNetworkApiUrl, inputRemovedNetworkApiUrl, {
-    show: '显示代理 API',
-    hide: '隐藏代理 API',
-  });
-}
-
-function syncRemovedNetworkUsernameToggleLabel() {
-  syncToggleButtonLabel(btnToggleRemovedNetworkUsername, inputRemovedNetworkUsername, {
-    show: '显示代理账号',
-    hide: '隐藏代理账号',
-  });
-}
-
-function syncRemovedNetworkPasswordToggleLabel() {
-  syncToggleButtonLabel(btnToggleRemovedNetworkPassword, inputRemovedNetworkPassword, {
-    show: '显示代理密码',
-    hide: '隐藏代理密码',
-  });
-}
-
 function syncRemovedSmsMainApiKeyToggleLabel() {
   syncToggleButtonLabel(btnToggleRemovedSmsMainApiKey, inputRemovedSmsMainApiKey, {
     show: '显示接码 API Key',
@@ -19156,27 +18662,6 @@ btnToggleVpsPassword.addEventListener('click', () => {
   syncVpsPasswordToggleLabel();
 });
 
-btnToggleRemovedNetworkApiUrl?.addEventListener('click', () => {
-  inputRemovedNetworkApiUrl.type = inputRemovedNetworkApiUrl.type === 'password' ? 'text' : 'password';
-  syncRemovedNetworkApiUrlToggleLabel();
-});
-
-btnToggleRemovedNetworkUsername?.addEventListener('click', () => {
-  inputRemovedNetworkUsername.type = inputRemovedNetworkUsername.type === 'password' ? 'text' : 'password';
-  syncRemovedNetworkUsernameToggleLabel();
-});
-
-btnToggleRemovedNetworkPassword?.addEventListener('click', () => {
-  inputRemovedNetworkPassword.type = inputRemovedNetworkPassword.type === 'password' ? 'text' : 'password';
-  syncRemovedNetworkPasswordToggleLabel();
-});
-
-btnToggleRemovedNetworkSection?.addEventListener('click', () => {
-  if (typeof toggleRemovedNetworkSectionExpanded === 'function') {
-    toggleRemovedNetworkSectionExpanded();
-  }
-});
-
 btnToggleAuthVerificationSection?.addEventListener('click', () => {
   toggleAuthVerificationSectionExpanded();
 });
@@ -19193,19 +18678,6 @@ btnMailLogin?.addEventListener('click', async () => {
   } catch (err) {
     showToast(`打开${config.label}失败：${err.message}`, 'error');
   }
-});
-
-btnRemovedNetworkServiceLogin?.addEventListener('click', () => {
-  const service = normalizeRemovedNetworkService(
-    selectRemovedNetworkService?.value || latestState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE
-  );
-  const config = getRemovedNetworkServiceLoginConfig(service);
-  const loginUrl = getRemovedNetworkServiceLoginUrl(service);
-  if (!config || !loginUrl) {
-    showToast('当前代理服务没有可跳转的登录页。', 'warn', 1800);
-    return;
-  }
-  openExternalUrl(loginUrl);
 });
 
 localCpaStep9ModeButtons.forEach((button) => {
@@ -20235,243 +19707,6 @@ selectAccountAccessStrategy?.addEventListener('change', async () => {
   }
 });
 
-function syncCurrentRemovedNetworkServiceProfileToLatestState() {
-  const selectedService = normalizeRemovedNetworkService(
-    selectRemovedNetworkService?.value || latestState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE
-  );
-  const normalizedProfiles = typeof buildRemovedNetworkServiceProfilesPatch === 'function'
-    ? buildRemovedNetworkServiceProfilesPatch(selectedService, latestState || {})
-    : { ...(latestState?.removedNetworkServiceProfiles || {}) };
-  const currentProfile = typeof getRemovedNetworkServiceProfile === 'function'
-    ? getRemovedNetworkServiceProfile(selectedService, {
-      ...(latestState || {}),
-      removedNetworkService: selectedService,
-      removedNetworkServiceProfiles: normalizedProfiles,
-    })
-    : {
-      mode: normalizeRemovedNetworkMode(getSelectedRemovedNetworkMode()),
-      apiUrl: String(inputRemovedNetworkApiUrl?.value || '').trim(),
-      accountList: normalizeRemovedNetworkAccountList(inputRemovedNetworkAccountList?.value || ''),
-      accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefix(inputRemovedNetworkAccountSessionPrefix?.value || ''),
-      accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutes(inputRemovedNetworkAccountLifeMinutes?.value || ''),
-      poolTargetCount: normalizeRemovedNetworkPoolTargetCount(inputRemovedNetworkPoolTargetCount?.value || '', 20),
-      host: String(inputRemovedNetworkHost?.value || '').trim(),
-      port: String(normalizeRemovedNetworkPort(inputRemovedNetworkPort?.value || '') || ''),
-      protocol: normalizeRemovedNetworkProtocol(selectRemovedNetworkProtocol?.value || ''),
-      username: String(inputRemovedNetworkUsername?.value || '').trim(),
-      password: String(inputRemovedNetworkPassword?.value || ''),
-      region: String(inputRemovedNetworkRegion?.value || '').trim(),
-    };
-  syncLatestState({
-    removedNetworkService: selectedService,
-    removedNetworkServiceProfiles: normalizedProfiles,
-    ...(typeof buildRemovedNetworkStatePatchFromServiceProfile === 'function'
-      ? buildRemovedNetworkStatePatchFromServiceProfile(selectedService, currentProfile)
-      : {}),
-  });
-}
-
-function handleRemovedNetworkEnabledToggle(nextEnabled) {
-  const enabled = Boolean(nextEnabled);
-  const previousEnabled = Boolean(latestState?.removedNetworkEnabled);
-  if (previousEnabled === enabled) {
-    setRemovedNetworkEnabled(enabled);
-    updateRemovedNetworkUI(latestState);
-    return;
-  }
-  setRemovedNetworkEnabled(enabled);
-  if (enabled && typeof setRemovedNetworkSectionExpanded === 'function') {
-    setRemovedNetworkSectionExpanded(true);
-  }
-  syncLatestState({ removedNetworkEnabled: enabled });
-  updateRemovedNetworkUI(latestState);
-  markSettingsDirty(true);
-  saveSettings({ silent: true }).catch(() => {});
-}
-
-if (inputRemovedNetworkEnabled) {
-  inputRemovedNetworkEnabled.addEventListener('change', () => {
-    handleRemovedNetworkEnabledToggle(Boolean(inputRemovedNetworkEnabled.checked));
-  });
-} else {
-  removedNetworkEnabledButtons.forEach((button) => {
-    button.addEventListener('click', () => {
-      const nextEnabled = String(button.dataset.removedNetworkEnabled) === 'true';
-      handleRemovedNetworkEnabledToggle(nextEnabled);
-    });
-  });
-}
-
-selectRemovedNetworkService?.addEventListener('change', () => {
-  const previousService = normalizeRemovedNetworkService(latestState?.removedNetworkService || DEFAULT_REMOVED_NETWORK_SERVICE);
-  const nextService = normalizeRemovedNetworkService(selectRemovedNetworkService.value);
-  const normalizedProfiles = typeof normalizeRemovedNetworkServiceProfiles === 'function'
-    ? normalizeRemovedNetworkServiceProfiles(latestState?.removedNetworkServiceProfiles || {}, latestState || {})
-    : { ...(latestState?.removedNetworkServiceProfiles || {}) };
-
-  if (typeof buildCurrentRemovedNetworkServiceProfileFromInputs === 'function') {
-    normalizedProfiles[previousService] = buildCurrentRemovedNetworkServiceProfileFromInputs();
-  }
-
-  const nextProfile = typeof getRemovedNetworkServiceProfile === 'function'
-    ? getRemovedNetworkServiceProfile(nextService, {
-      ...(latestState || {}),
-      removedNetworkService: nextService,
-      removedNetworkServiceProfiles: normalizedProfiles,
-    })
-    : {
-      mode: typeof normalizeRemovedNetworkModeForCurrentRelease === 'function'
-        ? normalizeRemovedNetworkModeForCurrentRelease(latestState?.removedNetworkMode)
-        : normalizeRemovedNetworkMode(latestState?.removedNetworkMode),
-      apiUrl: String(latestState?.removedNetworkApiUrl || '').trim(),
-      accountList: normalizeRemovedNetworkAccountList(latestState?.removedNetworkAccountList || ''),
-      accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefix(latestState?.removedNetworkAccountSessionPrefix || ''),
-      accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutes(latestState?.removedNetworkAccountLifeMinutes || ''),
-      poolTargetCount: normalizeRemovedNetworkPoolTargetCount(latestState?.removedNetworkPoolTargetCount || '', 20),
-      host: String(latestState?.removedNetworkHost || '').trim(),
-      port: String(normalizeRemovedNetworkPort(latestState?.removedNetworkPort || '') || ''),
-      protocol: normalizeRemovedNetworkProtocol(latestState?.removedNetworkProtocol),
-      username: String(latestState?.removedNetworkUsername || '').trim(),
-      password: String(latestState?.removedNetworkPassword || ''),
-      region: String(latestState?.removedNetworkRegion || '').trim(),
-    };
-
-  if (typeof applyRemovedNetworkServiceProfileToInputs === 'function') {
-    applyRemovedNetworkServiceProfileToInputs(nextProfile);
-  } else {
-    setRemovedNetworkMode(nextProfile.mode);
-  }
-
-  syncLatestState({
-    removedNetworkService: nextService,
-    removedNetworkServiceProfiles: normalizedProfiles,
-    ...(typeof buildRemovedNetworkStatePatchFromServiceProfile === 'function'
-      ? buildRemovedNetworkStatePatchFromServiceProfile(nextService, nextProfile)
-      : {}),
-  });
-  updateRemovedNetworkUI(latestState);
-  markSettingsDirty(true);
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-removedNetworkModeButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    const nextMode = normalizeRemovedNetworkMode(button.dataset.removedNetworkMode || DEFAULT_REMOVED_NETWORK_MODE);
-    const apiModeAvailable = typeof isRemovedNetworkApiModeAvailable === 'function'
-      ? Boolean(isRemovedNetworkApiModeAvailable())
-      : (typeof REMOVED_NETWORK_API_MODE_ENABLED !== 'undefined' ? Boolean(REMOVED_NETWORK_API_MODE_ENABLED) : false);
-    if (!apiModeAvailable && nextMode === 'api') {
-      setRemovedNetworkMode('account');
-      updateRemovedNetworkUI(latestState);
-      showToast('API 模式暂未开放，请先使用账号密码模式。', 'info', 1800);
-      return;
-    }
-    if (getSelectedRemovedNetworkMode() === nextMode) {
-      return;
-    }
-    setRemovedNetworkMode(nextMode);
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-    saveSettings({ silent: true }).catch(() => {});
-  });
-});
-
-selectRemovedNetworkProtocol?.addEventListener('change', () => {
-  syncCurrentRemovedNetworkServiceProfileToLatestState();
-  updateRemovedNetworkUI(latestState);
-  markSettingsDirty(true);
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-btnRemovedNetworkRefresh?.addEventListener('click', async () => {
-  try {
-    const result = typeof runRemovedNetworkActionWithLock === 'function'
-      ? await runRemovedNetworkActionWithLock('refresh', async () => {
-        await saveSettings({ silent: true });
-        await refreshRemovedNetworkPoolByApi();
-      })
-      : await (async () => {
-        await saveSettings({ silent: true });
-        await refreshRemovedNetworkPoolByApi();
-        return { skipped: false };
-      })();
-    if (result?.skipped) {
-      return;
-    }
-  } catch (err) {
-    showToast(err?.message || String(err || '未知错误'), 'error');
-  }
-});
-
-btnRemovedNetworkNext?.addEventListener('click', async () => {
-  try {
-    const result = typeof runRemovedNetworkActionWithLock === 'function'
-      ? await runRemovedNetworkActionWithLock('next', async () => {
-        await saveSettings({ silent: true });
-        await switchRemovedNetworkToNext();
-      })
-      : await (async () => {
-        await saveSettings({ silent: true });
-        await switchRemovedNetworkToNext();
-        return { skipped: false };
-      })();
-    if (result?.skipped) {
-      return;
-    }
-  } catch (err) {
-    showToast(err?.message || String(err || '未知错误'), 'error');
-  }
-});
-
-btnRemovedNetworkChange?.addEventListener('click', async () => {
-  try {
-    const result = typeof runRemovedNetworkActionWithLock === 'function'
-      ? await runRemovedNetworkActionWithLock('change', async () => {
-        await saveSettings({ silent: true });
-        await changeRemovedNetworkExitBySession();
-      })
-      : await (async () => {
-        await saveSettings({ silent: true });
-        await changeRemovedNetworkExitBySession();
-        return { skipped: false };
-      })();
-    if (result?.skipped) {
-      return;
-    }
-  } catch (err) {
-    showToast(err?.message || String(err || '未知错误'), 'error');
-  }
-});
-
-btnRemovedNetworkProbe?.addEventListener('click', async () => {
-  try {
-    const result = typeof runRemovedNetworkActionWithLock === 'function'
-      ? await runRemovedNetworkActionWithLock('probe', async () => {
-        await saveSettings({ silent: true });
-        await probeRemovedNetworkExit();
-      })
-      : await (async () => {
-        await saveSettings({ silent: true });
-        await probeRemovedNetworkExit();
-        return { skipped: false };
-      })();
-    if (result?.skipped) {
-      return;
-    }
-  } catch (err) {
-    showToast(err?.message || String(err || '未知错误'), 'error');
-  }
-});
-
-btnRemovedNetworkCheckIp?.addEventListener('click', async () => {
-  try {
-    await chrome.tabs.create({ url: 'https://ipinfo.io/what-is-my-ip' });
-  } catch (err) {
-    showToast(`打开 IP 检测页失败：${err?.message || String(err || '未知错误')}`, 'error');
-  }
-});
-
 selectCfDomain.addEventListener('change', () => {
   if (selectCfDomain.disabled) {
     return;
@@ -20604,210 +19839,6 @@ inputCodex2ApiAdminKey.addEventListener('input', () => {
 });
 inputCodex2ApiAdminKey.addEventListener('blur', () => {
   saveSettings({ silent: true }).catch(() => { });
-});
-
-[
-  inputRemovedNetworkApiUrl,
-  inputRemovedNetworkAccountList,
-  inputRemovedNetworkHost,
-  inputRemovedNetworkUsername,
-  inputRemovedNetworkPassword,
-].forEach((input) => {
-  input?.addEventListener('input', () => {
-    markSettingsDirty(true);
-    scheduleSettingsAutoSave();
-  });
-  input?.addEventListener('blur', () => {
-    saveSettings({ silent: true }).catch(() => {});
-  });
-});
-
-inputRemovedNetworkUsername?.addEventListener('paste', () => {
-  setTimeout(() => {
-    let profileUpdated = false;
-    if (typeof sync711SessionFieldsFromUsernameForPanel !== 'function') {
-      profileUpdated = false;
-    } else {
-      const result = sync711SessionFieldsFromUsernameForPanel();
-      profileUpdated = profileUpdated || Boolean(result?.updated);
-    }
-    if (typeof sync711RegionFieldFromUsernameForPanel === 'function') {
-      const regionResult = sync711RegionFieldFromUsernameForPanel();
-      profileUpdated = profileUpdated || Boolean(regionResult?.updated);
-    }
-    if (typeof syncRemovedNetworkRegionInputFromCredentials === 'function') {
-      const beforeRegion = String(inputRemovedNetworkRegion?.value || '');
-      syncRemovedNetworkRegionInputFromCredentials({ force: true });
-      const afterRegion = String(inputRemovedNetworkRegion?.value || '');
-      profileUpdated = profileUpdated || (beforeRegion !== afterRegion);
-    }
-    if (!profileUpdated) return;
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-    scheduleSettingsAutoSave();
-  }, 0);
-});
-
-inputRemovedNetworkHost?.addEventListener('blur', () => {
-  if (typeof syncRemovedNetworkRegionInputFromCredentials === 'function') {
-    const beforeRegion = String(inputRemovedNetworkRegion?.value || '');
-    syncRemovedNetworkRegionInputFromCredentials({ force: true });
-    const afterRegion = String(inputRemovedNetworkRegion?.value || '');
-    if (afterRegion !== beforeRegion) {
-      markSettingsDirty(true);
-      saveSettings({ silent: true }).catch(() => {});
-    }
-  }
-});
-
-inputRemovedNetworkUsername?.addEventListener('blur', () => {
-  let profileUpdated = false;
-  if (typeof sync711SessionFieldsFromUsernameForPanel === 'function') {
-    const result = sync711SessionFieldsFromUsernameForPanel();
-    profileUpdated = profileUpdated || Boolean(result?.updated);
-  }
-  if (typeof sync711RegionFieldFromUsernameForPanel === 'function') {
-    const regionResult = sync711RegionFieldFromUsernameForPanel();
-    profileUpdated = profileUpdated || Boolean(regionResult?.updated);
-  }
-
-  if (typeof syncRemovedNetworkRegionInputFromCredentials === 'function') {
-    const beforeRegion = String(inputRemovedNetworkRegion?.value || '');
-    syncRemovedNetworkRegionInputFromCredentials({ force: true });
-    const afterRegion = String(inputRemovedNetworkRegion?.value || '');
-    profileUpdated = profileUpdated || (afterRegion !== beforeRegion);
-  }
-
-  if (profileUpdated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-    saveSettings({ silent: true }).catch(() => {});
-  }
-});
-
-inputRemovedNetworkAccountSessionPrefix?.addEventListener('input', () => {
-  const syncResult = typeof sync711UsernameFromSessionFieldsForPanel === 'function'
-    ? sync711UsernameFromSessionFieldsForPanel()
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-  }
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputRemovedNetworkAccountSessionPrefix?.addEventListener('blur', () => {
-  inputRemovedNetworkAccountSessionPrefix.value = normalizeRemovedNetworkAccountSessionPrefix(inputRemovedNetworkAccountSessionPrefix.value || '');
-  const syncResult = typeof sync711UsernameFromSessionFieldsForPanel === 'function'
-    ? sync711UsernameFromSessionFieldsForPanel({ removeWhenEmpty: true })
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-  }
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkAccountLifeMinutes?.addEventListener('input', () => {
-  const syncResult = typeof sync711UsernameFromSessionFieldsForPanel === 'function'
-    ? sync711UsernameFromSessionFieldsForPanel()
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-  }
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputRemovedNetworkAccountLifeMinutes?.addEventListener('blur', () => {
-  inputRemovedNetworkAccountLifeMinutes.value = normalizeRemovedNetworkAccountLifeMinutes(inputRemovedNetworkAccountLifeMinutes.value || '');
-  const syncResult = typeof sync711UsernameFromSessionFieldsForPanel === 'function'
-    ? sync711UsernameFromSessionFieldsForPanel({ removeWhenEmpty: true })
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-  }
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkRegion?.addEventListener('input', () => {
-  const normalizedRegion = typeof normalize711RegionCodeForPanel === 'function'
-    ? normalize711RegionCodeForPanel(inputRemovedNetworkRegion.value || '')
-    : String(inputRemovedNetworkRegion.value || '').trim().toUpperCase();
-  if (normalizedRegion) {
-    inputRemovedNetworkRegion.value = normalizedRegion;
-  }
-
-  const syncResult = typeof sync711UsernameFromRegionForPanel === 'function'
-    ? sync711UsernameFromRegionForPanel()
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-  }
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputRemovedNetworkRegion?.addEventListener('blur', () => {
-  const normalizedRegion = typeof normalize711RegionCodeForPanel === 'function'
-    ? normalize711RegionCodeForPanel(inputRemovedNetworkRegion.value || '')
-    : String(inputRemovedNetworkRegion.value || '').trim().toUpperCase();
-  inputRemovedNetworkRegion.value = normalizedRegion;
-  const syncResult = typeof sync711UsernameFromRegionForPanel === 'function'
-    ? sync711UsernameFromRegionForPanel({ removeWhenEmpty: true })
-    : null;
-  if (syncResult?.updated) {
-    syncCurrentRemovedNetworkServiceProfileToLatestState();
-    updateRemovedNetworkUI(latestState);
-    markSettingsDirty(true);
-  }
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkPoolTargetCount?.addEventListener('input', () => {
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputRemovedNetworkPoolTargetCount?.addEventListener('blur', () => {
-  inputRemovedNetworkPoolTargetCount.value = normalizeRemovedNetworkPoolTargetCount(inputRemovedNetworkPoolTargetCount.value || '', 20);
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkAutoSyncEnabled?.addEventListener('change', () => {
-  markSettingsDirty(true);
-  if (typeof updateRemovedNetworkUI === 'function') {
-    updateRemovedNetworkUI(latestState);
-  }
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkAutoSyncIntervalMinutes?.addEventListener('input', () => {
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-
-inputRemovedNetworkAutoSyncIntervalMinutes?.addEventListener('blur', () => {
-  const numeric = Number.parseInt(String(inputRemovedNetworkAutoSyncIntervalMinutes.value || '').trim(), 10);
-  const normalized = Number.isFinite(numeric)
-    ? Math.max(1, Math.min(1440, numeric))
-    : 15;
-  inputRemovedNetworkAutoSyncIntervalMinutes.value = String(normalized);
-  saveSettings({ silent: true }).catch(() => {});
-});
-
-inputRemovedNetworkPort?.addEventListener('input', () => {
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputRemovedNetworkPort?.addEventListener('blur', () => {
-  const normalizedPort = normalizeRemovedNetworkPort(inputRemovedNetworkPort.value || '');
-  inputRemovedNetworkPort.value = normalizedPort > 0 ? String(normalizedPort) : '';
-  saveSettings({ silent: true }).catch(() => {});
 });
 
 inputEmailPrefix.addEventListener('input', () => {
@@ -22895,153 +21926,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ) {
         renderSub2ApiGroupOptions(latestState, latestState?.sub2apiGroupName || '');
       }
-      if (
-        message.payload.removedNetworkEnabled !== undefined
-        || message.payload.removedNetworkService !== undefined
-        || message.payload.removedNetworkServiceProfiles !== undefined
-        || message.payload.removedNetworkMode !== undefined
-        || message.payload.removedNetworkApiUrl !== undefined
-        || message.payload.removedNetworkAccountList !== undefined
-        || message.payload.removedNetworkAccountSessionPrefix !== undefined
-        || message.payload.removedNetworkAccountLifeMinutes !== undefined
-        || message.payload.removedNetworkPoolTargetCount !== undefined
-        || message.payload.removedNetworkHost !== undefined
-        || message.payload.removedNetworkPort !== undefined
-        || message.payload.removedNetworkProtocol !== undefined
-        || message.payload.removedNetworkUsername !== undefined
-        || message.payload.removedNetworkPassword !== undefined
-        || message.payload.removedNetworkRegion !== undefined
-        || message.payload.removedNetworkApiPool !== undefined
-        || message.payload.removedNetworkApiCurrentIndex !== undefined
-        || message.payload.removedNetworkApiCurrent !== undefined
-        || message.payload.removedNetworkAccountPool !== undefined
-        || message.payload.removedNetworkAccountCurrentIndex !== undefined
-        || message.payload.removedNetworkAccountCurrent !== undefined
-        || message.payload.removedNetworkCurrent !== undefined
-        || message.payload.removedNetworkCurrentIndex !== undefined
-        || message.payload.removedNetworkPool !== undefined
-        || message.payload.removedNetworkApplied !== undefined
-        || message.payload.removedNetworkAppliedReason !== undefined
-        || message.payload.removedNetworkAppliedHost !== undefined
-        || message.payload.removedNetworkAppliedPort !== undefined
-        || message.payload.removedNetworkAppliedRegion !== undefined
-        || message.payload.removedNetworkAppliedHasAuth !== undefined
-        || message.payload.removedNetworkAppliedWarning !== undefined
-        || message.payload.removedNetworkAppliedExitIp !== undefined
-        || message.payload.removedNetworkAppliedExitRegion !== undefined
-        || message.payload.removedNetworkAppliedExitDetecting !== undefined
-        || message.payload.removedNetworkAppliedExitError !== undefined
-        || message.payload.removedNetworkAppliedExitSource !== undefined
-        || message.payload.removedNetworkAutoSyncEnabled !== undefined
-        || message.payload.removedNetworkAutoSyncIntervalMinutes !== undefined
-      ) {
-        const hasRemovedNetworkConfigPayload = (
-          message.payload.removedNetworkService !== undefined
-          || message.payload.removedNetworkServiceProfiles !== undefined
-          || message.payload.removedNetworkMode !== undefined
-          || message.payload.removedNetworkApiUrl !== undefined
-          || message.payload.removedNetworkAccountList !== undefined
-          || message.payload.removedNetworkAccountSessionPrefix !== undefined
-          || message.payload.removedNetworkAccountLifeMinutes !== undefined
-          || message.payload.removedNetworkPoolTargetCount !== undefined
-          || message.payload.removedNetworkHost !== undefined
-          || message.payload.removedNetworkPort !== undefined
-          || message.payload.removedNetworkProtocol !== undefined
-          || message.payload.removedNetworkUsername !== undefined
-          || message.payload.removedNetworkPassword !== undefined
-          || message.payload.removedNetworkRegion !== undefined
-        );
-        const selectedProxyService = normalizeRemovedNetworkService(
-          message.payload.removedNetworkService !== undefined
-            ? message.payload.removedNetworkService
-            : latestState?.removedNetworkService
-        );
-        const mergedProxyState = {
-          ...(latestState || {}),
-          ...message.payload,
-          removedNetworkService: selectedProxyService,
-        };
-        let normalizedProxyProfiles = (mergedProxyState?.removedNetworkServiceProfiles || {});
-        if (typeof normalizeRemovedNetworkServiceProfiles === 'function') {
-          normalizedProxyProfiles = normalizeRemovedNetworkServiceProfiles(
-            mergedProxyState?.removedNetworkServiceProfiles || {},
-            mergedProxyState
-          );
-        }
-        if (typeof buildRemovedNetworkServiceProfileFromFlatState === 'function') {
-          normalizedProxyProfiles[selectedProxyService] = buildRemovedNetworkServiceProfileFromFlatState(mergedProxyState);
-        }
-        if (selectRemovedNetworkService) {
-          selectRemovedNetworkService.value = selectedProxyService;
-        }
-        if (message.payload.removedNetworkEnabled !== undefined) {
-          setRemovedNetworkEnabled(Boolean(message.payload.removedNetworkEnabled));
-        }
-        if (message.payload.removedNetworkAutoSyncEnabled !== undefined && inputRemovedNetworkAutoSyncEnabled) {
-          inputRemovedNetworkAutoSyncEnabled.checked = Boolean(message.payload.removedNetworkAutoSyncEnabled);
-        }
-        if (message.payload.removedNetworkAutoSyncIntervalMinutes !== undefined && inputRemovedNetworkAutoSyncIntervalMinutes) {
-          const numeric = Number.parseInt(String(message.payload.removedNetworkAutoSyncIntervalMinutes ?? '').trim(), 10);
-          inputRemovedNetworkAutoSyncIntervalMinutes.value = String(
-            Number.isFinite(numeric) ? Math.max(1, Math.min(1440, numeric)) : 15
-          );
-        }
-        if (message.payload.removedNetworkApiUrl !== undefined && inputRemovedNetworkApiUrl) {
-          inputRemovedNetworkApiUrl.value = String(message.payload.removedNetworkApiUrl || '').trim();
-        }
-        if (hasRemovedNetworkConfigPayload) {
-          const activeProxyProfile = typeof getRemovedNetworkServiceProfile === 'function'
-            ? getRemovedNetworkServiceProfile(selectedProxyService, {
-              ...mergedProxyState,
-              removedNetworkServiceProfiles: normalizedProxyProfiles,
-            })
-            : {
-              mode: typeof normalizeRemovedNetworkModeForCurrentRelease === 'function'
-                ? normalizeRemovedNetworkModeForCurrentRelease(mergedProxyState?.removedNetworkMode)
-                : normalizeRemovedNetworkMode(mergedProxyState?.removedNetworkMode),
-              apiUrl: String(mergedProxyState?.removedNetworkApiUrl || '').trim(),
-              accountList: normalizeRemovedNetworkAccountList(mergedProxyState?.removedNetworkAccountList || ''),
-              accountSessionPrefix: normalizeRemovedNetworkAccountSessionPrefix(mergedProxyState?.removedNetworkAccountSessionPrefix || ''),
-              accountLifeMinutes: normalizeRemovedNetworkAccountLifeMinutes(mergedProxyState?.removedNetworkAccountLifeMinutes || ''),
-              poolTargetCount: normalizeRemovedNetworkPoolTargetCount(mergedProxyState?.removedNetworkPoolTargetCount || '', 20),
-              host: String(mergedProxyState?.removedNetworkHost || '').trim(),
-              port: String(normalizeRemovedNetworkPort(mergedProxyState?.removedNetworkPort || '') || ''),
-              protocol: normalizeRemovedNetworkProtocol(mergedProxyState?.removedNetworkProtocol),
-              username: String(mergedProxyState?.removedNetworkUsername || '').trim(),
-              password: String(mergedProxyState?.removedNetworkPassword || ''),
-              region: String(mergedProxyState?.removedNetworkRegion || '').trim(),
-            };
-          if (typeof applyRemovedNetworkServiceProfileToInputs === 'function') {
-            applyRemovedNetworkServiceProfileToInputs(activeProxyProfile);
-          } else {
-            setRemovedNetworkMode(activeProxyProfile.mode);
-            if (inputRemovedNetworkApiUrl) inputRemovedNetworkApiUrl.value = String(activeProxyProfile.apiUrl || '').trim();
-            if (inputRemovedNetworkAccountList) inputRemovedNetworkAccountList.value = activeProxyProfile.accountList;
-            if (inputRemovedNetworkAccountSessionPrefix) inputRemovedNetworkAccountSessionPrefix.value = activeProxyProfile.accountSessionPrefix;
-            if (inputRemovedNetworkAccountLifeMinutes) inputRemovedNetworkAccountLifeMinutes.value = activeProxyProfile.accountLifeMinutes;
-            if (inputRemovedNetworkPoolTargetCount) inputRemovedNetworkPoolTargetCount.value = activeProxyProfile.poolTargetCount;
-            if (inputRemovedNetworkHost) inputRemovedNetworkHost.value = activeProxyProfile.host;
-            if (inputRemovedNetworkPort) inputRemovedNetworkPort.value = activeProxyProfile.port;
-            if (selectRemovedNetworkProtocol) selectRemovedNetworkProtocol.value = normalizeRemovedNetworkProtocol(activeProxyProfile.protocol);
-            if (inputRemovedNetworkUsername) inputRemovedNetworkUsername.value = activeProxyProfile.username;
-            if (inputRemovedNetworkPassword) inputRemovedNetworkPassword.value = activeProxyProfile.password;
-            if (inputRemovedNetworkRegion) inputRemovedNetworkRegion.value = activeProxyProfile.region;
-          }
-          syncLatestState({
-            removedNetworkService: selectedProxyService,
-            removedNetworkServiceProfiles: normalizedProxyProfiles,
-            ...(typeof buildRemovedNetworkStatePatchFromServiceProfile === 'function'
-              ? buildRemovedNetworkStatePatchFromServiceProfile(selectedProxyService, activeProxyProfile)
-              : {}),
-          });
-        } else {
-          syncLatestState({
-            removedNetworkService: selectedProxyService,
-            removedNetworkServiceProfiles: normalizedProxyProfiles,
-          });
-        }
-        updateRemovedNetworkUI(latestState);
-      }
       if (message.payload.oauthUrl !== undefined) {
         displayOauthUrl.textContent = message.payload.oauthUrl || '等待中...';
         displayOauthUrl.classList.toggle('has-value', Boolean(message.payload.oauthUrl));
@@ -24161,9 +23045,6 @@ updateRemovedRemovedTextPoolCollapseUI(false);
 updateAuthRemovedRemovedTextPoolCollapseUI(false);
 initHotmailListExpandedState();
 initMail2925ListExpandedState();
-if (typeof initRemovedNetworkSectionExpandedState === 'function') {
-  initRemovedNetworkSectionExpandedState();
-}
 if (typeof initAuthVerificationSectionExpandedState === 'function') {
   initAuthVerificationSectionExpandedState();
 }
@@ -24186,9 +23067,6 @@ void restoreState().then(async () => {
   syncPasswordToggleLabel();
   syncVpsUrlToggleLabel();
   syncVpsPasswordToggleLabel();
-  syncRemovedNetworkApiUrlToggleLabel();
-  syncRemovedNetworkUsernameToggleLabel();
-  syncRemovedNetworkPasswordToggleLabel();
   syncRemovedSmsMainApiKeyToggleLabel();
   syncPasswordVisibilityToggles();
   syncRemovedSmsMainApiKeyToggleLabel();
