@@ -785,8 +785,6 @@ const BUILTIN_CHATGPT_SESSION_READER_CLOUD_CONVERSION_API_KEY = '';
 const PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH = 'oauth';
 const PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH = 'sms_oauth';
 const PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH = 'phone_bind_oauth';
-const PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION = 'sub2api_codex_session';
-const PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION = 'cpa_codex_session';
 const ACCOUNT_ACCESS_STRATEGY_UI_OAUTH = 'oauth';
 const ACCOUNT_ACCESS_STRATEGY_UI_SMS_OAUTH = 'sms_oauth';
 const ACCOUNT_ACCESS_STRATEGY_UI_PHONE_BIND_OAUTH = 'phone_bind_oauth';
@@ -1415,8 +1413,6 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
       return [
         'sms_oauth',
         'phone_bind_oauth',
-        'sub2api_codex_session',
-        'cpa_codex_session',
       ].includes(normalized) ? normalized : 'oauth';
     });
   currentPlusPaymentMethod = normalizePlusPaymentMethod(rawPaymentMethod);
@@ -7096,10 +7092,9 @@ function collectSettingsPayload() {
       const normalized = String(value || '').trim().toLowerCase();
       return normalized === 'local-cpa-json'
         || normalized === 'local-cpa-json-no-rt'
-        || normalized === 'sub2api'
         || normalized === 'codex2api'
         ? normalized
-        : 'cpa';
+        : 'local-cpa-json';
     });
   const selectedExportSettings = typeof getSelectedExportSettings === 'function'
     ? getSelectedExportSettings()
@@ -12995,12 +12990,11 @@ function normalizePanelMode(value = '') {
   if (
     normalized === localCpaJsonMode
     || normalized === localCpaJsonNoRtMode
-    || normalized === 'sub2api'
     || normalized === 'codex2api'
   ) {
     return normalized;
   }
-  return 'cpa';
+  return localCpaJsonMode;
 }
 
 function normalizePlusAccountAccessStrategy(value = '') {
@@ -13010,12 +13004,6 @@ function normalizePlusAccountAccessStrategy(value = '') {
   }
   if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH) {
     return PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH;
-  }
-  if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-  }
-  if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
   }
   return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
 }
@@ -13053,20 +13041,11 @@ function getAccountAccessStrategyUiValueForState(state = latestState) {
     }
     return ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON;
   }
-  if (
-    (panelMode === 'cpa' || panelMode === LOCAL_CPA_JSON_PANEL_MODE || panelMode === 'sub2api')
-    && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH
-  ) {
+  if (panelMode === LOCAL_CPA_JSON_PANEL_MODE && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH) {
     return ACCOUNT_ACCESS_STRATEGY_UI_SMS_OAUTH;
   }
   if (strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH) {
     return ACCOUNT_ACCESS_STRATEGY_UI_PHONE_BIND_OAUTH;
-  }
-  if (panelMode === 'sub2api' && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-    return ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON;
-  }
-  if (panelMode === 'cpa' && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-    return ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON;
   }
   return ACCOUNT_ACCESS_STRATEGY_UI_OAUTH;
 }
@@ -13084,23 +13063,14 @@ function resolvePlusAccountAccessStrategyFromExportAndStrategy(exportTarget = ''
   const target = getExportTargetForPanelMode(exportTarget || DEFAULT_PANEL_MODE);
   const strategy = normalizeAccountAccessStrategyUiValue(strategyUiValue);
   if (strategy === ACCOUNT_ACCESS_STRATEGY_UI_SMS_OAUTH) {
-    return (target === 'cpa' || target === LOCAL_CPA_JSON_PANEL_MODE || target === 'sub2api')
+    return target === LOCAL_CPA_JSON_PANEL_MODE
       ? PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH
       : PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
   }
   if (strategy === ACCOUNT_ACCESS_STRATEGY_UI_PHONE_BIND_OAUTH) {
-    return (target === 'cpa' || target === LOCAL_CPA_JSON_PANEL_MODE || target === 'sub2api')
+    return target === LOCAL_CPA_JSON_PANEL_MODE
       ? PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH
       : PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
-  }
-  if (strategy !== ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
-  }
-  if (target === 'sub2api') {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-  }
-  if (target === 'cpa') {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
   }
   return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
 }
@@ -14858,8 +14828,6 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
       return [
         'sms_oauth',
         'phone_bind_oauth',
-        'sub2api_codex_session',
-        'cpa_codex_session',
       ].includes(normalized) ? normalized : 'oauth';
     });
   const nextAccountAccessStrategy = normalizeAccountAccessStrategySafe(rawAccountAccessStrategy);
@@ -17563,10 +17531,7 @@ function updatePanelModeUI() {
       ? ACCOUNT_ACCESS_STRATEGY_UI_SMS_OAUTH
     : (capabilityState?.effectivePlusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH
       ? ACCOUNT_ACCESS_STRATEGY_UI_PHONE_BIND_OAUTH
-    : (capabilityState?.effectivePlusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION
-      || capabilityState?.effectivePlusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION
-      ? ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON
-      : rawStrategyUiValue)));
+      : rawStrategyUiValue));
   if (exportTarget === 'codex2api') {
     strategyUiValue = ACCOUNT_ACCESS_STRATEGY_UI_OAUTH;
   }
@@ -17597,7 +17562,7 @@ function updatePanelModeUI() {
     });
   }
   if (rowAccountAccessStrategy) {
-    rowAccountAccessStrategy.style.display = '';
+    rowAccountAccessStrategy.style.display = 'none';
   }
   if (accountAccessStrategyCaption) {
     accountAccessStrategyCaption.textContent = exportTarget === 'codex2api'
@@ -17610,9 +17575,9 @@ function updatePanelModeUI() {
   }
   const useLocalCpaJson = panelMode === LOCAL_CPA_JSON_PANEL_MODE || panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
   const useLocalCpaJsonNoRt = panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
-  const useSub2Api = panelMode === 'sub2api';
+  const useSub2Api = false;
   const useCodex2Api = panelMode === 'codex2api';
-  const useCpa = panelMode === 'cpa';
+  const useCpa = false;
   const setRowDisplay = (row, visible) => {
     if (!row) {
       return;
@@ -18678,10 +18643,9 @@ function validateLocalCpaJsonPluginDir(options = {}) {
       const normalized = String(value || '').trim().toLowerCase();
       return normalized === 'local-cpa-json'
         || normalized === 'local-cpa-json-no-rt'
-        || normalized === 'sub2api'
         || normalized === 'codex2api'
         ? normalized
-        : 'cpa';
+        : 'local-cpa-json';
     });
   const panelMode = options?.panelMode
     || (typeof getSelectedPanelMode === 'function'

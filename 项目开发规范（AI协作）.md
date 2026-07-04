@@ -230,7 +230,7 @@
 
 - 如果新增来源本身已经提供稳定的后台协议接口，可以直接走协议分支接入：
   - 步骤 7 通过 `background/panel-bridge.js` 生成 `auth_url`
-  - 步骤 10 通过 `background/steps/platform-verify.js` 直接提交 localhost callback
+  - 历史 OAuth/Plus 复查链路已移除，不再新增步骤 10 的 localhost callback 提交分支
 - 这类来源优先复用现有 OpenAI 授权页与 localhost callback 主链，不要为了“看起来统一”再额外新增一套页面 DOM 自动点击内容脚本。
 - 只有当目标来源没有可用协议接口、必须依赖后台页面按钮时，才新增对应的 panel content script。
 

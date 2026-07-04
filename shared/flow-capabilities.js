@@ -9,9 +9,7 @@
   const PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH = 'oauth';
   const PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH = 'sms_oauth';
   const PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH = 'phone_bind_oauth';
-  const PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION = 'sub2api_codex_session';
-  const PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION = 'cpa_codex_session';
-  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api']);
+  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'codex2api']);
 
   const DEFAULT_FLOW_CAPABILITIES = Object.freeze({
     supportsEmailSignup: true,
@@ -33,7 +31,7 @@
       supportsPhoneVerificationSettings: false,
       supportsPlusMode: true,
       supportsContributionMode: true,
-      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api'],
+      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'codex2api'],
       supportsLuckmail: true,
       supportsOauthTimeoutBudget: true,
       stepDefinitionMode: 'openai-dynamic',
@@ -55,12 +53,6 @@
   ]);
 
   const PANEL_CAPABILITIES = Object.freeze({
-    cpa: Object.freeze({
-      supportsPhoneSignup: false,
-      supportedPlusAccountAccessStrategies: Object.freeze([
-        PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH,
-      ]),
-    }),
     'local-cpa-json': Object.freeze({
       supportsPhoneSignup: false,
       supportedPlusAccountAccessStrategies: Object.freeze([
@@ -68,12 +60,6 @@
       ]),
     }),
     [LOCAL_CPA_JSON_NO_RT_PANEL_MODE]: Object.freeze({
-      supportsPhoneSignup: false,
-      supportedPlusAccountAccessStrategies: Object.freeze([
-        PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH,
-      ]),
-    }),
-    sub2api: Object.freeze({
       supportsPhoneSignup: false,
       supportedPlusAccountAccessStrategies: Object.freeze([
         PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH,
@@ -116,43 +102,24 @@
     if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH) {
       return PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH;
     }
-    if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-      return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-    }
-    if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-      return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
-    }
     return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
   }
 
   function getPlusAccountSessionStrategyForPanel(panelMode = '') {
-    const normalizedPanelMode = normalizePanelMode(panelMode);
-    if (normalizedPanelMode === 'sub2api') {
-      return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-    }
-    if (normalizedPanelMode === 'cpa') {
-      return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
-    }
     return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
   }
 
   function normalizePlusAccountAccessStrategyForPanel(value = '', panelMode = '') {
     const normalized = normalizePlusAccountAccessStrategy(value);
     if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH) {
-      return ['cpa', 'local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'sub2api'].includes(normalizePanelMode(panelMode))
+      return ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE].includes(normalizePanelMode(panelMode))
         ? PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH
         : PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
     }
     if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH) {
-      return ['cpa', 'local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'sub2api'].includes(normalizePanelMode(panelMode))
+      return ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE].includes(normalizePanelMode(panelMode))
         ? PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH
         : PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
-    }
-    if (
-      normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION
-      || normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION
-    ) {
-      return getPlusAccountSessionStrategyForPanel(panelMode);
     }
     return normalized;
   }
@@ -182,13 +149,10 @@
     if (normalized === LOCAL_CPA_JSON_NO_RT_PANEL_MODE) {
       return '本地CPA JSON 无RT';
     }
-    if (normalized === 'sub2api') {
-      return 'SUB2API';
-    }
     if (normalized === 'codex2api') {
       return 'Codex2API';
     }
-    return 'CPA';
+    return '本地CPA JSON 有RT';
   }
 
   function createFlowCapabilityRegistry(deps = {}) {
@@ -556,8 +520,6 @@
     PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH,
     PLUS_ACCOUNT_ACCESS_STRATEGY_SMS_OAUTH,
     PLUS_ACCOUNT_ACCESS_STRATEGY_PHONE_BIND_OAUTH,
-    PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION,
-    PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION,
     SIGNUP_METHOD_EMAIL,
     SIGNUP_METHOD_PHONE,
     normalizeFlowId,

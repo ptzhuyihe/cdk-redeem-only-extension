@@ -9,8 +9,6 @@ importScripts(
   'background/account-run-history.js',
   'background/contribution-oauth.js',
   'background/mail-2925-session.js',
-  'background/cpa-api.js',
-  'background/sub2api-api.js',
   'background/panel-bridge.js',
   'background/registration-email-state.js',
   'background/workflow-engine.js',
@@ -42,12 +40,6 @@ importScripts(
   'background/steps/set-gpt-password.js',
   'background/steps/enable-totp-mfa.js',
   'background/steps/upi-redeem.js',
-  'background/steps/sub2api-session-import.js',
-  'background/steps/cpa-session-import.js',
-  'background/steps/oauth-login.js',
-  'background/steps/fetch-login-code.js',
-  'background/steps/confirm-oauth.js',
-  'background/steps/platform-verify.js',
   'data/names.js',
   'hotmail-utils.js',
   'microsoft-email.js',
@@ -70,8 +62,6 @@ importScripts(
 
 const DEFAULT_ACTIVE_FLOW_ID = 'openai';
 const PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH = 'oauth';
-const PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION = 'sub2api_codex_session';
-const PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION = 'cpa_codex_session';
 const NORMAL_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
   plusModeEnabled: false,
@@ -81,18 +71,6 @@ const PLUS_UPI_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   plusModeEnabled: true,
   plusPaymentMethod: 'upi',
 }) || NORMAL_STEP_DEFINITIONS;
-const PLUS_UPI_SUB2API_SESSION_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
-  activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
-  plusModeEnabled: true,
-  plusPaymentMethod: 'upi',
-  plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION,
-}) || PLUS_UPI_STEP_DEFINITIONS;
-const PLUS_UPI_CPA_SESSION_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
-  activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
-  plusModeEnabled: true,
-  plusPaymentMethod: 'upi',
-  plusAccountAccessStrategy: PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION,
-}) || PLUS_UPI_STEP_DEFINITIONS;
 const PLUS_UPI_REDEEM_ONLY_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
   plusModeEnabled: true,
@@ -110,8 +88,6 @@ const ALL_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getAllSteps?.({
 }) || [
   ...NORMAL_STEP_DEFINITIONS,
   ...PLUS_UPI_STEP_DEFINITIONS,
-  ...PLUS_UPI_SUB2API_SESSION_STEP_DEFINITIONS,
-  ...PLUS_UPI_CPA_SESSION_STEP_DEFINITIONS,
 ];
 const STEP_IDS = Array.from(new Set(ALL_STEP_DEFINITIONS
   .map((definition) => Number(definition?.id))
@@ -872,13 +848,9 @@ const flowDefinitionResolver = self.MultiPageFlowDefinitionResolver?.createFlowD
   normalStepIds: NORMAL_STEP_IDS,
   normalizePlusAccountAccessStrategyForState,
   normalizePlusPaymentMethod,
-  plusAccountAccessStrategyCpaSession: PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION,
-  plusAccountAccessStrategySub2ApiSession: PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION,
   plusStepDefinitions: PLUS_UPI_STEP_DEFINITIONS,
   plusStepIds: PLUS_UPI_STEP_IDS,
-  plusUpiCpaSessionStepDefinitions: PLUS_UPI_CPA_SESSION_STEP_DEFINITIONS,
   plusUpiRedeemOnlyStepDefinitions: PLUS_UPI_REDEEM_ONLY_STEP_DEFINITIONS,
-  plusUpiSub2ApiSessionStepDefinitions: PLUS_UPI_SUB2API_SESSION_STEP_DEFINITIONS,
   signupMethodEmail: SIGNUP_METHOD_EMAIL,
 });
 
@@ -3196,37 +3168,17 @@ function normalizePanelMode(value = '') {
   if (normalized === 'local-cpa-json-no-rt') {
     return 'local-cpa-json-no-rt';
   }
-  if (normalized === 'sub2api') {
-    return 'sub2api';
-  }
   if (normalized === 'codex2api') {
     return 'codex2api';
   }
-  return 'cpa';
+  return DEFAULT_PANEL_MODE;
 }
 
 function normalizePlusAccountAccessStrategy(value = '') {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-  }
-  if (normalized === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
-  }
   return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
 }
 
 function normalizePlusAccountAccessStrategyForState(state = {}) {
-  const panelMode = typeof getPanelMode === 'function'
-    ? getPanelMode(state)
-    : normalizePanelMode(state?.panelMode);
-  const strategy = normalizePlusAccountAccessStrategy(state?.plusAccountAccessStrategy);
-  if (panelMode === 'sub2api' && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION;
-  }
-  if (panelMode === 'cpa' && strategy === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-    return PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION;
-  }
   return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
 }
 
@@ -9933,13 +9885,10 @@ function getPanelMode(state = {}) {
   if (state.panelMode === 'local-cpa-json-no-rt') {
     return 'local-cpa-json-no-rt';
   }
-  if (state.panelMode === 'sub2api') {
-    return 'sub2api';
-  }
   if (state.panelMode === 'codex2api') {
     return 'codex2api';
   }
-  return 'cpa';
+  return DEFAULT_PANEL_MODE;
 }
 
 function getPanelModeLabel(modeOrState) {
@@ -9953,13 +9902,10 @@ function getPanelModeLabel(modeOrState) {
   if (mode === 'local-cpa-json-no-rt') {
     return '本地CPA JSON 无RT';
   }
-  if (mode === 'sub2api') {
-    return 'SUB2API';
-  }
   if (mode === 'codex2api') {
     return 'Codex2API';
   }
-  return 'CPA';
+  return '本地CPA JSON 有RT';
 }
 
 function isSupportedChatGptSessionUrl(rawUrl = '') {
@@ -10119,62 +10065,15 @@ async function readCurrentChatGptSessionForExport() {
 }
 
 function getCpaSessionExportApi() {
-  const factory = self.MultiPageBackgroundCpaApi?.createCpaApi;
-  if (typeof factory !== 'function') {
-    throw new Error('CPA JSON 转换模块未加载。');
-  }
-  return factory({ addLog });
+  throw new Error('CPA/Sub2API 会话导出已移除。');
 }
 
 function getSub2SessionExportApi() {
-  const factory = self.MultiPageBackgroundSub2ApiApi?.createSub2ApiApi;
-  if (typeof factory !== 'function') {
-    throw new Error('SUB2 JSON 转换模块未加载。');
-  }
-  return factory({
-    addLog,
-    normalizeSub2ApiUrl,
-    DEFAULT_SUB2API_GROUP_NAME,
-  });
+  throw new Error('CPA/Sub2API 会话导出已移除。');
 }
 
 async function exportCurrentSessionJson(options = {}) {
-  const format = String(options?.format || '').trim().toLowerCase() === 'sub2' ? 'sub2' : 'cpa';
-  const sessionState = await readCurrentChatGptSessionForExport();
-  const state = {
-    ...await getState().catch(() => ({})),
-    session: sessionState.session,
-    accessToken: sessionState.accessToken,
-  };
-
-  if (format === 'sub2') {
-    const sub2Api = getSub2SessionExportApi();
-    const exportPayload = await sub2Api.buildCodexSessionImportPayloadForExport(state, {
-      timeoutMs: 15000,
-    });
-    const fileContent = JSON.stringify(exportPayload.payload, null, 2);
-    const email = sanitizeSessionExportFileSegment(
-      exportPayload.payload?.accounts?.[0]?.name || sessionState.session?.user?.email || sessionState.session?.email || '',
-      'chatgpt-session'
-    );
-    return {
-      ok: true,
-      format,
-      fileName: `sub2api-${email}.json`,
-      fileContent,
-      warnings: exportPayload.warnings || [],
-    };
-  }
-
-  const cpaApi = getCpaSessionExportApi();
-  const sessionAuth = cpaApi.buildCpaSessionAuthJson(state, { now: new Date() });
-  return {
-    ok: true,
-    format,
-    fileName: sessionAuth.fileName,
-    fileContent: JSON.stringify(sessionAuth.authJson, null, 2),
-    warnings: sessionAuth.hasRefreshToken ? [] : ['当前 SESSION 未包含 refresh_token，导出的 CPA JSON 无法自动续期。'],
-  };
+  throw new Error('CPA/Sub2API 会话导出已移除。');
 }
 
 function isSignupPageHost(hostname = '') {
@@ -10291,10 +10190,6 @@ function matchesSourceUrlFamily(source, candidateUrl, referenceUrl) {
       return candidate.hostname === '2925.com' || candidate.hostname === 'www.2925.com';
     case 'vps-panel':
       return Boolean(reference) && candidate.origin === reference.origin && candidate.pathname === reference.pathname;
-    case 'sub2api-panel':
-      return Boolean(reference)
-        && candidate.origin === reference.origin
-        && (candidate.pathname.startsWith('/admin/accounts') || candidate.pathname.startsWith('/login') || candidate.pathname === '/');
     case 'codex2api-panel':
       return Boolean(reference)
         && candidate.origin === reference.origin
@@ -10634,7 +10529,6 @@ function getSourceLabel(source) {
     'sidepanel': '侧边栏',
     'signup-page': '认证页',
     'vps-panel': 'CPA 面板',
-    'sub2api-panel': 'SUB2API 后台',
     'codex2api-panel': 'Codex2API 后台',
     'qq-mail': 'QQ 邮箱',
     'mail-163': '163 邮箱',
@@ -12573,24 +12467,18 @@ const AUTO_RUN_BACKGROUND_COMPLETED_STEP_KEYS = new Set([
   'chatgpt-session-reader-billing',
   'legacyWallet-approve',
   'chatgpt-session-reader-return',
-  'sub2api-session-import',
-  'cpa-session-import',
-  'oauth-login',
-  'fetch-login-code',
   'post-login-phone-verification',
   'bind-email',
   'fetch-bind-email-code',
   'relogin-bound-email',
   'fetch-bound-email-login-code',
   'post-bound-email-phone-verification',
-  'confirm-oauth',
 ]);
 const STEP_COMPLETION_SIGNAL_STEP_KEYS = new Set([
   'fill-password',
   'fill-profile',
   'chatgpt-session-reader-create',
   'legacyPay-subscription-confirm',
-  'platform-verify',
 ]);
 const STEP_COMPLETION_SIGNAL_TIMEOUTS_BY_STEP_KEY = new Map([
   ['fill-profile', 150000],
@@ -13910,12 +13798,6 @@ const AUTO_RUN_NODE_DELAYS = Object.freeze({
   'legacyPay-subscription-confirm': 2000,
   'legacyWallet-approve': 2000,
   'chatgpt-session-reader-return': 1000,
-  'sub2api-session-import': 0,
-  'cpa-session-import': 0,
-  'oauth-login': 2000,
-  'fetch-login-code': 2000,
-  'confirm-oauth': 1000,
-  'platform-verify': 0,
 });
 
 function getAutoRunNodeDelayMs(nodeId) {
@@ -15825,34 +15707,6 @@ upiCredentialMembershipChecker = self.MultiPageBackgroundUpiCredentialMembership
   sleepWithStop,
   throwIfStopped,
 });
-const sub2ApiSessionImportExecutor = self.MultiPageBackgroundSub2ApiSessionImport?.createSub2ApiSessionImportExecutor({
-  addLog,
-  chrome,
-  completeNodeFromBackground,
-  ensureContentScriptReadyOnTabUntilStopped,
-  getTabId,
-  isTabAlive,
-  normalizeSub2ApiUrl,
-  registerTab,
-  sendTabMessageUntilStopped,
-  sleepWithStop,
-  throwIfStopped,
-  waitForTabCompleteUntilStopped,
-  DEFAULT_SUB2API_GROUP_NAME,
-});
-const cpaSessionImportExecutor = self.MultiPageBackgroundCpaSessionImport?.createCpaSessionImportExecutor({
-  addLog,
-  chrome,
-  completeNodeFromBackground,
-  ensureContentScriptReadyOnTabUntilStopped,
-  getTabId,
-  isTabAlive,
-  registerTab,
-  sendTabMessageUntilStopped,
-  sleepWithStop,
-  throwIfStopped,
-  waitForTabCompleteUntilStopped,
-});
 const plusSuccessSessionUploadManager = self.MultiPageBackgroundPlusSuccessSessionUpload?.createPlusSuccessSessionUploadManager({
   addLog,
   completeNodeFromBackground,
@@ -15930,12 +15784,6 @@ const stepExecutorsByKey = {
   'set-gpt-password': (state) => setGptPasswordExecutor.executeSetGptPassword(state),
   'enable-totp-mfa': (state) => totpMfaExecutor.executeEnableTotpMfa(state),
   'upi-redeem': (state) => upiRedeemExecutor.executeUpiRedeem(state),
-  'sub2api-session-import': (state) => sub2ApiSessionImportExecutor.executeSub2ApiSessionImport(state),
-  'cpa-session-import': (state) => cpaSessionImportExecutor.executeCpaSessionImport(state),
-  'oauth-login': (state) => step7Executor.executeStep7(state),
-  'fetch-login-code': (state) => step8Executor.executeStep8(state),
-  'confirm-oauth': (state) => step9Executor.executeStep9(state),
-  'platform-verify': (state) => executeStep10(state),
 };
 messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
   addLog,
@@ -16140,8 +15988,6 @@ async function acquireTopLevelAuthChainExecution(step, state = {}) {
 
 const normalStepRegistry = buildStepRegistry(NORMAL_STEP_DEFINITIONS);
 const plusUpiStepRegistry = buildStepRegistry(PLUS_UPI_STEP_DEFINITIONS);
-const plusUpiSub2ApiSessionStepRegistry = buildStepRegistry(PLUS_UPI_SUB2API_SESSION_STEP_DEFINITIONS);
-const plusUpiCpaSessionStepRegistry = buildStepRegistry(PLUS_UPI_CPA_SESSION_STEP_DEFINITIONS);
 const localCpaJsonNoRtStepRegistry = buildStepRegistry(LOCAL_CPA_JSON_NO_RT_STEP_DEFINITIONS);
 
 function getStepRegistryForState(state = {}) {
@@ -16154,13 +16000,6 @@ function getStepRegistryForState(state = {}) {
   }
   if (!isPlusModeState(state)) {
     return normalStepRegistry;
-  }
-  const plusAccountAccessStrategy = normalizePlusAccountAccessStrategyForState(state);
-  if (plusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION) {
-    return plusUpiSub2ApiSessionStepRegistry;
-  }
-  if (plusAccountAccessStrategy === PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION) {
-    return plusUpiCpaSessionStepRegistry;
   }
   return plusUpiStepRegistry;
 }

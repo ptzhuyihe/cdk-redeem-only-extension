@@ -125,12 +125,10 @@
         <span class="data-label">导出至</span>
         <select id="select-panel-mode" class="data-select">
           <option value="local-cpa-json" selected>本地CPA JSON</option>
-          <option value="cpa">CPA 面板</option>
-          <option value="sub2api">SUB2API</option>
           <option value="codex2api">Codex2API</option>
         </select>
       </div>
-      <div class="data-row" id="row-account-access-strategy">
+      <div class="data-row" id="row-account-access-strategy" style="display:none;">
         <span class="data-label">账号接入策略</span>
         <div class="data-inline">
           <select id="select-account-access-strategy" class="data-select">
@@ -254,16 +252,6 @@
             data-password-toggle="input-codex2api-admin-key" data-show-label="显示 Codex2API 管理密钥"
             data-hide-label="隐藏 Codex2API 管理密钥" aria-label="显示 Codex2API 管理密钥"
             title="显示 Codex2API 管理密钥"></button>
-        </div>
-      </div>
-      <div class="data-row module-divider-start" id="row-export-current-session-json">
-        <span class="data-label">导出当前SESSION JSON</span>
-        <div class="data-inline current-session-export-inline">
-          <div class="current-session-export-actions">
-            <button id="btn-export-current-session-cpa-json" class="btn btn-outline btn-sm data-inline-btn" type="button">导出为CPA JSON</button>
-            <button id="btn-export-current-session-sub2-json" class="btn btn-outline btn-sm data-inline-btn" type="button">导出为SUB2 JSON</button>
-          </div>
-          <span class="current-session-export-warning">目前SESSION导出的JSON无法直接使用</span>
         </div>
       </div>
       <div class="data-row" id="row-custom-password">
@@ -634,7 +622,7 @@
           </div>
         </div>
       </div>
-      <div class="data-row" id="row-oauth-flow-timeout">
+      <div class="data-row" id="row-oauth-flow-timeout" style="display:none;">
         <span class="data-label">授权总超时</span>
         <div class="data-inline setting-pair">
           <div class="setting-group setting-group-primary oauth-flow-timeout-setting">

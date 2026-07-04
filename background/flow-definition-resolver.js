@@ -15,13 +15,9 @@
       normalStepIds = [],
       normalizePlusAccountAccessStrategyForState = () => '',
       normalizePlusPaymentMethod = () => 'upi',
-      plusAccountAccessStrategyCpaSession = 'cpa_codex_session',
-      plusAccountAccessStrategySub2ApiSession = 'sub2api_codex_session',
       plusStepDefinitions = [],
       plusStepIds = [],
-      plusUpiCpaSessionStepDefinitions = [],
       plusUpiRedeemOnlyStepDefinitions = [],
-      plusUpiSub2ApiSessionStepDefinitions = [],
       signupMethodEmail = 'email',
     } = deps;
 
@@ -35,7 +31,7 @@
         const activeFlowId = normalizeString(state?.activeFlowId).toLowerCase() || defaultActiveFlowId;
         const panelMode = typeof getPanelMode === 'function'
           ? getPanelMode(state)
-          : normalizeString(state?.panelMode).toLowerCase() || 'cpa';
+          : normalizeString(state?.panelMode).toLowerCase() || 'local-cpa-json';
         const definitions = rootScope.MultiPageStepDefinitions.getSteps({
           activeFlowId,
           panelMode,
@@ -59,15 +55,8 @@
       if (!isPlusModeState(state)) {
         return normalStepDefinitions;
       }
-      const plusAccountAccessStrategy = normalizePlusAccountAccessStrategyForState(state);
       if ((state?.upiRedeemContinueAfterRedeem ?? state?.pixRedeemContinueAfterRedeem) !== true) {
         return plusUpiRedeemOnlyStepDefinitions;
-      }
-      if (plusAccountAccessStrategy === plusAccountAccessStrategySub2ApiSession) {
-        return plusUpiSub2ApiSessionStepDefinitions;
-      }
-      if (plusAccountAccessStrategy === plusAccountAccessStrategyCpaSession) {
-        return plusUpiCpaSessionStepDefinitions;
       }
       return plusStepDefinitions;
     }
@@ -95,11 +84,7 @@
     }
 
     function getAuthChainStartStepId(state = {}) {
-      const authStepId = getStepIdByKeyForState('oauth-login', state);
-      if (Number.isInteger(authStepId) && authStepId > 0) {
-        return authStepId;
-      }
-      return isPlusModeState(state) ? 10 : finalOauthChainStartStep;
+      return finalOauthChainStartStep;
     }
 
     function getStepDefinitionForState(step, state = {}) {
