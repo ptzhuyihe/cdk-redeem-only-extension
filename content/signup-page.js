@@ -436,6 +436,21 @@ function isEmailVerificationPage() {
   return Boolean(getSignupVerificationPageHelpers().isEmailVerificationPage?.());
 }
 
+let signupPhonePageHelpers = null;
+
+function getSignupPhonePageHelpers() {
+  if (signupPhonePageHelpers) {
+    return signupPhonePageHelpers;
+  }
+  const rootScope = typeof self !== 'undefined' ? self : window;
+  signupPhonePageHelpers = rootScope.MultiPageSignupPhonePage?.createSignupPhonePage?.({
+    documentRef: document,
+    navigatorRef: rootScope?.navigator || globalThis?.navigator || null,
+    phoneCountryUtils: rootScope?.MultiPagePhoneCountryUtils || globalThis?.MultiPagePhoneCountryUtils || {},
+  }) || {};
+  return signupPhonePageHelpers;
+}
+
 function getContactVerificationServerErrorText() {
   const path = String(location?.pathname || '');
   if (!/\/contact-verification(?:[/?#]|$)/i.test(path)) {
@@ -1431,217 +1446,47 @@ async function fillSignupEmailAndContinue(email, step) {
 }
 
 function normalizePhoneDigits(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizePhoneDigits === 'function') {
-    return phoneCountryUtils.normalizePhoneDigits(value);
-  }
-  let digits = String(value || '').replace(/\D+/g, '');
-  if (digits.startsWith('00')) {
-    digits = digits.slice(2);
-  }
-  return digits;
+  return getSignupPhonePageHelpers().normalizePhoneDigits?.(value) || '';
 }
 
 function extractDialCodeFromText(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.extractDialCodeFromText === 'function') {
-    return phoneCountryUtils.extractDialCodeFromText(value);
-  }
-  const match = String(value || '').match(/\(\+\s*(\d{1,4})\s*\)|\+\s*\(\s*(\d{1,4})\s*\)|\+\s*(\d{1,4})\b/);
-  return String(match?.[1] || match?.[2] || match?.[3] || '').trim();
+  return getSignupPhonePageHelpers().extractDialCodeFromText?.(value) || '';
 }
 
 function dispatchSignupPhoneFieldEvents(element) {
-  if (!element) return;
-  element.dispatchEvent(new Event('input', { bubbles: true }));
-  element.dispatchEvent(new Event('change', { bubbles: true }));
+  getSignupPhonePageHelpers().dispatchSignupPhoneFieldEvents?.(element);
 }
 
 function normalizeSignupCountryLabel(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizeCountryLabel === 'function') {
-    return phoneCountryUtils.normalizeCountryLabel(value);
-  }
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return getSignupPhonePageHelpers().normalizeSignupCountryLabel?.(value) || '';
 }
 
 function getSignupCountryLabelAliases(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getCountryLabelAliases === 'function') {
-    return phoneCountryUtils.getCountryLabelAliases(value);
-  }
-  const aliases = new Set();
-  const addAlias = (alias) => {
-    const normalized = normalizeSignupCountryLabel(alias);
-    if (normalized) {
-      aliases.add(normalized);
-    }
-  };
-
-  const raw = String(value || '').trim();
-  addAlias(raw);
-  Array.from(raw.matchAll(/\(([^()]+)\)/g))
-    .map((match) => match[1])
-    .forEach(addAlias);
-  const withoutParentheses = raw.replace(/\([^()]*\)/g, ' ');
-  const withoutDialCodes = withoutParentheses
-    .replace(/\+\s*\d{1,4}\b/g, ' ')
-    .replace(/\(\s*\+\s*\d{1,4}\s*\)/g, ' ');
-  addAlias(withoutDialCodes);
-
-  const normalized = normalizeSignupCountryLabel(raw);
-  const compact = normalized.replace(/\s+/g, '');
-  if (
-    /(?:^|\s)(?:gb|uk)(?:\s|$)/i.test(raw)
-    || /england|united\s*kingdom|great\s*britain|\bbritain\b/i.test(raw)
-    || /英国|英格兰|大不列颠/.test(raw)
-    || ['gb', 'uk', 'england', 'unitedkingdom', 'greatbritain', 'britain'].includes(compact)
-  ) {
-    [
-      'GB',
-      'UK',
-      'United Kingdom',
-      'Great Britain',
-      'Britain',
-      'England',
-      '英国',
-      '英格兰',
-      '大不列颠',
-    ].forEach(addAlias);
-  }
-
-  return Array.from(aliases);
+  return getSignupPhonePageHelpers().getSignupCountryLabelAliases?.(value) || [];
 }
 
 function isLooseSignupCountryLabelMatch(optionLabel, targetLabel) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.isLooseCountryLabelMatch === 'function') {
-    return phoneCountryUtils.isLooseCountryLabelMatch(optionLabel, targetLabel);
-  }
-  if (!optionLabel || !targetLabel || optionLabel.length <= 2 || targetLabel.length <= 2) {
-    return false;
-  }
-  if (optionLabel.includes(targetLabel)) {
-    return true;
-  }
-  return /\s/.test(optionLabel) && targetLabel.includes(optionLabel);
+  return Boolean(getSignupPhonePageHelpers().isLooseSignupCountryLabelMatch?.(optionLabel, targetLabel));
 }
 
 function getSignupPhoneOptionLabel(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionLabel === 'function') {
-    return phoneCountryUtils.getOptionLabel(option);
-  }
-  return String(option?.textContent || option?.label || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return getSignupPhonePageHelpers().getSignupPhoneOptionLabel?.(option) || '';
 }
 
 function normalizeSignupCountryOptionValue(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizeCountryOptionValue === 'function') {
-    return phoneCountryUtils.normalizeCountryOptionValue(value);
-  }
-  return String(value || '').trim().toUpperCase();
+  return getSignupPhonePageHelpers().normalizeSignupCountryOptionValue?.(value) || '';
 }
 
 function getSignupRegionDisplayName(regionCode, locale) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getRegionDisplayName === 'function') {
-    return phoneCountryUtils.getRegionDisplayName(regionCode, locale);
-  }
-  const normalizedRegionCode = normalizeSignupCountryOptionValue(regionCode);
-  const normalizedLocale = String(locale || '').trim();
-  if (!/^[A-Z]{2}$/.test(normalizedRegionCode) || !normalizedLocale || typeof Intl?.DisplayNames !== 'function') {
-    return '';
-  }
-  try {
-    return String(
-      new Intl.DisplayNames([normalizedLocale], { type: 'region' }).of(normalizedRegionCode) || ''
-    ).trim();
-  } catch {
-    return '';
-  }
+  return getSignupPhonePageHelpers().getSignupRegionDisplayName?.(regionCode, locale) || '';
 }
 
 function getSignupPhoneCountryMatchLabels(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionMatchLabels === 'function') {
-    const rootScope = typeof self !== 'undefined' ? self : globalThis;
-    return phoneCountryUtils.getOptionMatchLabels(option, {
-      document: typeof document !== 'undefined' ? document : null,
-      navigator: rootScope?.navigator || globalThis?.navigator || null,
-      getOptionLabel: getSignupPhoneOptionLabel,
-    });
-  }
-
-  const labels = new Set();
-  const pushLabel = (value) => {
-    const label = String(value || '').replace(/\s+/g, ' ').trim();
-    if (label) {
-      labels.add(label);
-    }
-  };
-
-  pushLabel(getSignupPhoneOptionLabel(option));
-
-  const regionCode = normalizeSignupCountryOptionValue(option?.value);
-  if (/^[A-Z]{2}$/.test(regionCode)) {
-    pushLabel(regionCode);
-    pushLabel(getSignupRegionDisplayName(regionCode, 'en'));
-
-    const rootScope = typeof self !== 'undefined' ? self : globalThis;
-    const pageLocale = String(
-      document?.documentElement?.lang
-      || document?.documentElement?.getAttribute?.('lang')
-      || rootScope?.navigator?.language
-      || ''
-    ).trim();
-    if (pageLocale && !/^en(?:[-_]|$)/i.test(pageLocale)) {
-      pushLabel(getSignupRegionDisplayName(regionCode, pageLocale));
-    }
-  }
-
-  return Array.from(labels);
+  return getSignupPhonePageHelpers().getSignupPhoneCountryMatchLabels?.(option) || [];
 }
 
 function isSameSignupCountryOption(left, right) {
-  if (!left || !right) {
-    return false;
-  }
-
-  const leftValue = normalizeSignupCountryOptionValue(left.value);
-  const rightValue = normalizeSignupCountryOptionValue(right.value);
-  if (leftValue && rightValue) {
-    return leftValue === rightValue;
-  }
-
-  return normalizeSignupCountryLabel(getSignupPhoneOptionLabel(left)) === normalizeSignupCountryLabel(getSignupPhoneOptionLabel(right));
+  return Boolean(getSignupPhonePageHelpers().isSameSignupCountryOption?.(left, right));
 }
 
 function getSignupPhoneForm(phoneInput = getSignupPhoneInput()) {

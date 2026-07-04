@@ -110,6 +110,7 @@ function checkCoreFiles() {
     'background/verification-flow.js',
     'content/signup-dom-utils.js',
     'content/signup-entry-page.js',
+    'content/signup-phone-page.js',
     'content/signup-verification-page.js',
     'content/signup-page.js',
     'sidepanel/sidepanel.html',
@@ -154,6 +155,7 @@ function checkStaticContracts() {
   const checker = readText('background/upi-credential-membership-checker.js');
   const signupDomUtils = readText('content/signup-dom-utils.js');
   const signupEntryPage = readText('content/signup-entry-page.js');
+  const signupPhonePage = readText('content/signup-phone-page.js');
   const signupVerificationPage = readText('content/signup-verification-page.js');
   const gitignore = readText('.gitignore');
 
@@ -197,15 +199,20 @@ function checkStaticContracts() {
   assertIncludes(router, 'getRedeemCdkeyUsageHelpers()', 'router CDK usage wrapper');
   assertIncludes(background, "'content/signup-dom-utils.js'", 'background signup DOM utils injection');
   assertIncludes(background, "'content/signup-entry-page.js'", 'background signup entry page injection');
+  assertIncludes(background, "'content/signup-phone-page.js'", 'background signup phone page injection');
   assertIncludes(background, "'content/signup-verification-page.js'", 'background signup verification page injection');
   assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-dom-utils.js', 'manifest signup DOM utils load');
   assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-entry-page.js', 'manifest signup entry page load');
+  assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-phone-page.js', 'manifest signup phone page load');
   assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-verification-page.js', 'manifest signup verification page load');
   assertIncludes(signupDomUtils, 'MultiPageSignupDomUtils', 'signup DOM utils global');
   assertIncludes(signupDomUtils, 'getAssociatedInputText', 'signup DOM associated input helper');
   assertIncludes(signupEntryPage, 'MultiPageSignupEntryPage', 'signup entry page global');
   assertIncludes(signupEntryPage, 'findSignupEntryTrigger', 'signup entry trigger helper');
   assertIncludes(signupEntryPage, 'प्लान्स?', 'signup entry excludes Hindi plans/pricing');
+  assertIncludes(signupPhonePage, 'MultiPageSignupPhonePage', 'signup phone page global');
+  assertIncludes(signupPhonePage, 'normalizePhoneDigits', 'signup phone digit helper');
+  assertIncludes(signupPhonePage, 'getSignupCountryLabelAliases', 'signup phone country alias helper');
   assertIncludes(signupVerificationPage, 'MultiPageSignupVerificationPage', 'signup verification page global');
   assertIncludes(signupVerificationPage, 'getVerificationCodeTarget', 'signup verification target helper');
   assertIncludes(signupVerificationPage, 'findResendVerificationCodeTrigger', 'signup verification resend helper');
@@ -290,6 +297,7 @@ function checkModuleSizeGuard() {
   assertFileLineCountAtMost('background/redeem/redeem-cdkey-usage.js', 400, 'redeem CDK usage size guard');
   assertFileLineCountAtMost('content/signup-dom-utils.js', 300, 'signup DOM utils size guard');
   assertFileLineCountAtMost('content/signup-entry-page.js', 400, 'signup entry page size guard');
+  assertFileLineCountAtMost('content/signup-phone-page.js', 400, 'signup phone page size guard');
   assertFileLineCountAtMost('content/signup-verification-page.js', 300, 'signup verification page size guard');
   assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
   assertFileLineCountAtMost('background/upi-credential-membership-checker.js', 7000, 'membership checker growth guard');
