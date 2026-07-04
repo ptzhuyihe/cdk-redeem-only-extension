@@ -950,19 +950,14 @@ Object.assign(PERSISTED_SETTING_DEFAULTS, {
   currentLegacyWalletAccountId: '',
   legacyWalletAccounts: [],
   legacyPayCountryCode: '+86',
-  legacyPayPhone: '',
   legacyPayOtp: '',
   legacyPayPin: '',
   legacyPayHelperApiUrl: '',
   legacyPayHelperApiKey: '',
   legacyPayHelperCardKey: '',
-  legacyPayHelperPhoneMode: 'manual',
   legacyPayHelperCountryCode: '+86',
-  legacyPayHelperPhoneNumber: '',
   legacyPayHelperPin: '',
   legacyPayHelperOtpChannel: 'whatsapp',
-  legacyPayHelperLocalSmsHelperEnabled: false,
-  legacyPayHelperLocalSmsHelperUrl: 'http://127.0.0.1:18767',
   autoRunRetryLegacyWalletCallback: false,
   autoRunRetryShortLinkError: true,
   plusRemovedContactOauthDelaySeconds: 0,
@@ -9436,11 +9431,9 @@ function getLoginAuthStateLabel(state) {
     case 'verification_page': return '登录验证码页';
     case 'password_page': return '密码页';
     case 'email_page': return '邮箱输入页';
-    case 'phone_entry_page': return '附加认证输入页';
     case 'login_timeout_error_page': return '登录超时报错页';
     case 'auth_http_error_page': return '认证服务 HTTP 500 错误页';
     case 'oauth_consent_page': return 'OAuth 授权页';
-    case 'add_phone_page': return '附加认证页';
     case 'add_email_page': return '添加邮箱页';
     default: return '未知页面';
   }
@@ -9973,7 +9966,7 @@ function resolveAccountRunRecordReasonForStop(status, reason = '') {
     if (!text || text === STOP_ERROR_MESSAGE || /^流程已被用户停止。?$/.test(text)) {
       return `节点 ${stoppedNodeId} 已被用户停止。`;
     }
-    if (/流程尚未完成/.test(text) || /已使用(?:邮箱|手机号)/.test(text)) {
+    if (/流程尚未完成/.test(text) || /已使用邮箱/.test(text)) {
       return text.replace(/^步骤\s*\d+/, `节点 ${stoppedNodeId}`);
     }
     return text;
@@ -12863,7 +12856,7 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
       return;
     }
     await addLog(
-      `节点 ${getNodeLabel(nodeId, state)}：步骤 4 已连续重开 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次仍失败，停止当前自动尝试，避免在短信等待或 contact-verification 异常中循环。原因：${getErrorMessage(error)}`,
+      `节点 ${getNodeLabel(nodeId, state)}：步骤 4 已连续重开 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次仍失败，停止当前自动尝试，避免在验证码等待或 contact-verification 异常中循环。原因：${getErrorMessage(error)}`,
       'error'
     );
     throw error;
@@ -14607,7 +14600,6 @@ function isStep5SubmitRecoverySuccessState(pageState = {}) {
   const successState = String(pageState?.successState || '').trim();
   return successState === 'logged_in_home'
     || successState === 'oauth_consent'
-    || successState === 'add_phone'
     || successState === 'left_profile';
 }
 
@@ -15200,19 +15192,10 @@ async function ensureStep8VerificationPageReady(options = {}) {
       if (pageState.maxCheckAttemptsBlocked) {
         throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
       }
-      if (pageState.state === 'add_phone_page') {
-        const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
-        throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
-      }
     }
 
     const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
     throw new Error(`STEP8_RESTART_STEP7::步骤 ${visibleStep}：当前认证页进入登录超时报错页，请回到步骤 ${authLoginStep} 重新开始。${urlPart}`.trim());
-  }
-
-  if (pageState.state === 'add_phone_page') {
-    const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
-    throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
   }
 
   const stateLabel = getLoginAuthStateLabel(pageState.state);

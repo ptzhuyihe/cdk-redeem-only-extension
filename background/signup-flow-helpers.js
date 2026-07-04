@@ -18,7 +18,6 @@
       isLuckmailProvider,
       isSignupEmailVerificationPageUrl,
       isSignupPasswordPageUrl,
-      isSignupPhoneVerificationPageUrl = null,
       isSignupProfilePageUrl = null,
       persistRegistrationEmailState = null,
       reuseOrCreateTab,

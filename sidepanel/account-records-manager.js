@@ -206,7 +206,7 @@
 
     function isPreSubmitUpiCredentialMembershipBlockedReason(message = '') {
       const text = String(message || '').trim();
-      return /缺少\s*GPT\s*密码|缺少\s*2FA|提交密码后|未进入登录验证码页|登录未进入验证码页|登录需要手机验证码|登录需要邮箱一次性验证码|登录后需要手机|登录后需要邮箱|邮箱一次性验证码|手机号验证码|手机验证码|验证码页面|登录密码未通过|密码未通过|2FA\s*动态码被页面拒绝|账号登录态不一致|accessToken\s*属于|未读取到\s*accessToken|未进入\s*ChatGPT\s*已登录态|登录或读取\s*accessToken\s*未完成|读取\s*accessToken\s*未完成|verify your identity|one-time password|one-time code/i.test(text);
+      return /缺少\s*GPT\s*密码|缺少\s*2FA|提交密码后|未进入登录验证码页|登录未进入验证码页|登录需要邮箱一次性验证码|登录后需要邮箱|邮箱一次性验证码|验证码页面|登录密码未通过|密码未通过|2FA\s*动态码被页面拒绝|账号登录态不一致|accessToken\s*属于|未读取到\s*accessToken|未进入\s*ChatGPT\s*已登录态|登录或读取\s*accessToken\s*未完成|读取\s*accessToken\s*未完成|verify your identity|one-time password|one-time code/i.test(text);
     }
 
     function isPreSubmitUpiCredentialMembershipBlockedRow(row = {}) {
@@ -2452,26 +2452,12 @@
       ).trim();
     }
 
-    function getRecordPhoneNumber(record = {}) {
-      return String(
-        record.phoneNumber
-        || record.phone
-        || record.number
-        || ''
-      ).trim();
-    }
-
     function getRecordPrimaryIdentifier(record = {}) {
       const email = getRecordEmail(record);
       return email || String(record.accountIdentifier || '').trim();
     }
 
     function getRecordSecondaryIdentifier(record = {}) {
-      const email = getRecordEmail(record);
-      const phoneNumber = getRecordPhoneNumber(record);
-      if (email && phoneNumber) {
-        return `绑定手机号 ${phoneNumber}`;
-      }
       return '';
     }
 

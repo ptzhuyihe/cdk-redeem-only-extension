@@ -277,9 +277,6 @@ const VERIFICATION_CODE_INPUT_SELECTOR = [
 const ONE_TIME_CODE_LOGIN_PATTERN = /使用一次性验证码登录|改用(?:一次性)?验证码(?:登录)?|使用验证码登录|一次性验证码|验证码登录|one[-\s]*time\s*(?:passcode|password|code)|use\s+(?:a\s+)?one[-\s]*time\s*(?:passcode|password|code)(?:\s+instead)?|use\s+(?:a\s+)?code(?:\s+instead)?|sign\s+in\s+with\s+(?:email|code)|email\s+(?:me\s+)?(?:a\s+)?code|(?:एक[-\s]*)?बार(?:\s+का)?\s+(?:कोड|पासकोड)|कोड\s+(?:से|का)\s+(?:लॉग\s*इन|साइन\s*इन)/i;
 const HINDI_LOGIN_ENTRY_PATTERN = /लॉग\s*इन(?:\s*करें)?|साइन\s*इन(?:\s*करें)?/i;
 const LOGIN_ENTRY_ACTION_PATTERN = /(?:^|\b)(?:log\s*in|sign\s*in|continue\s+(?:with|using)\s+(?:email|chatgpt)|use\s+(?:an?\s+)?email|email\s+address)(?:\b|$)|登录|登陆|邮箱|电子邮件|लॉग\s*इन(?:\s*करें)?|साइन\s*इन(?:\s*करें)?|ई-?मेल(?:\s+पता)?/i;
-const LOGIN_SWITCH_TO_PHONE_PATTERN = /继续使用(?:手机|手机号|电话)(?:号码)?登录|改用(?:手机|手机号|电话)(?:号码)?登录|手机号登录|continue\s+(?:with|using)\s+(?:a\s+)?phone(?:\s+number)?|use\s+(?:a\s+)?phone(?:\s+number)?(?:\s+instead)?|sign\s*in\s+with\s+(?:a\s+)?phone|(?:फोन|फ़ोन|मोबाइल)(?:\s+नंबर)?(?:\s+से)?\s*(?:जारी रखें|लॉग\s*इन|साइन\s*इन)/i;
-const LOGIN_PHONE_ACTION_PATTERN = /手机|电话|phone|telephone|फोन|फ़ोन|मोबाइल/i;
-const LOGIN_PHONE_ENTRY_PAGE_PATTERN = /(?:\+\s*\(?\d{1,4}\)?\s*)?(?:手机号码|手机号|电话号码)|(?:phone|mobile)\s+number|telephone|(?:फोन|फ़ोन|मोबाइल)(?:\s+नंबर)?/i;
 const LOGIN_MORE_OPTIONS_PATTERN = /更多(?:选项|登录方式|方式)|其他(?:登录方式|选项|方式)|显示更多|more\s+(?:login\s+|sign[-\s]*in\s+)?options|other\s+(?:login\s+|sign[-\s]*in\s+)?(?:options|ways)|show\s+more|(?:और|अन्य)\s+(?:विकल्प|तरीके)|ज़्यादा\s+दिखाएं/i;
 const LOGIN_EXTERNAL_IDP_PATTERN = /google|microsoft|apple|sso|single\s+sign[-\s]*on|企业|工作区|workspace/i;
 const LOGIN_CODE_ONLY_ACTION_PATTERN = /one[-\s]*time|passcode|use\s+(?:a\s+)?code|验证码|一次性/i;
@@ -1338,1021 +1335,6 @@ async function fillSignupEmailAndContinue(email, step) {
     email,
     url: location.href,
   };
-}
-
-function normalizePhoneDigits(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizePhoneDigits === 'function') {
-    return phoneCountryUtils.normalizePhoneDigits(value);
-  }
-  return String(value || '').replace(/\D+/g, '');
-}
-
-function extractDialCodeFromText(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.extractDialCodeFromText === 'function') {
-    return phoneCountryUtils.extractDialCodeFromText(value);
-  }
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  const match = text.match(/(?:^|[^\d])\+\s*(\d{1,4})(?=\D|$)/);
-  return match?.[1] ? normalizePhoneDigits(match[1]) : '';
-}
-
-function dispatchSignupPhoneFieldEvents(element) {
-  if (!element || typeof element.dispatchEvent !== 'function') {
-    return;
-  }
-  element.dispatchEvent(new Event('input', { bubbles: true }));
-  element.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-function normalizeSignupCountryLabel(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizeCountryLabel === 'function') {
-    return phoneCountryUtils.normalizeCountryLabel(value);
-  }
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
-    .trim();
-}
-
-function getSignupCountryLabelAliases(value) {
-  const normalized = normalizeSignupCountryLabel(value);
-  return normalized ? [normalized] : [];
-}
-
-function isLooseSignupCountryLabelMatch(optionLabel, targetLabel) {
-  const left = normalizeSignupCountryLabel(optionLabel);
-  const right = normalizeSignupCountryLabel(targetLabel);
-  return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
-}
-
-function getSignupPhoneOptionLabel(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionLabel === 'function') {
-    return phoneCountryUtils.getOptionLabel(option);
-  }
-  return String(option?.label || option?.textContent || option?.innerText || option?.value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function normalizeSignupCountryOptionValue(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function getSignupRegionDisplayName(regionCode, locale) {
-  const code = normalizeSignupCountryOptionValue(regionCode);
-  if (!/^[A-Z]{2}$/.test(code) || typeof Intl?.DisplayNames !== 'function') {
-    return '';
-  }
-  try {
-    return new Intl.DisplayNames([locale || navigator?.language || 'en'], { type: 'region' }).of(code) || '';
-  } catch {
-    return '';
-  }
-}
-
-function getSignupPhoneCountryMatchLabels(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionMatchLabels === 'function') {
-    return phoneCountryUtils.getOptionMatchLabels(option, {
-      document: typeof document !== 'undefined' ? document : null,
-      navigator: (typeof self !== 'undefined' ? self : globalThis)?.navigator || globalThis?.navigator || null,
-      getOptionLabel: getSignupPhoneOptionLabel,
-    });
-  }
-  const labels = new Set();
-  const add = (label) => {
-    const normalized = normalizeSignupCountryLabel(label);
-    if (normalized) labels.add(normalized);
-  };
-  add(getSignupPhoneOptionLabel(option));
-  add(option?.value);
-  add(getSignupRegionDisplayName(option?.value));
-  return Array.from(labels);
-}
-
-function isSameSignupCountryOption(left, right) {
-  if (!left || !right) {
-    return false;
-  }
-  const leftValue = normalizeSignupCountryOptionValue(left.value);
-  const rightValue = normalizeSignupCountryOptionValue(right.value);
-  if (leftValue && rightValue && leftValue === rightValue) {
-    return true;
-  }
-  return getSignupPhoneCountryMatchLabels(left).some((leftLabel) => (
-    getSignupPhoneCountryMatchLabels(right).some((rightLabel) => leftLabel === rightLabel)
-  ));
-}
-
-function getSignupPhoneForm(phoneInput = null) {
-  return phoneInput?.closest?.('form') || null;
-}
-
-function getSignupPhoneControlRoots(phoneInput = null) {
-  const roots = [];
-  const addRoot = (root) => {
-    if (root && !roots.includes(root)) {
-      roots.push(root);
-    }
-  };
-
-  addRoot(phoneInput?.closest?.('form'));
-  addRoot(phoneInput?.closest?.('fieldset'));
-  addRoot(phoneInput?.closest?.('[data-rac]'));
-  addRoot(phoneInput?.closest?.('[role="group"]'));
-  addRoot(phoneInput?.parentElement);
-  addRoot(phoneInput?.parentElement?.parentElement);
-  addRoot(document);
-
-  return roots;
-}
-
-function querySignupPhoneCountryElements(root, selector) {
-  if (!root || !selector) {
-    return [];
-  }
-  if (typeof root.querySelectorAll === 'function') {
-    const directMatches = Array.from(root.querySelectorAll(selector));
-    if (directMatches.length > 0) {
-      return directMatches;
-    }
-  }
-  if (typeof root.querySelector === 'function') {
-    const selectors = String(selector || '')
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean);
-    const matches = [];
-    for (const part of selectors) {
-      const element = root.querySelector(part);
-      if (element && !matches.includes(element)) {
-        matches.push(element);
-      }
-    }
-    return matches;
-  }
-  return [];
-}
-
-function isSignupPhoneCountrySelect(select) {
-  if (!select) {
-    return false;
-  }
-  return Array.from(select.options || []).some((option) => (
-    extractDialCodeFromText(getSignupPhoneOptionLabel(option))
-    || /^[A-Z]{2}$/.test(normalizeSignupCountryOptionValue(option?.value))
-  ));
-}
-
-function getSignupPhoneCountrySelect(phoneInput = null) {
-  const selects = [];
-  for (const root of getSignupPhoneControlRoots(phoneInput)) {
-    for (const select of querySignupPhoneCountryElements(root, 'select')) {
-      if (!selects.includes(select)) {
-        selects.push(select);
-      }
-    }
-  }
-  return selects.find(isSignupPhoneCountrySelect) || selects[0] || null;
-}
-
-function getSignupPhoneSelectedCountryOption(phoneInput = null) {
-  const select = getSignupPhoneCountrySelect(phoneInput);
-  if (!select || select.selectedIndex < 0) {
-    return null;
-  }
-  return select.options?.[select.selectedIndex] || null;
-}
-
-function getSignupPhoneCountryButtonText(phoneInput = null) {
-  const button = getSignupPhoneCountryButton(phoneInput);
-  if (!button) return '';
-  const valueNode = button.querySelector('.react-aria-SelectValue');
-  return String(valueNode?.textContent || button.textContent || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function getSignupPhoneCountryButton(phoneInput = null) {
-  const candidates = [];
-  for (const root of getSignupPhoneControlRoots(phoneInput)) {
-    const buttons = querySignupPhoneCountryElements(
-      root,
-      'button[aria-haspopup="listbox"], [role="button"][aria-haspopup="listbox"], [role="combobox"][aria-haspopup="listbox"], button[aria-expanded]'
-    );
-    for (const button of buttons) {
-      if (!candidates.includes(button)) {
-        candidates.push(button);
-      }
-    }
-  }
-  return candidates.find((button) => isVisibleElement(button) && extractDialCodeFromText(getActionText(button)))
-    || candidates.find(isVisibleElement)
-    || null;
-}
-
-function getSignupPhoneDisplayedDialCode(phoneInput = null) {
-  const buttonDialCode = extractDialCodeFromText(getSignupPhoneCountryButtonText(phoneInput));
-  if (buttonDialCode) {
-    return buttonDialCode;
-  }
-  const inputRoot = phoneInput?.closest?.('fieldset, form, [data-rac], div') || document;
-  const visibleText = String(inputRoot?.textContent || '').replace(/\s+/g, ' ').trim();
-  const rootDialCode = extractDialCodeFromText(visibleText);
-  if (rootDialCode) {
-    return rootDialCode;
-  }
-  const pageDialCode = extractDialCodeFromText(getPageTextSnapshot());
-  if (pageDialCode) {
-    return pageDialCode;
-  }
-  return '';
-}
-
-function getSignupPhoneHiddenNumberInput(phoneInput = null) {
-  const form = getSignupPhoneForm(phoneInput);
-  if (!form || typeof form.querySelector !== 'function') {
-    return null;
-  }
-  return form.querySelector('input[name="phoneNumber"]');
-}
-
-function resolveSignupPhoneDialCodeFromNumber(phoneNumber = '', texts = []) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.resolveDialCodeFromPhoneNumber === 'function') {
-    return phoneCountryUtils.resolveDialCodeFromPhoneNumber(phoneNumber, texts);
-  }
-  const digits = normalizePhoneDigits(phoneNumber);
-  if (!digits) {
-    return '';
-  }
-
-  const textDialCodes = texts
-    .map((text) => normalizePhoneDigits(extractDialCodeFromText(text)))
-    .filter((dialCode) => dialCode && digits.startsWith(dialCode) && digits.length > dialCode.length)
-    .sort((left, right) => right.length - left.length);
-  if (textDialCodes[0]) {
-    return textDialCodes[0];
-  }
-
-  const knownDialCodes = [
-    '1246', '1264', '1268', '1284', '1340', '1345', '1441', '1473', '1649', '1664', '1670', '1671', '1684',
-    '1721', '1758', '1767', '1784', '1809', '1829', '1849', '1868', '1869', '1876',
-    '971', '962', '886', '880', '856', '855', '852', '853', '683', '678', '673', '672', '670', '599', '598', '597', '596',
-    '595', '594', '593', '592', '591', '590', '509', '508', '507', '506', '505', '504', '503', '502', '501', '500',
-    '423', '421', '420', '389', '387', '386', '385', '383', '382', '381', '380', '379', '378', '377', '376',
-    '375', '374', '373', '372', '371', '370', '359', '358', '357', '356', '355', '354', '353', '352', '351',
-    '350', '299', '298', '297', '291', '290', '269', '268', '267', '266', '265', '264', '263', '262', '261',
-    '260', '258', '257', '256', '255', '254', '253', '252', '251', '250', '249', '248', '247', '246', '245',
-    '244', '243', '242', '241', '240', '239', '238', '237', '236', '235', '234', '233', '232', '231', '230',
-    '229', '228', '227', '226', '225', '224', '223', '222', '221', '220', '218', '216', '213', '212', '211',
-    '98', '95', '94', '93', '92', '91', '90', '89', '88', '86', '84', '82', '81', '66', '65', '64', '63',
-    '62', '61', '60', '58', '57', '56', '55', '54', '53', '52', '51', '49', '48', '47', '46', '45', '44',
-    '43', '41', '40', '39', '36', '34', '33', '32', '31', '30', '27', '20', '7', '1',
-  ];
-  return knownDialCodes.find((code) => digits.startsWith(code) && digits.length > code.length) || '';
-}
-
-function resolveSignupPhoneTargetDialCode(options = {}, targetOption = null) {
-  const countryText = String(options.countryLabel || '').trim();
-  if (/australia|澳大利亚/i.test(countryText)) return '61';
-  if (/thailand|泰国/i.test(countryText)) return '66';
-  if (/vietnam|越南/i.test(countryText)) return '84';
-  if (/england|united\s*kingdom|great\s*britain|\bbritain\b|英国|英格兰|uk|gb/i.test(countryText)) return '44';
-  const countryDialCode = extractDialCodeFromText(countryText);
-  if (countryDialCode) {
-    return countryDialCode;
-  }
-
-  const optionDialCode = extractDialCodeFromText(getSignupPhoneOptionLabel(targetOption));
-  if (optionDialCode) {
-    return optionDialCode;
-  }
-
-  return resolveSignupPhoneDialCodeFromNumber(options.phoneNumber);
-}
-
-function getSignupPhoneCountryTargetLabels(targetOption, options = {}) {
-  const labels = new Set();
-  const addLabel = (value) => {
-    getSignupCountryLabelAliases(value).forEach((alias) => labels.add(alias));
-  };
-
-  addLabel(options.countryLabel);
-  if (targetOption) {
-    getSignupPhoneCountryMatchLabels(targetOption).forEach(addLabel);
-  }
-
-  return Array.from(labels);
-}
-
-function doesSignupPhoneCountryTextMatchTarget(text, targetOption, options = {}) {
-  const normalizedText = normalizeSignupCountryLabel(text);
-  if (!normalizedText) {
-    return false;
-  }
-
-  const labels = getSignupPhoneCountryTargetLabels(targetOption, options);
-  if (labels.some((label) => (
-    label
-    && (
-      normalizedText === label
-      || isLooseSignupCountryLabelMatch(normalizedText, label)
-    )
-  ))) {
-    return true;
-  }
-
-  const targetDialCode = resolveSignupPhoneTargetDialCode(options, targetOption);
-  return Boolean(targetDialCode && extractDialCodeFromText(text) === targetDialCode);
-}
-
-function isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options = {}) {
-  const targetDialCode = resolveSignupPhoneTargetDialCode(options, targetOption);
-  const displayedText = getSignupPhoneCountryButtonText(phoneInput);
-  const displayedDialCode = extractDialCodeFromText(displayedText);
-
-  if (targetDialCode && displayedDialCode) {
-    return displayedDialCode === targetDialCode
-      && (!displayedText || doesSignupPhoneCountryTextMatchTarget(displayedText, targetOption, options));
-  }
-
-  if (displayedText && doesSignupPhoneCountryTextMatchTarget(displayedText, targetOption, options)) {
-    return true;
-  }
-
-  const selectedOption = getSignupPhoneSelectedCountryOption(phoneInput);
-  if (selectedOption && targetOption && isSameSignupCountryOption(selectedOption, targetOption)) {
-    return !displayedDialCode || !targetDialCode || displayedDialCode === targetDialCode;
-  }
-
-  return Boolean(selectedOption && !targetOption && targetDialCode && displayedDialCode === targetDialCode);
-}
-
-function findSignupPhoneCountryOptionByLabel(phoneInput, countryLabel) {
-  const select = getSignupPhoneCountrySelect(phoneInput);
-  if (!select) {
-    return null;
-  }
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.findOptionByCountryLabel === 'function') {
-    return phoneCountryUtils.findOptionByCountryLabel(select.options, countryLabel, {
-      document: typeof document !== 'undefined' ? document : null,
-      navigator: (typeof self !== 'undefined' ? self : globalThis)?.navigator || globalThis?.navigator || null,
-      getOptionLabel: getSignupPhoneOptionLabel,
-    });
-  }
-  const normalizedTargets = getSignupCountryLabelAliases(countryLabel);
-  if (normalizedTargets.length === 0) {
-    return null;
-  }
-
-  const options = Array.from(select.options || []);
-  return options.find((option) => (
-    getSignupPhoneCountryMatchLabels(option).some((label) => normalizedTargets.includes(normalizeSignupCountryLabel(label)))
-  ))
-    || options.find((option) => {
-      const normalizedLabels = getSignupPhoneCountryMatchLabels(option)
-        .map((label) => normalizeSignupCountryLabel(label))
-        .filter(Boolean);
-      return normalizedLabels.some((optionLabel) => normalizedTargets.some((normalizedTarget) => (
-          isLooseSignupCountryLabelMatch(optionLabel, normalizedTarget)
-        )));
-    })
-    || null;
-}
-
-function findSignupPhoneCountryOptionByPhoneNumber(phoneInput, phoneNumber) {
-  const select = getSignupPhoneCountrySelect(phoneInput);
-  if (!select) {
-    return null;
-  }
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.findOptionByPhoneNumber === 'function') {
-    return phoneCountryUtils.findOptionByPhoneNumber(select.options, phoneNumber, {
-      getOptionLabel: getSignupPhoneOptionLabel,
-    });
-  }
-  const digits = normalizePhoneDigits(phoneNumber);
-  if (!digits) {
-    return null;
-  }
-
-  let bestMatch = null;
-  let bestDialCodeLength = 0;
-  for (const option of Array.from(select.options || [])) {
-    const dialCode = normalizePhoneDigits(extractDialCodeFromText(getSignupPhoneOptionLabel(option)));
-    if (!dialCode || !digits.startsWith(dialCode)) {
-      continue;
-    }
-    if (dialCode.length > bestDialCodeLength) {
-      bestMatch = option;
-      bestDialCodeLength = dialCode.length;
-    }
-  }
-  return bestMatch;
-}
-
-async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInput = null, options = {}) {
-  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
-    ? getOperationDelayRunner()
-    : async (metadata, operation) => {
-        const rootScope = typeof window !== 'undefined' ? window : globalThis;
-        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
-        return typeof gate === 'function' ? gate(metadata, operation) : operation();
-      };
-  if (!select || !targetOption) {
-    return false;
-  }
-  const selectedOption = select.selectedIndex >= 0
-    ? (select.options?.[select.selectedIndex] || null)
-    : null;
-  if (selectedOption && isSameSignupCountryOption(selectedOption, targetOption)) {
-    await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-select' }, async () => {
-      dispatchSignupPhoneFieldEvents(select);
-    });
-    await sleep(120);
-    return isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options);
-  }
-  await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-select' }, async () => {
-    select.value = String(targetOption.value || '');
-    dispatchSignupPhoneFieldEvents(select);
-  });
-  await sleep(250);
-  return isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options);
-}
-
-function getVisibleSignupPhoneCountryListboxOptions() {
-  const seen = new Set();
-  return Array.from(document.querySelectorAll('[role="listbox"] [role="option"], [role="option"]'))
-    .filter((option) => {
-      if (!option || seen.has(option)) {
-        return false;
-      }
-      seen.add(option);
-      return isVisibleElement(option);
-    });
-}
-
-function findSignupPhoneCountryListboxOption(targetOption, options = {}) {
-  const candidates = getVisibleSignupPhoneCountryListboxOptions();
-  const byLabel = candidates.find((option) => doesSignupPhoneCountryTextMatchTarget(getActionText(option), targetOption, options));
-  if (byLabel) {
-    return byLabel;
-  }
-
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.findElementByDialCode === 'function') {
-    const byPhoneNumber = phoneCountryUtils.findElementByDialCode(candidates, options.phoneNumber, {
-      getText: getActionText,
-    });
-    if (byPhoneNumber) {
-      return byPhoneNumber;
-    }
-  }
-
-  const targetDialCode = resolveSignupPhoneTargetDialCode(options, targetOption);
-  if (!targetDialCode) {
-    const digits = normalizePhoneDigits(options.phoneNumber);
-    let bestMatch = null;
-    let bestDialCodeLength = 0;
-    for (const option of candidates) {
-      const dialCode = normalizePhoneDigits(extractDialCodeFromText(getActionText(option)));
-      if (!dialCode || !digits.startsWith(dialCode) || dialCode.length <= bestDialCodeLength) {
-        continue;
-      }
-      bestMatch = option;
-      bestDialCodeLength = dialCode.length;
-    }
-    return bestMatch;
-  }
-  return candidates.find((option) => extractDialCodeFromText(getActionText(option)) === targetDialCode) || null;
-}
-
-async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption, options = {}) {
-  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
-    ? getOperationDelayRunner()
-    : async (metadata, operation) => {
-        const rootScope = typeof window !== 'undefined' ? window : globalThis;
-        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
-        return typeof gate === 'function' ? gate(metadata, operation) : operation();
-      };
-  const button = getSignupPhoneCountryButton(phoneInput);
-  if (!button) {
-    return false;
-  }
-
-  const getScrollableTargets = () => {
-    const seen = new Set();
-    const targets = [];
-    const pushTarget = (element) => {
-      if (!element || seen.has(element)) {
-        return;
-      }
-      seen.add(element);
-      const scrollHeight = Number(element.scrollHeight) || 0;
-      const clientHeight = Number(element.clientHeight) || 0;
-      if (scrollHeight > clientHeight + 2) {
-        targets.push(element);
-      }
-    };
-
-    getVisibleSignupPhoneCountryListboxOptions().forEach((option) => {
-      let current = option.parentElement || null;
-      let depth = 0;
-      while (current && depth < 6) {
-        pushTarget(current);
-        if (current === document.body || current === document.documentElement) {
-          break;
-        }
-        current = current.parentElement || null;
-        depth += 1;
-      }
-    });
-
-    Array.from(document.querySelectorAll('[role="listbox"]'))
-      .filter((listbox) => isVisibleElement(listbox))
-      .forEach(pushTarget);
-
-    return targets;
-  };
-
-  const dispatchListboxScroll = (element) => {
-    if (!element || typeof element.dispatchEvent !== 'function') {
-      return;
-    }
-    try {
-      element.dispatchEvent(typeof Event === 'function'
-        ? new Event('scroll', { bubbles: true })
-        : { type: 'scroll' });
-    } catch {
-      try {
-        element.dispatchEvent({ type: 'scroll' });
-      } catch { }
-    }
-  };
-
-  const resetListboxScroll = () => {
-    getScrollableTargets().forEach((target) => {
-      if ((Number(target.scrollTop) || 0) > 0) {
-        target.scrollTop = 0;
-        dispatchListboxScroll(target);
-      }
-    });
-  };
-
-  const scrollListboxDown = () => {
-    let scrolled = false;
-    getScrollableTargets().forEach((target) => {
-      const before = Number(target.scrollTop) || 0;
-      const maxScrollTop = Math.max(0, (Number(target.scrollHeight) || 0) - (Number(target.clientHeight) || 0));
-      if (maxScrollTop <= before + 1) {
-        return;
-      }
-      const step = Math.max(360, Math.floor((Number(target.clientHeight) || 0) * 0.85));
-      target.scrollTop = Math.min(maxScrollTop, before + step);
-      dispatchListboxScroll(target);
-      scrolled = true;
-    });
-    return scrolled;
-  };
-
-  await performOperationWithDelay({ stepKey: 'phone-country', kind: 'click', label: 'open-phone-country-listbox' }, async () => {
-    simulateClick(button);
-  });
-  await sleep(200);
-  resetListboxScroll();
-
-  const start = Date.now();
-  let reachedListEndAt = 0;
-  while (Date.now() - start < 8000) {
-    throwIfStopped();
-    const option = findSignupPhoneCountryListboxOption(targetOption, options);
-    if (option) {
-      await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-listbox-option' }, async () => {
-        simulateClick(option);
-      });
-      await sleep(450);
-      if (isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options)) {
-        return true;
-      }
-    }
-
-    if (!scrollListboxDown()) {
-      reachedListEndAt += 1;
-      if (reachedListEndAt >= 6) {
-        break;
-      }
-      await sleep(150);
-      continue;
-    }
-    reachedListEndAt = 0;
-    await sleep(220);
-  }
-
-  return false;
-}
-
-async function ensureSignupPhoneCountrySelected(phoneInput, options = {}) {
-  const select = getSignupPhoneCountrySelect(phoneInput);
-  const hasCountryControl = Boolean(select || getSignupPhoneCountryButton(phoneInput));
-  if (!hasCountryControl) {
-    return {
-      hasSelect: false,
-      hasCountryControl: false,
-      matched: false,
-      selectedOption: null,
-    };
-  }
-
-  const byLabel = findSignupPhoneCountryOptionByLabel(phoneInput, options.countryLabel);
-  const countryDialCode = extractDialCodeFromText(String(options.countryLabel || '').trim());
-  const byPhoneNumberCandidate = findSignupPhoneCountryOptionByPhoneNumber(phoneInput, options.phoneNumber);
-  const byPhoneNumberDialCode = extractDialCodeFromText(getSignupPhoneOptionLabel(byPhoneNumberCandidate));
-  const byPhoneNumber = countryDialCode && byPhoneNumberDialCode && byPhoneNumberDialCode !== countryDialCode
-    ? null
-    : byPhoneNumberCandidate;
-  const targets = [byLabel, byPhoneNumber, null].filter((target, index, list) => (
-    index === list.findIndex((item) => (
-      (!item && !target)
-      || (item && target && isSameSignupCountryOption(item, target))
-    ))
-  ));
-
-  for (const targetOption of targets) {
-    if (await trySelectSignupPhoneCountryOption(select, targetOption, phoneInput, options)) {
-      return {
-        hasSelect: Boolean(select),
-        hasCountryControl: true,
-        matched: true,
-        selectedOption: getSignupPhoneSelectedCountryOption(phoneInput),
-      };
-    }
-
-    if (await trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption, options)) {
-      return {
-        hasSelect: Boolean(select),
-        hasCountryControl: true,
-        matched: true,
-        selectedOption: getSignupPhoneSelectedCountryOption(phoneInput),
-      };
-    }
-  }
-
-  return {
-    hasSelect: Boolean(select),
-    hasCountryControl: true,
-    matched: false,
-    selectedOption: getSignupPhoneSelectedCountryOption(phoneInput),
-  };
-}
-
-function toNationalPhoneNumber(value, dialCode) {
-  const digits = normalizePhoneDigits(value);
-  const normalizedDialCode = normalizePhoneDigits(dialCode);
-  const isExplicitInternational = /^\s*(?:\+|00)\s*\d/.test(String(value || '').trim());
-  if (!digits) {
-    return '';
-  }
-  if (normalizedDialCode && digits.startsWith(normalizedDialCode) && digits.length > normalizedDialCode.length) {
-    return digits.slice(normalizedDialCode.length);
-  }
-  if (isExplicitInternational) {
-    return digits;
-  }
-  return digits;
-}
-
-function toE164PhoneNumber(value, dialCode) {
-  const digits = normalizePhoneDigits(value);
-  const normalizedDialCode = normalizePhoneDigits(dialCode);
-  const isExplicitInternational = /^\s*(?:\+|00)\s*\d/.test(String(value || '').trim());
-  if (!digits) {
-    return '';
-  }
-  if (isExplicitInternational) {
-    return `+${digits}`;
-  }
-  if (!normalizedDialCode) {
-    return `+${digits}`;
-  }
-  if (digits.startsWith(normalizedDialCode)) {
-    return `+${digits}`;
-  }
-  if (digits.startsWith('0')) {
-    return `+${normalizedDialCode}${digits.slice(1)}`;
-  }
-  return `+${normalizedDialCode}${digits}`;
-}
-
-function getPhoneInputRenderedValue(phoneInput) {
-  return String(phoneInput?.value ?? phoneInput?.getAttribute?.('value') ?? '').trim();
-}
-
-function isPhoneInputValueVerified(actualValue, expectedValue, options = {}) {
-  const actualDigits = normalizePhoneDigits(actualValue);
-  const expectedDigits = normalizePhoneDigits(expectedValue);
-  if (!actualDigits || !expectedDigits) {
-    return false;
-  }
-  if (actualDigits === expectedDigits) {
-    return true;
-  }
-
-  const dialDigits = normalizePhoneDigits(options.dialCode);
-  const fullDigits = normalizePhoneDigits(options.phoneNumber);
-  if (fullDigits && actualDigits === fullDigits) {
-    return true;
-  }
-  if (!dialDigits) {
-    return false;
-  }
-  if (actualDigits === `${dialDigits}${expectedDigits}`) {
-    return true;
-  }
-
-  const localDigits = fullDigits && fullDigits.startsWith(dialDigits)
-    ? fullDigits.slice(dialDigits.length)
-    : expectedDigits;
-  return dialDigits === '44' && actualDigits === `${dialDigits}0${localDigits}`;
-}
-
-async function waitForPhoneInputValue(phoneInput, expectedValue, options = {}) {
-  const {
-    timeout = 1800,
-    pollInterval = 100,
-    resolvePhoneInput = null,
-    phoneNumber = '',
-    dialCode = '',
-  } = options;
-  const startedAt = Date.now();
-  let currentInput = phoneInput;
-
-  while (Date.now() - startedAt < timeout) {
-    throwIfStopped();
-    currentInput = (typeof resolvePhoneInput === 'function' && resolvePhoneInput()) || currentInput;
-    if (isPhoneInputValueVerified(getPhoneInputRenderedValue(currentInput), expectedValue, { phoneNumber, dialCode })) {
-      return {
-        ok: true,
-        input: currentInput,
-        value: getPhoneInputRenderedValue(currentInput),
-      };
-    }
-    await sleep(pollInterval);
-  }
-
-  currentInput = (typeof resolvePhoneInput === 'function' && resolvePhoneInput()) || currentInput;
-  return {
-    ok: false,
-    input: currentInput,
-    value: getPhoneInputRenderedValue(currentInput),
-  };
-}
-
-function formatPhoneHiddenFormValue({ phoneNumber = '', dialCode = '', inputValue = '' } = {}) {
-  const fullDigits = normalizePhoneDigits(phoneNumber);
-  if (fullDigits) {
-    return `+${fullDigits}`;
-  }
-
-  const localDigits = normalizePhoneDigits(inputValue);
-  if (!localDigits) {
-    return '';
-  }
-  const dialDigits = normalizePhoneDigits(dialCode);
-  return dialDigits ? `+${dialDigits}${localDigits}` : localDigits;
-}
-
-function getPhoneHiddenValueInput(phoneInput) {
-  if (typeof getLoginPhoneHiddenValueInput === 'function') {
-    const loginHiddenInput = getLoginPhoneHiddenValueInput(phoneInput);
-    if (loginHiddenInput) {
-      return loginHiddenInput;
-    }
-  }
-  const form = phoneInput?.form || phoneInput?.closest?.('form') || null;
-  const root = form || phoneInput?.closest?.('fieldset, form, [data-rac], div') || document;
-  const candidates = Array.from(root?.querySelectorAll?.('input[name="phone"], input[name="phoneNumber"], input[type="hidden"][id*="phone" i]') || []);
-  return candidates.find((input) => {
-    if (!input || input === phoneInput) return false;
-    const type = String(input.getAttribute?.('type') || input.type || '').trim().toLowerCase();
-    return type === 'hidden' || !isVisibleElement(input);
-  }) || null;
-}
-
-function setPhoneHiddenValue(input, value) {
-  const normalizedValue = String(value || '');
-  try {
-    const nativeInputValueSetter = typeof window !== 'undefined'
-      ? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
-      : null;
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(input, normalizedValue);
-    } else {
-      input.value = normalizedValue;
-    }
-  } catch {
-    input.value = normalizedValue;
-  }
-  input.dispatchEvent?.(new Event('input', { bubbles: true }));
-  input.dispatchEvent?.(new Event('change', { bubbles: true }));
-}
-
-function syncPhoneHiddenFormValue(phoneInput, options = {}) {
-  const hiddenInput = getPhoneHiddenValueInput(phoneInput);
-  const hiddenValue = formatPhoneHiddenFormValue(options);
-  if (!hiddenInput || !hiddenValue) {
-    return null;
-  }
-
-  setPhoneHiddenValue(hiddenInput, hiddenValue);
-  return {
-    input: hiddenInput,
-    value: hiddenInput.value || '',
-  };
-}
-
-function isPhoneInputValueComplete(phoneInput, phoneNumber, dialCode, expectedLocalNumber = '') {
-  return isPhoneInputValueVerified(getPhoneInputRenderedValue(phoneInput), expectedLocalNumber || toNationalPhoneNumber(phoneNumber, dialCode), {
-    phoneNumber,
-    dialCode,
-  });
-}
-
-function getLoginPhoneFillCandidates(phoneNumber, dialCode, phoneInput = null) {
-  const inputValue = toNationalPhoneNumber(phoneNumber, dialCode);
-  const e164Value = toE164PhoneNumber(phoneNumber, dialCode);
-  const dialDigits = normalizePhoneDigits(dialCode);
-  const currentRenderedValue = getPhoneInputRenderedValue(phoneInput);
-  const currentDigits = normalizePhoneDigits(currentRenderedValue);
-  const shouldKeepDialPrefix = Boolean(
-    e164Value
-    && (
-      String(currentRenderedValue || '').trim().startsWith('+')
-      || (dialDigits && currentDigits === dialDigits)
-    )
-  );
-  const candidates = [];
-  const addCandidate = (value) => {
-    const normalizedValue = String(value || '').trim();
-    if (normalizedValue && !candidates.includes(normalizedValue)) {
-      candidates.push(normalizedValue);
-    }
-  };
-
-  if (shouldKeepDialPrefix) {
-    addCandidate(e164Value);
-  }
-  addCandidate(inputValue);
-  addCandidate(e164Value);
-  return candidates;
-}
-
-function getLoginPhoneSubmitButtonDiagnostics(button) {
-  if (!button) {
-    return {
-      present: false,
-    };
-  }
-
-  return {
-    present: true,
-    tag: (button.tagName || '').toLowerCase(),
-    type: String(button.getAttribute?.('type') || button.type || '').trim().toLowerCase(),
-    text: getActionText(button).slice(0, 80),
-    visible: isVisibleElement(button),
-    enabled: isActionEnabled(button),
-    disabled: Boolean(button.disabled),
-    ariaDisabled: String(button.getAttribute?.('aria-disabled') || '').trim(),
-  };
-}
-
-function getLoginPhoneInputCandidateDiagnostics(limit = 12) {
-  return collectPhoneInputCandidates('input', { allowGenericText: true }).slice(0, limit);
-}
-
-async function fillLoginPhoneInputAndConfirm(phoneInput, options = {}) {
-  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
-    ? getOperationDelayRunner()
-    : async (metadata, operation) => {
-        const rootScope = typeof window !== 'undefined' ? window : globalThis;
-        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
-        return typeof gate === 'function' ? gate(metadata, operation) : operation();
-      };
-  const {
-    phoneNumber = '',
-    dialCode = '',
-    visibleStep = 7,
-    resolvePhoneInput = null,
-    maxAttempts = 3,
-  } = options;
-  const inputValue = toNationalPhoneNumber(phoneNumber, dialCode);
-  if (!inputValue) {
-    throw new Error(`\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u4e3a\u7a7a\uff0c\u65e0\u6cd5\u586b\u5199\u3002`);
-  }
-
-  let currentInput = phoneInput;
-  let lastVerification = { ok: false, input: currentInput, value: getPhoneInputRenderedValue(currentInput) };
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    throwIfStopped();
-    currentInput = (typeof resolvePhoneInput === 'function' && resolvePhoneInput()) || currentInput;
-    if (!currentInput) {
-      break;
-    }
-
-    const fillCandidates = getLoginPhoneFillCandidates(phoneNumber, dialCode, currentInput);
-    for (const attemptedValue of fillCandidates) {
-      currentInput.focus?.();
-      await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'fill', label: 'login-phone-number' }, async () => {
-        fillInput(currentInput, attemptedValue);
-      });
-      lastVerification = await waitForPhoneInputValue(currentInput, inputValue, {
-        resolvePhoneInput,
-        phoneNumber,
-        dialCode,
-        timeout: 1600,
-        pollInterval: 100,
-      });
-      if (lastVerification.ok) {
-        const verifiedInput = lastVerification.input || currentInput;
-        const hiddenSync = await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'hidden-sync', label: 'login-phone-hidden-sync' }, async () => (
-          syncPhoneHiddenFormValue(verifiedInput, { phoneNumber, dialCode, inputValue })
-        ));
-        const expectedHiddenDigits = normalizePhoneDigits(phoneNumber) || `${normalizePhoneDigits(dialCode)}${normalizePhoneDigits(inputValue)}`;
-        if (hiddenSync && expectedHiddenDigits && normalizePhoneDigits(hiddenSync.value) !== expectedHiddenDigits) {
-          throw new Error(`\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u9690\u85cf\u63d0\u4ea4\u5b57\u6bb5\u540c\u6b65\u5931\u8d25\uff0c\u671f\u671b ${expectedHiddenDigits}\uff0c\u5b9e\u9645 ${normalizePhoneDigits(hiddenSync.value) || '\u7a7a'}\u3002`);
-        }
-        log(
-          `\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u8f93\u5165\u6821\u9a8c\u901a\u8fc7 ${JSON.stringify({
-            attemptedValue,
-            renderedValue: lastVerification.value,
-            input: getLoginPhoneInputDiagnostics(verifiedInput),
-            hidden: getLoginPhoneHiddenValueDiagnostics(hiddenSync?.input || getPhoneHiddenValueInput(verifiedInput)),
-          })}`,
-          'info',
-          { step: visibleStep, stepKey: 'oauth-login' }
-        );
-        return {
-          input: verifiedInput,
-          inputValue,
-          attemptedValue,
-          renderedValue: lastVerification.value,
-          hiddenInput: hiddenSync?.input || null,
-          hiddenValue: hiddenSync?.value || '',
-        };
-      }
-    }
-
-    const currentDigits = normalizePhoneDigits(lastVerification.value);
-    log(
-      `\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u8f93\u5165\u6846\u672a\u7a33\u5b9a\u5199\u5165\uff08\u7b2c ${attempt}/${maxAttempts} \u6b21\uff09\uff0c\u671f\u671b\u672c\u5730\u53f7 ${inputValue}\uff0c\u5f53\u524d\u503c ${currentDigits || '\u7a7a'}\uff0c\u51c6\u5907\u91cd\u8bd5\u3002`,
-      'warn',
-      { step: visibleStep, stepKey: 'oauth-login' }
-    );
-    await sleep(200);
-  }
-
-  const actualDigits = normalizePhoneDigits(lastVerification.value);
-  throw new Error(`\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u586b\u5199\u540e\u6821\u9a8c\u5931\u8d25\uff0c\u5b8c\u6574\u53f7\u7801 ${phoneNumber}\uff0c\u533a\u53f7 +${dialCode || '\u672a\u8bc6\u522b'}\uff0c\u671f\u671b\u8f93\u5165\u672c\u5730\u53f7 ${inputValue}\uff0c\u5b9e\u9645\u8f93\u5165\u6846\u4e3a ${actualDigits || '\u7a7a'}\uff0c\u5df2\u505c\u6b62\u63d0\u4ea4\u3002`);
-}
-
-function resolveSignupPhoneDialCode(phoneInput, options = {}) {
-  const { phoneNumber = '', countryLabel = '' } = options;
-  const displayedDialCode = getSignupPhoneDisplayedDialCode(phoneInput);
-  if (displayedDialCode) {
-    return displayedDialCode;
-  }
-  const countryText = String(countryLabel || '').trim();
-  if (/australia|澳大利亚/i.test(countryText)) return '61';
-  if (/thailand|泰国/i.test(countryText)) return '66';
-  if (/vietnam|越南/i.test(countryText)) return '84';
-  if (/england|united kingdom|英国|uk/i.test(countryText)) return '44';
-  const digits = normalizePhoneDigits(phoneNumber);
-  const knownDialCodes = ['66', '84', '61', '44', '1', '81', '82', '86', '852', '855', '856', '60', '62', '63', '65'];
-  return knownDialCodes.find((code) => digits.startsWith(code) && digits.length > code.length) || '';
 }
 
 // ============================================================
@@ -3530,137 +2512,6 @@ function getLoginTimeoutErrorPageState() {
   });
 }
 
-function isLoginPhoneUsernameKind(rawUrl = location.href) {
-  const url = String(rawUrl || '').trim();
-  if (!url) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(url);
-    return /\/log-in(?:[/?#]|$)/i.test(parsed.pathname || '')
-      && String(parsed.searchParams.get('usernameKind') || '').toLowerCase() === 'phone_number';
-  } catch {
-    return /\/log-in(?:[/?#]|$)/i.test(url) && /[?&]usernameKind=phone_number(?:[&#]|$)/i.test(url);
-  }
-}
-
-function isLoginPhoneEntryPageText(pageText = getPageTextSnapshot()) {
-  const normalizedText = String(pageText || '').replace(/\s+/g, ' ').trim();
-  if (!normalizedText) {
-    return false;
-  }
-
-  return LOGIN_PHONE_ENTRY_PAGE_PATTERN.test(normalizedText);
-}
-
-function isInsideHiddenPhoneControl(element) {
-  if (!element) {
-    return true;
-  }
-  return Boolean(element.closest?.('[aria-hidden="true"], [hidden], [data-testid="hidden-select-container"], [data-react-aria-prevent-focus="true"]'));
-}
-
-function summarizePhoneInputCandidate(element, options = {}) {
-  const summary = {
-    tag: (element?.tagName || '').toLowerCase(),
-    type: '',
-    name: '',
-    id: '',
-    autocomplete: '',
-    placeholder: '',
-    ariaLabel: '',
-    visible: false,
-    hiddenControl: true,
-    readOnly: false,
-    maxLength: 0,
-    usable: false,
-    skipReason: '',
-  };
-
-  if (!element) {
-    summary.skipReason = 'missing_element';
-    return summary;
-  }
-
-  summary.visible = isVisibleElement(element);
-  summary.hiddenControl = isInsideHiddenPhoneControl(element);
-  summary.type = String(element.getAttribute?.('type') || element.type || '').trim().toLowerCase();
-  summary.name = String(element.getAttribute?.('name') || element.name || '').trim();
-  summary.id = String(element.getAttribute?.('id') || element.id || '').trim();
-  summary.autocomplete = String(element.getAttribute?.('autocomplete') || '').trim().toLowerCase();
-  summary.placeholder = String(element.getAttribute?.('placeholder') || '').trim().slice(0, 80);
-  summary.ariaLabel = String(element.getAttribute?.('aria-label') || '').trim().slice(0, 80);
-
-  const hasReadonlyAttribute = typeof element.hasAttribute === 'function'
-    ? element.hasAttribute('readonly')
-    : element.readOnly === true;
-  summary.readOnly = element.readOnly === true
-    || hasReadonlyAttribute
-    || String(element.getAttribute?.('aria-readonly') || '').trim().toLowerCase() === 'true';
-  summary.maxLength = Number(element.getAttribute?.('maxlength') || element.maxLength || 0);
-
-  if (summary.hiddenControl) {
-    summary.skipReason = 'inside_hidden_control';
-    return summary;
-  }
-  if (!summary.visible) {
-    summary.skipReason = 'not_visible';
-    return summary;
-  }
-  if (summary.type === 'hidden') {
-    summary.skipReason = 'hidden_type';
-    return summary;
-  }
-  if (summary.readOnly) {
-    summary.skipReason = 'readonly';
-    return summary;
-  }
-  if (summary.maxLength === 6) {
-    summary.skipReason = 'verification_code_input';
-    return summary;
-  }
-
-  const normalizedName = summary.name.toLowerCase();
-  const normalizedId = summary.id.toLowerCase();
-  const combinedText = `${normalizedName} ${normalizedId} ${summary.placeholder} ${summary.ariaLabel}`;
-  if (isLoginEmailLikeInput(element)) {
-    summary.skipReason = 'email_like';
-    return summary;
-  }
-  if (
-    summary.type === 'tel'
-    || summary.autocomplete === 'tel'
-    || /phone|tel/i.test(`${normalizedName} ${normalizedId}`)
-    || /手机|电话|手机号|电话号码|国家号码|phone|mobile|telephone/i.test(combinedText)
-  ) {
-    summary.usable = true;
-    return summary;
-  }
-
-  if (options.allowGenericText && (!summary.type || summary.type === 'text')) {
-    summary.usable = true;
-    return summary;
-  }
-
-  summary.skipReason = 'not_phone_like';
-  return summary;
-}
-
-function isUsablePhoneInputElement(element, options = {}) {
-  return summarizePhoneInputCandidate(element, options).usable;
-}
-
-function collectPhoneInputCandidates(selector, options = {}) {
-  return Array.from(document.querySelectorAll(selector))
-    .map((element) => summarizePhoneInputCandidate(element, options));
-}
-
-function findUsablePhoneInput(selector, options = {}) {
-  return Array.from(document.querySelectorAll(selector))
-    .find((element) => isUsablePhoneInputElement(element, options)) || null;
-}
-
 function getLoginInputAttributeText(input) {
   return {
     type: String(input?.getAttribute?.('type') || input?.type || '').trim().toLowerCase(),
@@ -3701,77 +2552,7 @@ function getLoginEmailInput() {
   if (!input) {
     return null;
   }
-  if ((isLoginPhoneUsernameKind() || isLoginPhoneEntryPageText()) && !isLoginEmailLikeInput(input)) {
-    return null;
-  }
   return input;
-}
-
-function getLoginPhoneInput() {
-  const phonePage = isLoginPhoneUsernameKind() || isLoginPhoneEntryPageText();
-  const selector = [
-    'input[type="tel"]:not([maxlength="6"])',
-    'input[name*="phone" i]:not([type="hidden"])',
-    'input[id*="phone" i]:not([type="hidden"])',
-    'input[autocomplete="tel"]',
-    'input[inputmode="tel"]',
-    'input[placeholder*="phone" i]',
-    'input[aria-label*="phone" i]',
-    'input[placeholder*="telephone" i]',
-    'input[aria-label*="telephone" i]',
-    'input[placeholder*="手机"]',
-    'input[aria-label*="手机"]',
-    'input[placeholder*="电话"]',
-    'input[aria-label*="电话"]',
-    phonePage ? 'input[name="username"]:not([maxlength="6"])' : '',
-    phonePage ? 'input[id*="username" i]:not([maxlength="6"])' : '',
-    phonePage ? 'input[autocomplete="username"]:not([maxlength="6"])' : '',
-    phonePage ? 'input[type="text"]:not([maxlength="6"])' : '',
-  ].filter(Boolean).join(', ');
-  return findUsablePhoneInput(selector, { allowGenericText: phonePage });
-}
-
-function getLoginPhoneInputDiagnostics(phoneInput) {
-  return {
-    tag: (phoneInput?.tagName || '').toLowerCase(),
-    type: String(phoneInput?.getAttribute?.('type') || phoneInput?.type || '').trim().toLowerCase(),
-    name: String(phoneInput?.getAttribute?.('name') || phoneInput?.name || '').trim(),
-    id: String(phoneInput?.getAttribute?.('id') || phoneInput?.id || '').trim(),
-    autocomplete: String(phoneInput?.getAttribute?.('autocomplete') || '').trim().toLowerCase(),
-    placeholder: String(phoneInput?.getAttribute?.('placeholder') || '').trim().slice(0, 80),
-    ariaLabel: String(phoneInput?.getAttribute?.('aria-label') || '').trim().slice(0, 80),
-    value: getPhoneInputRenderedValue(phoneInput),
-  };
-}
-
-function getLoginPhoneHiddenValueInput(phoneInput) {
-  const form = phoneInput?.form || phoneInput?.closest?.('form') || null;
-  const root = form || phoneInput?.closest?.('fieldset, form, [data-rac], div') || document;
-  const candidates = Array.from(root?.querySelectorAll?.([
-    'input[name="phone"]',
-    'input[name*="phone" i]',
-    'input[name="phoneNumber"]',
-    'input[name*="telephone" i]',
-    'input[type="hidden"][id*="phone" i]',
-    'input[type="hidden"][id*="telephone" i]',
-    'input[type="hidden"][name*="phone" i]',
-    'input[type="hidden"][name*="telephone" i]',
-  ].join(', ')) || []);
-  return candidates.find((input) => {
-    if (!input || input === phoneInput) return false;
-    const type = String(input.getAttribute?.('type') || input.type || '').trim().toLowerCase();
-    return type === 'hidden' || !isVisibleElement(input);
-  }) || null;
-}
-
-function getLoginPhoneHiddenValueDiagnostics(hiddenInput) {
-  return {
-    tag: (hiddenInput?.tagName || '').toLowerCase(),
-    type: String(hiddenInput?.getAttribute?.('type') || hiddenInput?.type || '').trim().toLowerCase(),
-    name: String(hiddenInput?.getAttribute?.('name') || hiddenInput?.name || '').trim(),
-    id: String(hiddenInput?.getAttribute?.('id') || hiddenInput?.id || '').trim(),
-    value: String(hiddenInput?.value || hiddenInput?.getAttribute?.('value') || '').trim(),
-  };
 }
 
 function getLoginPasswordInput() {
@@ -3796,160 +2577,6 @@ function getLoginSubmitButton({ allowDisabled = false } = {}) {
   }) || null;
 }
 
-function normalizeCountryLabel(value) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.normalizeCountryLabel === 'function') {
-    return phoneCountryUtils.normalizeCountryLabel(value);
-  }
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function getLoginPhoneCountrySelect(phoneInput) {
-  const scope = phoneInput?.closest?.('fieldset, form, [data-rac], div') || document;
-  const select = scope.querySelector?.('select');
-  return select && isVisibleElement(select) ? select : null;
-}
-
-function getLoginPhoneCountryOptionLabel(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionLabel === 'function') {
-    return phoneCountryUtils.getOptionLabel(option);
-  }
-  return String(option?.textContent || option?.label || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function getLoginPhoneCountryOptionMatchLabels(option) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.getOptionMatchLabels === 'function') {
-    const rootScope = typeof self !== 'undefined' ? self : globalThis;
-    return phoneCountryUtils.getOptionMatchLabels(option, {
-      document: typeof document !== 'undefined' ? document : null,
-      navigator: rootScope?.navigator || globalThis?.navigator || null,
-      getOptionLabel: getLoginPhoneCountryOptionLabel,
-    });
-  }
-
-  const labels = new Set();
-  const pushLabel = (value) => {
-    const label = String(value || '').replace(/\s+/g, ' ').trim();
-    if (label) {
-      labels.add(label);
-    }
-  };
-
-  pushLabel(getLoginPhoneCountryOptionLabel(option));
-  pushLabel(option?.value);
-  return Array.from(labels);
-}
-
-function findLoginPhoneCountryOptionByLabel(select, countryLabel) {
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (select && typeof phoneCountryUtils.findOptionByCountryLabel === 'function') {
-    return phoneCountryUtils.findOptionByCountryLabel(select.options, countryLabel, {
-      document: typeof document !== 'undefined' ? document : null,
-      navigator: (typeof self !== 'undefined' ? self : globalThis)?.navigator || globalThis?.navigator || null,
-      getOptionLabel: getLoginPhoneCountryOptionLabel,
-    });
-  }
-
-  const normalizedTarget = normalizeCountryLabel(countryLabel);
-  if (!select || !normalizedTarget) {
-    return null;
-  }
-
-  const options = Array.from(select.options || []);
-  return options.find((option) => (
-    getLoginPhoneCountryOptionMatchLabels(option)
-      .some((label) => normalizeCountryLabel(label) === normalizedTarget)
-  )) || options.find((option) => {
-    const normalizedLabels = getLoginPhoneCountryOptionMatchLabels(option)
-      .map((label) => normalizeCountryLabel(label))
-      .filter(Boolean);
-    return normalizedLabels.some((optionLabel) => (
-      isLooseSignupCountryLabelMatch(optionLabel, normalizedTarget)
-    ));
-  }) || null;
-}
-
-function findLoginPhoneCountryOptionByNumber(select, phoneNumber) {
-  if (!select) {
-    return null;
-  }
-  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
-    || globalThis?.MultiPagePhoneCountryUtils
-    || {};
-  if (typeof phoneCountryUtils.findOptionByPhoneNumber === 'function') {
-    return phoneCountryUtils.findOptionByPhoneNumber(select.options, phoneNumber, {
-      getOptionLabel: getLoginPhoneCountryOptionLabel,
-    });
-  }
-  const digits = normalizePhoneDigits(phoneNumber);
-  if (!digits) {
-    return null;
-  }
-
-  let bestMatch = null;
-  let bestDialCodeLength = 0;
-  for (const option of Array.from(select.options || [])) {
-    const dialCode = normalizePhoneDigits(extractDialCodeFromText(getLoginPhoneCountryOptionLabel(option)));
-    if (!dialCode || !digits.startsWith(dialCode)) {
-      continue;
-    }
-    if (dialCode.length > bestDialCodeLength) {
-      bestMatch = option;
-      bestDialCodeLength = dialCode.length;
-    }
-  }
-  return bestMatch;
-}
-
-async function selectCountryForPhoneInput(phoneInput, phoneNumber = '', countryLabel = '', options = {}) {
-  const visibleStep = Math.floor(Number(options?.visibleStep) || 0) || 7;
-  const selection = await ensureSignupPhoneCountrySelected(phoneInput, {
-    countryLabel,
-    phoneNumber,
-  });
-  const selectedOption = selection.selectedOption || getSignupPhoneSelectedCountryOption(phoneInput);
-  const targetDialCode = resolveSignupPhoneTargetDialCode({ countryLabel, phoneNumber }, selectedOption);
-  const displayedDialCode = getSignupPhoneDisplayedDialCode(phoneInput);
-
-  if (selection.hasCountryControl && targetDialCode) {
-    if (!selection.matched || (displayedDialCode && displayedDialCode !== targetDialCode)) {
-      const currentCountryText = getSignupPhoneCountryButtonText(phoneInput) || displayedDialCode || '未知';
-      const targetLabel = `目标区号 +${targetDialCode}（号码 ${phoneNumber}${countryLabel ? `，国家 ${countryLabel}` : ''}）`;
-      throw new Error(`步骤 ${visibleStep}：手机号登录国家下拉框未能自动切换到 ${targetLabel}，当前显示为 ${currentCountryText}，已停止提交以避免区号不匹配。`);
-    }
-    return targetDialCode;
-  }
-
-  const select = getLoginPhoneCountrySelect(phoneInput);
-  const fallbackSelectedOption = select?.options?.[select.selectedIndex] || null;
-  return extractDialCodeFromText(getLoginPhoneCountryOptionLabel(fallbackSelectedOption))
-    || displayedDialCode
-    || resolveSignupPhoneDialCodeFromNumber(phoneNumber);
-}
-
-function resolveLoginPhoneDialCode(phoneInput, options = {}) {
-  return resolveSignupPhoneDialCode(phoneInput, options);
-}
-
 function findLoginEntryTrigger() {
   const candidates = Array.from(document.querySelectorAll(
     'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]'
@@ -3966,22 +2593,6 @@ function findLoginEntryTrigger() {
     const text = getActionText(el);
     if (!text || LOGIN_CODE_ONLY_ACTION_PATTERN.test(text) || LOGIN_EXTERNAL_IDP_PATTERN.test(text)) return false;
     return LOGIN_ENTRY_ACTION_PATTERN.test(text);
-  }) || null;
-}
-
-function findLoginPhoneEntryTrigger() {
-  const candidates = Array.from(document.querySelectorAll(
-    'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]'
-  )).filter((el) => isVisibleElement(el) && isActionEnabled(el));
-
-  return candidates.find((el) => {
-    const text = getActionText(el);
-    if (!text || LOGIN_CODE_ONLY_ACTION_PATTERN.test(text) || LOGIN_EXTERNAL_IDP_PATTERN.test(text)) return false;
-    return LOGIN_SWITCH_TO_PHONE_PATTERN.test(text)
-      || (
-        LOGIN_PHONE_ACTION_PATTERN.test(text)
-        && !/email|邮箱|电子邮件/i.test(text)
-      );
   }) || null;
 }
 
@@ -4031,11 +2642,9 @@ function inspectLoginAuthState() {
   const verificationTarget = getVerificationCodeTarget();
   const passwordInput = getLoginPasswordInput();
   const emailInput = getLoginEmailInput();
-  const phoneInput = getLoginPhoneInput();
   const existingSessionButton = findChooseAccountExistingSessionButton({ allowDisabled: true });
   const switchTrigger = findOneTimeCodeLoginTrigger();
   const loginEntryTrigger = findLoginEntryTrigger();
-  const phoneEntryTrigger = findLoginPhoneEntryTrigger();
   const moreOptionsTrigger = findLoginMoreOptionsTrigger();
   const submitButton = getLoginSubmitButton({ allowDisabled: true });
   const verificationVisible = isVerificationPageStillVisible();
@@ -4061,12 +2670,10 @@ function inspectLoginAuthState() {
     verificationTarget,
     passwordInput,
     emailInput,
-    phoneInput,
     existingSessionButton,
     submitButton,
     switchTrigger,
     loginEntryTrigger,
-    phoneEntryTrigger,
     moreOptionsTrigger,
     verificationVisible,
     addEmailPage,
@@ -4113,13 +2720,6 @@ function inspectLoginAuthState() {
     return {
       ...baseState,
       state: 'password_page',
-    };
-  }
-
-  if (phoneInput) {
-    return {
-      ...baseState,
-      state: 'phone_entry_page',
     };
   }
 
@@ -4183,12 +2783,10 @@ function serializeLoginAuthState(snapshot) {
     hasVerificationTarget: Boolean(snapshot?.verificationTarget),
     hasPasswordInput: Boolean(snapshot?.passwordInput),
     hasEmailInput: Boolean(snapshot?.emailInput),
-    hasPhoneInput: Boolean(snapshot?.phoneInput),
     hasExistingSessionButton: Boolean(snapshot?.existingSessionButton),
     hasSubmitButton: Boolean(snapshot?.submitButton),
     hasSwitchTrigger: Boolean(snapshot?.switchTrigger),
     hasLoginEntryTrigger: Boolean(snapshot?.loginEntryTrigger),
-    hasPhoneEntryTrigger: Boolean(snapshot?.phoneEntryTrigger),
     hasMoreOptionsTrigger: Boolean(snapshot?.moreOptionsTrigger),
     verificationVisible: Boolean(snapshot?.verificationVisible),
     addEmailPage: Boolean(snapshot?.addEmailPage),
@@ -4206,8 +2804,6 @@ function getLoginAuthStateLabel(snapshot) {
       return '密码页';
     case 'email_page':
       return '邮箱输入页';
-    case 'phone_entry_page':
-      return '手机号输入页';
     case 'login_timeout_error_page':
       return '登录超时报错页';
     case 'auth_http_error_page':
@@ -4216,8 +2812,6 @@ function getLoginAuthStateLabel(snapshot) {
       return 'OAuth 授权页';
     case 'entry_page':
       return '登录入口页';
-    case 'add_phone_page':
-      return '手机号页';
     case 'add_email_page':
       return '添加邮箱页';
     case 'choose_account_page':
@@ -4393,16 +2987,6 @@ async function createStep6LoginTimeoutRecoveryTransition(reason, snapshot, messa
     return { action: 'password', snapshot: resolvedSnapshot };
   }
 
-  if (resolvedSnapshot.state === 'phone_entry_page') {
-    return {
-      action: 'recoverable',
-      result: createStep6RecoverableResult('phone_login_entry_unsupported', resolvedSnapshot, {
-        message: '登录超时报错页恢复后进入手机号输入页；当前流程仅支持邮箱登录。',
-        loginVerificationRequestedAt,
-      }),
-    };
-  }
-
   if (resolvedSnapshot.state === 'email_page') {
     logOAuthLogin(authPayload, visibleStep, '登录超时报错页恢复后已回到邮箱输入页，继续当前登录流程。', 'warn');
     return { action: 'email', snapshot: resolvedSnapshot };
@@ -4495,9 +3079,6 @@ async function finalizeStep6VerificationReady(options = {}) {
       });
     }
 
-    if (snapshot.state === 'add_phone_page') {
-      throw new Error(`登录验证码页面准备过程中页面进入手机号页面。URL: ${snapshot.url}`);
-    }
   }
 
   const rawSnapshot = inspectLoginAuthState();
@@ -4557,8 +3138,6 @@ function throwForStep6FatalState(snapshot, visibleStep = 7) {
   switch (snapshot?.state) {
     case 'oauth_consent_page':
       return;
-    case 'add_phone_page':
-      throw new Error(`当前页面已进入手机号页面，未经过登录验证码页，无法完成步骤 ${visibleStep}。URL: ${snapshot.url}`);
     case 'unknown':
       throw new Error(`无法识别当前登录页面状态。URL: ${snapshot?.url || location.href}`);
     default:
@@ -6355,7 +4934,6 @@ async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 120
     allowPasswordAction: true,
     stalledReason: 'email_submit_stalled',
     stalledMessage: '提交邮箱后长时间未进入密码页或登录验证码页。',
-    addPhoneMessage: (snapshot) => `提交邮箱后页面直接进入手机号页面，未经过登录验证码页。URL: ${snapshot.url}`,
   });
 }
 
@@ -6372,7 +4950,6 @@ async function waitForStep6PasswordSubmitTransition(passwordSubmittedAt, timeout
     allowFinalSwitchAction: true,
     stalledReason: 'password_submit_stalled',
     stalledMessage: '提交密码后仍未进入登录验证码页。',
-    addPhoneMessage: (snapshot) => `提交密码后页面直接进入手机号页面，未经过登录验证码页。URL: ${snapshot.url}`,
   });
 }
 
@@ -6388,7 +4965,6 @@ async function waitForStep6SwitchTransition(loginVerificationRequestedAt, timeou
     timeoutRecoveryVia: 'switch_to_one_time_code_timeout_recovered',
     stalledReason: 'one_time_code_switch_stalled',
     stalledMessage: '点击一次性验证码登录后仍未进入登录验证码页。',
-    addPhoneMessage: (snapshot) => `切换到一次性验证码登录后页面直接进入手机号页面，未经过登录验证码页。URL: ${snapshot.url}`,
   });
 
   if (transition.action === 'done' || transition.action === 'recoverable') {
@@ -6471,11 +5047,6 @@ async function step6ChooseExistingAccount(payload, snapshot) {
       via: 'choose_account_add_email_page',
     });
   }
-  if (nextSnapshot.state === 'add_phone_page') {
-    return createStep6RecoverableResult('add_phone_page_unsupported', nextSnapshot, {
-      message: '点击已有账号后进入手机号页面；当前流程仅支持邮箱登录。',
-    });
-  }
   if (nextSnapshot.state === 'login_timeout_error_page') {
     const transition = await createStep6LoginTimeoutRecoveryTransition(
       'choose_account_login_timeout',
@@ -6551,11 +5122,6 @@ async function step6OpenLoginEntry(payload, snapshot) {
       via: 'entry_open_add_email_page',
     });
   }
-  if (nextSnapshot.state === 'add_phone_page') {
-    return createStep6RecoverableResult('add_phone_page_unsupported', nextSnapshot, {
-      message: '点击登录入口后进入手机号页面；当前流程仅支持邮箱登录。',
-    });
-  }
   if (nextSnapshot.state === 'login_timeout_error_page') {
     const transition = await createStep6LoginTimeoutRecoveryTransition(
       'login_timeout_after_entry_open',
@@ -6570,7 +5136,7 @@ async function step6OpenLoginEntry(payload, snapshot) {
   }
 
   return createStep6RecoverableResult('login_entry_open_stalled', nextSnapshot, {
-    message: '点击登录入口后仍未进入手机号/邮箱/密码/验证码页。',
+    message: '点击登录入口后仍未进入邮箱/密码/验证码页。',
   });
 }
 
@@ -6798,12 +5364,6 @@ async function step6_login(payload) {
     });
   }
 
-  if (snapshot.state === 'add_phone_page') {
-    return createStep6RecoverableResult('add_phone_page_unsupported', snapshot, {
-      message: '认证页已在手机号页面；当前流程仅支持邮箱登录。',
-    });
-  }
-
   if (snapshot.state === 'login_timeout_error_page') {
     if (!hasLoginIdentifier) {
       throwMissingLoginIdentifier();
@@ -6846,12 +5406,6 @@ async function step6_login(payload) {
     }
     logOAuthLogin(payload, visibleStep, `正在使用 ${email} 登录...`, 'info');
     return step6LoginFromEmailPage(payload, snapshot);
-  }
-
-  if (snapshot.state === 'phone_entry_page') {
-    return createStep6RecoverableResult('phone_login_entry_unsupported', snapshot, {
-      message: '当前页面进入手机号登录入口；当前流程仅支持邮箱登录。',
-    });
   }
 
   if (snapshot.state === 'password_page') {

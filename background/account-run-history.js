@@ -181,17 +181,6 @@
       return rawLabel || computedFailureLabel;
     }
 
-    function isPhoneVerificationFailure(detail = '') {
-      const text = String(detail || '').trim();
-      if (!text) {
-        return false;
-      }
-
-      return /add[_\s-]?phone/i.test(text)
-        || /手机号(?:验证|页面|页)|手机(?:号)?页面|出现手机号验证/.test(text)
-        || /进入了手机号页面/.test(text);
-    }
-
     function getNodeDisplayName(nodeId, state = {}) {
       const normalizedNodeId = normalizeNodeId(nodeId);
       if (!normalizedNodeId) {
@@ -224,9 +213,6 @@
       }
       if (finalStatus !== 'failed') {
         return '无';
-      }
-      if (isPhoneVerificationFailure(failureDetail)) {
-        return '出现手机号验证';
       }
       if (failedNodeId) {
         return `节点 ${getNodeDisplayName(failedNodeId, state)} 失败`;
@@ -910,4 +896,3 @@
     createAccountRunHistoryHelpers,
   };
 });
-

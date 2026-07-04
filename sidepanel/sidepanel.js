@@ -170,18 +170,10 @@ const inputUpiInfoHelperCardKey = document.getElementById('input-upiInfo-helper-
 const btnToggleUpiInfoHelperCardKey = document.getElementById('btn-toggle-upiInfo-helper-card-key');
 const btnUpiInfoHelperBalance = document.getElementById('btn-upiInfo-helper-balance');
 const displayUpiInfoHelperBalance = document.getElementById('display-upiInfo-helper-balance');
-const rowUpiInfoHelperPhoneMode = document.getElementById('row-upiInfo-helper-phone-mode');
-const selectUpiInfoHelperPhoneMode = document.getElementById('select-upiInfo-helper-phone-mode');
 const rowUpiInfoHelperCountryCode = document.getElementById('row-upiInfo-helper-country-code');
 const selectUpiInfoHelperCountryCode = document.getElementById('select-upiInfo-helper-country-code');
-const rowUpiInfoHelperPhone = document.getElementById('row-upiInfo-helper-phone');
-const inputUpiInfoHelperPhone = document.getElementById('input-upiInfo-helper-phone');
 const rowUpiInfoHelperOtpChannel = document.getElementById('row-upiInfo-helper-otp-channel');
 const selectUpiInfoHelperOtpChannel = document.getElementById('select-upiInfo-helper-otp-channel');
-const rowUpiInfoHelperLocalSmsEnabled = document.getElementById('row-upiInfo-helper-local-sms-enabled');
-const inputUpiInfoHelperLocalSmsEnabled = document.getElementById('input-upiInfo-helper-local-sms-enabled');
-const rowUpiInfoHelperLocalSmsUrl = document.getElementById('row-upiInfo-helper-local-sms-url');
-const inputUpiInfoHelperLocalSmsUrl = document.getElementById('input-upiInfo-helper-local-sms-url');
 const rowUpiInfoHelperPin = document.getElementById('row-upiInfo-helper-pin');
 const inputUpiInfoHelperPin = document.getElementById('input-upiInfo-helper-pin');
 const btnToggleUpiInfoHelperPin = document.getElementById('btn-toggle-upiInfo-helper-pin');
@@ -230,8 +222,6 @@ const upiRedeemCdkeyStatusList = document.getElementById('upi-redeem-cdkey-statu
 const idealRedeemCdkeyStatusList = document.getElementById('ideal-redeem-cdkey-status-list');
 const rowLegacyPayCountryCode = document.getElementById('row-legacyPay-country-code');
 const selectLegacyPayCountryCode = document.getElementById('select-legacyPay-country-code');
-const rowLegacyPayPhone = document.getElementById('row-legacyPay-phone');
-const inputLegacyPayPhone = document.getElementById('input-legacyPay-phone');
 const rowLegacyPayOtp = document.getElementById('row-legacyPay-otp');
 const inputLegacyPayOtp = document.getElementById('input-legacyPay-otp');
 const rowLegacyPayPin = document.getElementById('row-legacyPay-pin');
@@ -561,8 +551,6 @@ const ACCOUNT_ACCESS_STRATEGY_UI_OAUTH = 'oauth';
 const ACCOUNT_ACCESS_STRATEGY_UI_SESSION_JSON = 'session_json';
 const DEFAULT_UPI_INFO_HELPER_API_URL = 'https://your-upiInfo-helper-domain.example';
 const UPI_INFO_HELPER_PORTAL_URL = '';
-const UPI_INFO_HELPER_PHONE_MODE_AUTO = 'auto';
-const UPI_INFO_HELPER_PHONE_MODE_MANUAL = 'manual';
 const DEFAULT_PLUS_PAYMENT_METHOD = PLUS_PAYMENT_METHOD_UPI;
 const CHATGPT_SESSION_READER_MODE_US_PP = 'us_pp';
 const CHATGPT_SESSION_READER_MODE_JP_PP = 'jp_pp';
@@ -1878,7 +1866,7 @@ async function openAutoSkipFailuresConfirmModal() {
 async function openAutoRunFallbackRiskConfirmModal(totalRuns) {
   const result = await openConfirmModalWithOption({
     title: '自动运行风险提醒',
-    message: `当前轮数可能不适合单节点情况，可选择对应代理工具节点轮询功能（若没有配置，请使用说明按钮，根据README中使用教程进行配置），避免连续使用一个节点注册，导致出现手机号验证。`,
+    message: `当前轮数可能不适合单节点情况，可选择对应代理工具节点轮询功能（若没有配置，请使用说明按钮，根据README中使用教程进行配置），避免连续使用一个节点注册导致认证风控。`,
     confirmLabel: '继续',
   });
 
@@ -4299,17 +4287,6 @@ function resetRemovedPaymentWorkerInputsToDefaults() {
   });
 }
 
-function normalizeUpiInfoHelperPhoneModeValue(value = '') {
-  const rootScope = typeof window !== 'undefined' ? window : globalThis;
-  if (rootScope.LegacyPayUtils?.normalizeUpiInfoHelperPhoneMode) {
-    return rootScope.LegacyPayUtils.normalizeUpiInfoHelperPhoneMode(value);
-  }
-  const normalized = String(value || '').trim().toLowerCase();
-  return normalized === UPI_INFO_HELPER_PHONE_MODE_AUTO || normalized === 'builtin'
-    ? UPI_INFO_HELPER_PHONE_MODE_AUTO
-    : UPI_INFO_HELPER_PHONE_MODE_MANUAL;
-}
-
 function getUpiInfoHelperAutoModeEnabled(state = latestState) {
   return Boolean(state?.legacyPayHelperAutoModeEnabled);
 }
@@ -4348,12 +4325,6 @@ function getUpiInfoAutoModePermissionFromPayload(payload = {}) {
     return getUpiInfoAutoModePermissionFromPayload(payload.data);
   }
   return null;
-}
-
-function shouldPreserveSelectedUpiInfoAutoMode(state = latestState) {
-  const payloadPermission = getUpiInfoAutoModePermissionFromPayload(state?.legacyPayHelperBalancePayload);
-  return normalizeUpiInfoHelperPhoneModeValue(state?.legacyPayHelperPhoneMode) === UPI_INFO_HELPER_PHONE_MODE_AUTO
-    && (Boolean(state?.legacyPayHelperAutoModeEnabled) || payloadPermission === true);
 }
 
 function hasUpiInfoAutoModePermissionField(payload = {}) {
@@ -4417,27 +4388,7 @@ function normalizeUpiInfoOtpChannelValue(value = '') {
   if (rootScope.LegacyPayUtils?.normalizeUpiInfoOtpChannel) {
     return rootScope.LegacyPayUtils.normalizeUpiInfoOtpChannel(value);
   }
-  return String(value || '').trim().toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
-}
-
-function normalizeUpiInfoLocalSmsHelperBaseUrlValue(value = '') {
-  const fallback = 'http://127.0.0.1:18767';
-  const rawValue = String(value || fallback).trim();
-  try {
-    const parsed = new URL(rawValue);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return fallback;
-    }
-    const endpointPath = parsed.pathname.replace(/\/+$/g, '') || '/';
-    if (['/otp', '/latest-otp', '/health'].includes(endpointPath)) {
-      parsed.pathname = '';
-      parsed.search = '';
-      parsed.hash = '';
-    }
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return fallback;
-  }
+  return 'whatsapp';
 }
 
 function hasOwnStateValue(source, key) {
@@ -5618,28 +5569,7 @@ function collectSettingsPayload() {
       if (rootScope.LegacyPayUtils?.normalizeUpiInfoOtpChannel) {
         return rootScope.LegacyPayUtils.normalizeUpiInfoOtpChannel(value);
       }
-      return String(value || '').trim().toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
-    });
-  const normalizeUpiInfoLocalSmsHelperBaseUrlSafe = typeof normalizeUpiInfoLocalSmsHelperBaseUrlValue === 'function'
-    ? normalizeUpiInfoLocalSmsHelperBaseUrlValue
-    : ((value = '') => {
-      const fallback = 'http://127.0.0.1:18767';
-      const rawValue = String(value || fallback).trim();
-      try {
-        const parsed = new URL(rawValue);
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          return fallback;
-        }
-        const endpointPath = parsed.pathname.replace(/\/+$/g, '') || '/';
-        if (['/otp', '/latest-otp', '/health'].includes(endpointPath)) {
-          parsed.pathname = '';
-          parsed.search = '';
-          parsed.hash = '';
-        }
-        return parsed.toString().replace(/\/$/, '');
-      } catch {
-        return fallback;
-      }
+      return 'whatsapp';
     });
   const mail2925UseAccountPool = typeof inputMail2925UseAccountPool !== 'undefined'
     ? Boolean(inputMail2925UseAccountPool?.checked)
@@ -5732,24 +5662,10 @@ function collectSettingsPayload() {
   const effectivePlusAccountAccessStrategy = capabilityState?.effectivePlusAccountAccessStrategy
     || rawPlusAccountAccessStrategy;
   const plusPaymentMethod = getSelectedPlusPaymentMethod();
-  const normalizeUpiInfoHelperPhoneModeSafe = typeof normalizeUpiInfoHelperPhoneModeValue === 'function'
-    ? normalizeUpiInfoHelperPhoneModeValue
-    : ((value = '') => String(value || '').trim().toLowerCase() === 'auto' || String(value || '').trim().toLowerCase() === 'builtin' ? 'auto' : 'manual');
-  const selectedUpiInfoPhoneMode = normalizeUpiInfoHelperPhoneModeSafe(
-    typeof selectUpiInfoHelperPhoneMode !== 'undefined' && selectUpiInfoHelperPhoneMode
-      ? selectUpiInfoHelperPhoneMode.value
-      : (latestState?.legacyPayHelperPhoneMode || 'manual')
-  );
-  const effectiveUpiInfoPhoneMode = selectedUpiInfoPhoneMode;
   const selectedUpiInfoOtpChannel = normalizeUpiInfoOtpChannelSafe(
     typeof selectUpiInfoHelperOtpChannel !== 'undefined' && selectUpiInfoHelperOtpChannel
       ? selectUpiInfoHelperOtpChannel.value
       : (latestState?.legacyPayHelperOtpChannel || 'whatsapp')
-  );
-  const selectedUpiInfoLocalSmsHelperEnabled = effectiveUpiInfoPhoneMode === 'auto' ? false : Boolean(
-    typeof inputUpiInfoHelperLocalSmsEnabled !== 'undefined' && inputUpiInfoHelperLocalSmsEnabled
-      ? inputUpiInfoHelperLocalSmsEnabled.checked
-      : latestState?.legacyPayHelperLocalSmsHelperEnabled
   );
   const selectedSub2ApiGroupName = String(inputSub2ApiGroup.value || '').trim();
   const sub2apiGroupNames = [];
@@ -5878,11 +5794,6 @@ function collectSettingsPayload() {
       : (typeof selectLegacyPayCountryCode !== 'undefined' && selectLegacyPayCountryCode
         ? String(selectLegacyPayCountryCode.value || '+86').trim()
         : String(latestState?.legacyPayCountryCode || '+86').trim()),
-    legacyPayPhone: window.LegacyPayUtils?.normalizeLegacyPayPhone
-      ? window.LegacyPayUtils.normalizeLegacyPayPhone(typeof inputLegacyPayPhone !== 'undefined' && inputLegacyPayPhone ? inputLegacyPayPhone.value : latestState?.legacyPayPhone)
-      : (typeof inputLegacyPayPhone !== 'undefined' && inputLegacyPayPhone
-        ? String(inputLegacyPayPhone.value || '').trim()
-        : String(latestState?.legacyPayPhone || '').trim()),
     legacyPayOtp: window.LegacyPayUtils?.normalizeLegacyPayOtp
       ? window.LegacyPayUtils.normalizeLegacyPayOtp(typeof inputLegacyPayOtp !== 'undefined' && inputLegacyPayOtp ? inputLegacyPayOtp.value : latestState?.legacyPayOtp)
       : (typeof inputLegacyPayOtp !== 'undefined' && inputLegacyPayOtp
@@ -5900,29 +5811,17 @@ function collectSettingsPayload() {
       ? String(inputUpiInfoHelperCardKey.value || '').trim()
       : String(latestState?.legacyPayHelperApiKey || latestState?.legacyPayHelperCardKey || '').trim(),
     legacyPayHelperCardKey: '',
-    legacyPayHelperPhoneMode: effectiveUpiInfoPhoneMode,
     legacyPayHelperCountryCode: window.LegacyPayUtils?.normalizeLegacyPayCountryCode
       ? window.LegacyPayUtils.normalizeLegacyPayCountryCode(typeof selectUpiInfoHelperCountryCode !== 'undefined' && selectUpiInfoHelperCountryCode ? selectUpiInfoHelperCountryCode.value : latestState?.legacyPayHelperCountryCode)
       : (typeof selectUpiInfoHelperCountryCode !== 'undefined' && selectUpiInfoHelperCountryCode
         ? String(selectUpiInfoHelperCountryCode.value || '+86').trim()
         : String(latestState?.legacyPayHelperCountryCode || '+86').trim()),
-    legacyPayHelperPhoneNumber: window.LegacyPayUtils?.normalizeLegacyPayPhone
-      ? window.LegacyPayUtils.normalizeLegacyPayPhone(typeof inputUpiInfoHelperPhone !== 'undefined' && inputUpiInfoHelperPhone ? inputUpiInfoHelperPhone.value : latestState?.legacyPayHelperPhoneNumber)
-      : (typeof inputUpiInfoHelperPhone !== 'undefined' && inputUpiInfoHelperPhone
-        ? String(inputUpiInfoHelperPhone.value || '').trim()
-        : String(latestState?.legacyPayHelperPhoneNumber || '').trim()),
     legacyPayHelperPin: window.LegacyPayUtils?.normalizeLegacyPayPin
       ? window.LegacyPayUtils.normalizeLegacyPayPin(typeof inputUpiInfoHelperPin !== 'undefined' && inputUpiInfoHelperPin ? inputUpiInfoHelperPin.value : latestState?.legacyPayHelperPin)
       : (typeof inputUpiInfoHelperPin !== 'undefined' && inputUpiInfoHelperPin
         ? String(inputUpiInfoHelperPin.value || '')
         : String(latestState?.legacyPayHelperPin || '')),
     legacyPayHelperOtpChannel: selectedUpiInfoOtpChannel,
-    legacyPayHelperLocalSmsHelperEnabled: selectedUpiInfoLocalSmsHelperEnabled,
-    legacyPayHelperLocalSmsHelperUrl: normalizeUpiInfoLocalSmsHelperBaseUrlSafe(
-      typeof inputUpiInfoHelperLocalSmsUrl !== 'undefined' && inputUpiInfoHelperLocalSmsUrl
-        ? inputUpiInfoHelperLocalSmsUrl.value
-        : (latestState?.legacyPayHelperLocalSmsHelperUrl || '')
-    ),
     customPassword: inputPassword.value,
     mailProvider: supportedMailProviderNormalizer(selectMailProvider?.value || latestState?.mailProvider),
     mail2925Mode: getSelectedMail2925Mode(),
@@ -6428,30 +6327,14 @@ function updatePlusModeUI() {
     : true;
   const enabled = supportsPlusMode && rawEnabled;
   const method = isUpiOnlyMode ? upiValue : (enabled ? getSelectedPlusPaymentMethod() : defaultMethod);
-  const upiInfoPhoneMode = normalizeUpiInfoHelperPhoneModeValue(
-    typeof selectUpiInfoHelperPhoneMode !== 'undefined' && selectUpiInfoHelperPhoneMode
-      ? selectUpiInfoHelperPhoneMode.value
-      : (latestState?.legacyPayHelperPhoneMode || 'manual')
-  );
-  const upiInfoAutoModeDenied = isUpiInfoAutoModePermissionDenied(latestState);
-  const isUpiInfoAutoMode = upiInfoPhoneMode === UPI_INFO_HELPER_PHONE_MODE_AUTO;
-  const upiInfoAutoModeBlocked = isUpiInfoAutoMode && upiInfoAutoModeDenied;
   const upiInfoOtpChannel = normalizeUpiInfoOtpChannelValue(
     typeof selectUpiInfoHelperOtpChannel !== 'undefined' && selectUpiInfoHelperOtpChannel
       ? selectUpiInfoHelperOtpChannel.value
       : (latestState?.legacyPayHelperOtpChannel || 'whatsapp')
   );
-  const localSmsEnabled = Boolean(
-    typeof inputUpiInfoHelperLocalSmsEnabled !== 'undefined' && inputUpiInfoHelperLocalSmsEnabled
-      ? inputUpiInfoHelperLocalSmsEnabled.checked
-      : latestState?.legacyPayHelperLocalSmsHelperEnabled
-  );
   const selectedMethod = method;
   const upiInfoRowsVisible = enabled && selectedMethod === upiInfoValue;
   const upiRowsVisible = enabled && selectedMethod === upiValue;
-  const canShowUpiInfoModeSelector = upiInfoRowsVisible;
-  const localSmsControlsVisible = upiInfoRowsVisible && !isUpiInfoAutoMode;
-  const effectiveLocalSmsEnabled = !isUpiInfoAutoMode && localSmsEnabled;
   if (typeof rowPlusMode !== 'undefined' && rowPlusMode) {
     rowPlusMode.style.display = supportsPlusMode && !isUpiOnlyMode ? '' : 'none';
   }
@@ -6470,15 +6353,12 @@ function updatePlusModeUI() {
   }
   if (typeof plusPaymentMethodCaption !== 'undefined' && plusPaymentMethodCaption) {
     plusPaymentMethodCaption.textContent = selectedMethod === upiInfoValue
-      ? `UPI_INFO ${isUpiInfoAutoMode ? '自动' : '手动'}订阅链路`
+      ? 'UPI_INFO 订阅链路'
       : selectedMethod === upiValue
       ? 'UPI 资格检测与手动 CDK 兑换链路'
       : selectedMethod === legacyPayValue
       ? 'LegacyPay 印尼订阅链路'
       : 'LegacyWallet 订阅链路';
-  }
-  if (upiInfoAutoModeBlocked && typeof plusPaymentMethodCaption !== 'undefined' && plusPaymentMethodCaption) {
-    plusPaymentMethodCaption.textContent = 'UPI_INFO 自动订阅链路（需手动切换）';
   }
   [
     typeof rowPlusPaymentMethod !== 'undefined' ? rowPlusPaymentMethod : null,
@@ -6542,41 +6422,24 @@ function updatePlusModeUI() {
   }
   updateAllUpiRedeemCdkeyPoolSummaries(latestState);
   scheduleUpiRedeemCdkeyStatusAutoRefresh({ immediate: upiRowsVisible });
-  if (typeof rowUpiInfoHelperPhoneMode !== 'undefined' && rowUpiInfoHelperPhoneMode) {
-    rowUpiInfoHelperPhoneMode.style.display = canShowUpiInfoModeSelector ? '' : 'none';
-  }
-  if (typeof selectUpiInfoHelperPhoneMode !== 'undefined' && selectUpiInfoHelperPhoneMode) {
-    selectUpiInfoHelperPhoneMode.value = upiInfoPhoneMode;
-  }
   [
     typeof rowUpiInfoHelperCountryCode !== 'undefined' ? rowUpiInfoHelperCountryCode : null,
-    typeof rowUpiInfoHelperPhone !== 'undefined' ? rowUpiInfoHelperPhone : null,
     typeof rowUpiInfoHelperOtpChannel !== 'undefined' ? rowUpiInfoHelperOtpChannel : null,
     typeof rowUpiInfoHelperPin !== 'undefined' ? rowUpiInfoHelperPin : null,
   ].forEach((row) => {
     if (!row) {
       return;
     }
-    row.style.display = upiInfoRowsVisible && !isUpiInfoAutoMode ? '' : 'none';
+    row.style.display = upiInfoRowsVisible ? '' : 'none';
   });
   if (typeof selectUpiInfoHelperOtpChannel !== 'undefined' && selectUpiInfoHelperOtpChannel) {
     selectUpiInfoHelperOtpChannel.value = upiInfoOtpChannel;
-  }
-  if (typeof inputUpiInfoHelperLocalSmsEnabled !== 'undefined' && inputUpiInfoHelperLocalSmsEnabled) {
-    inputUpiInfoHelperLocalSmsEnabled.checked = effectiveLocalSmsEnabled;
-  }
-  if (typeof rowUpiInfoHelperLocalSmsEnabled !== 'undefined' && rowUpiInfoHelperLocalSmsEnabled) {
-    rowUpiInfoHelperLocalSmsEnabled.style.display = localSmsControlsVisible ? '' : 'none';
-  }
-  if (typeof rowUpiInfoHelperLocalSmsUrl !== 'undefined' && rowUpiInfoHelperLocalSmsUrl) {
-    rowUpiInfoHelperLocalSmsUrl.style.display = localSmsControlsVisible && effectiveLocalSmsEnabled ? '' : 'none';
   }
   if (typeof btnUpiInfoCardKeyPurchase !== 'undefined' && btnUpiInfoCardKeyPurchase) {
     btnUpiInfoCardKeyPurchase.style.display = upiInfoRowsVisible ? '' : 'none';
   }
   [
     typeof rowLegacyPayCountryCode !== 'undefined' ? rowLegacyPayCountryCode : null,
-    typeof rowLegacyPayPhone !== 'undefined' ? rowLegacyPayPhone : null,
     typeof rowLegacyPayOtp !== 'undefined' ? rowLegacyPayOtp : null,
     typeof rowLegacyPayPin !== 'undefined' ? rowLegacyPayPin : null,
   ].forEach((row) => {
@@ -6624,14 +6487,6 @@ function isUpiInfoHelperCheckoutSelected() {
   return plusEnabled && getSelectedPlusPaymentMethod() === upiInfoValue;
 }
 
-function getSelectedUpiInfoHelperPhoneMode() {
-  return normalizeUpiInfoHelperPhoneModeValue(
-    typeof selectUpiInfoHelperPhoneMode !== 'undefined' && selectUpiInfoHelperPhoneMode
-      ? selectUpiInfoHelperPhoneMode.value
-      : (latestState?.legacyPayHelperPhoneMode || UPI_INFO_HELPER_PHONE_MODE_MANUAL)
-  );
-}
-
 async function showUpiInfoStartBlockedDialog(message) {
   await openConfirmModal({
     title: 'UPI_INFO 任务无法开启',
@@ -6674,7 +6529,6 @@ async function ensureUpiInfoApiKeyReadyForStart(options = {}) {
   if (!isUpiInfoHelperCheckoutSelected()) {
     return true;
   }
-  const selectedMode = getSelectedUpiInfoHelperPhoneMode();
   let balanceState;
   try {
     balanceState = await refreshUpiInfoBalanceForStart();
@@ -6691,11 +6545,6 @@ async function ensureUpiInfoApiKeyReadyForStart(options = {}) {
   }
   if (remainingUses !== null && remainingUses <= 0) {
     await showUpiInfoStartBlockedDialog('当前 UPI_INFO API Key 剩余次数不足，不能开启任务。');
-    return false;
-  }
-
-  if (selectedMode === UPI_INFO_HELPER_PHONE_MODE_AUTO && isUpiInfoAutoModePermissionDenied(balanceState)) {
-    await showUpiInfoStartBlockedDialog('当前 UPI_INFO API Key 未开通自动模式，已保留你的当前选择。如需继续，请由你手动切换到手动模式后再开启任务。');
     return false;
   }
 
@@ -7326,7 +7175,6 @@ btnUpiInfoHelperBalance?.addEventListener('click', async () => {
       payload: {
         legacyPayHelperApiUrl: inputUpiInfoHelperApi?.value || DEFAULT_UPI_INFO_HELPER_API_URL,
         legacyPayHelperApiKey: inputUpiInfoHelperCardKey?.value || '',
-        legacyPayHelperCountryCode: selectUpiInfoHelperCountryCode?.value || '+86',
         reason: 'manual',
       },
     });
@@ -7348,16 +7196,13 @@ btnUpiInfoHelperBalance?.addEventListener('click', async () => {
     const nextAutoModePermission = getUpiInfoAutoModePermissionFromPayload(nextState.legacyPayHelperBalancePayload);
     const nextAutoModeDenied = nextAutoModePermission === false;
     const nextAutoModeConfirmed = nextAutoModePermission === true || nextState.legacyPayHelperAutoModeEnabled;
-    const selectedModeBeforeBalanceState = getSelectedUpiInfoHelperPhoneMode();
     syncLatestState(nextState);
-    if (nextAutoModeDenied && selectedModeBeforeBalanceState === UPI_INFO_HELPER_PHONE_MODE_AUTO) {
-      showToast('当前 API Key 未开通自动模式，已保留当前选择；如需继续请手动切换到手动模式。', 'warn');
-    } else if (nextAutoModeDenied) {
-      showToast('UPI_INFO 余额已更新，当前 API Key 只能使用手动模式。', 'success');
+    if (nextAutoModeDenied) {
+      showToast('UPI_INFO 余额已更新，当前 API Key 未返回自动权限。', 'success');
     } else if (nextAutoModeConfirmed) {
-      showToast('UPI_INFO 余额已更新，自动模式可用。', 'success');
+      showToast('UPI_INFO 余额已更新。', 'success');
     } else {
-      showToast('UPI_INFO 余额已更新，当前接口未返回自动模式权限，已保留所选模式。', 'success');
+      showToast('UPI_INFO 余额已更新。', 'success');
     }
     updatePlusModeUI();
   } catch (error) {
@@ -7416,12 +7261,8 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
 [
   inputUpiInfoHelperApi,
   inputUpiInfoHelperCardKey,
-  selectUpiInfoHelperPhoneMode,
   selectUpiInfoHelperCountryCode,
-  inputUpiInfoHelperPhone,
   selectUpiInfoHelperOtpChannel,
-  inputUpiInfoHelperLocalSmsEnabled,
-  inputUpiInfoHelperLocalSmsUrl,
   inputUpiInfoHelperPin,
   inputUpiSubscriptionApiBaseUrl,
   inputUpiRedeemExternalApiKey,
@@ -7434,7 +7275,6 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
   selectUpiRedeemAfterMode,
   inputUpiRedeemStopAfterRedeem,
   selectLegacyPayCountryCode,
-  inputLegacyPayPhone,
   inputLegacyPayOtp,
   inputLegacyPayPin,
   inputIdealRedeemCdkeyPool,
@@ -7472,7 +7312,7 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
     if (input === inputTotpMfaAfterProfileEnabled) {
       syncTotpMfaAfterProfileStepDefinitions();
     }
-    if (input === selectUpiInfoHelperPhoneMode || input === selectUpiInfoHelperOtpChannel || input === inputUpiInfoHelperLocalSmsEnabled) {
+    if (input === selectUpiInfoHelperOtpChannel) {
       updatePlusModeUI();
     }
     if (
@@ -8726,7 +8566,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       (async () => {
         const step = Number(message.payload?.step);
         const result = await openCustomVerificationConfirmDialog(step);
-        sendResponse(result || { confirmed: false, addPhoneDetected: false });
+        sendResponse(result || { confirmed: false });
       })().catch((err) => {
         sendResponse({ error: err.message });
       });
@@ -9049,17 +8889,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           mode: latestState?.chatgptSessionReaderMode,
         });
       }
-      if (message.payload.legacyPayHelperPhoneMode !== undefined && selectUpiInfoHelperPhoneMode) {
-        selectUpiInfoHelperPhoneMode.value = normalizeUpiInfoHelperPhoneModeValue(message.payload.legacyPayHelperPhoneMode);
-      }
       if (message.payload.legacyPayHelperOtpChannel !== undefined && selectUpiInfoHelperOtpChannel) {
         selectUpiInfoHelperOtpChannel.value = normalizeUpiInfoOtpChannelValue(message.payload.legacyPayHelperOtpChannel);
-      }
-      if (message.payload.legacyPayHelperLocalSmsHelperEnabled !== undefined && inputUpiInfoHelperLocalSmsEnabled) {
-        inputUpiInfoHelperLocalSmsEnabled.checked = Boolean(message.payload.legacyPayHelperLocalSmsHelperEnabled);
-      }
-      if (message.payload.legacyPayHelperLocalSmsHelperUrl !== undefined && inputUpiInfoHelperLocalSmsUrl) {
-        inputUpiInfoHelperLocalSmsUrl.value = normalizeUpiInfoLocalSmsHelperBaseUrlValue(message.payload.legacyPayHelperLocalSmsHelperUrl);
       }
       if (message.payload.legacyPayHelperBalance !== undefined || message.payload.legacyPayHelperBalanceError !== undefined) {
         if (typeof displayUpiInfoHelperBalance !== 'undefined' && displayUpiInfoHelperBalance) {
@@ -9134,10 +8965,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         || message.payload.totpMfaAfterProfileEnabled !== undefined
         || message.payload.pixRedeemStopAfterRedeem !== undefined
         || message.payload.pixRedeemContinueAfterRedeem !== undefined
-        || message.payload.legacyPayHelperPhoneMode !== undefined
         || message.payload.legacyPayHelperAutoModeEnabled !== undefined
         || message.payload.legacyPayHelperOtpChannel !== undefined
-        || message.payload.legacyPayHelperLocalSmsHelperEnabled !== undefined
       ) {
         const stepDefinitionState = typeof resolveStepDefinitionCapabilityState === 'function'
           ? resolveStepDefinitionCapabilityState(latestState, {
