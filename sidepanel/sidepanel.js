@@ -19124,6 +19124,25 @@ const bindAccountRecordEvents = accountRecordsManager?.bindEvents
 const closeAccountRecordsPanel = accountRecordsManager?.closePanel
   || (() => { });
 bindAccountRecordEvents();
+const cdkPoolManager = window.SidepanelCdkPoolManager?.createCdkPoolManager?.({
+  dom: {
+    btnImportCdkPool,
+    btnDeleteAllCdkPool,
+    btnImportIdealCdkPool,
+    btnDeleteAllIdealCdkPool,
+    btnUpiRedeemCdkeyStatusRefresh,
+    inputUpiRedeemCdkeyPool,
+    inputIdealRedeemCdkeyPool,
+  },
+  helpers: {
+    deleteAllUpiRedeemCdkeys,
+    importCdkPoolFromTextarea,
+    refreshAllUpiRedeemCdkeyStatuses,
+    showToast,
+  },
+});
+const bindCdkPoolEvents = cdkPoolManager?.bindEvents
+  || (() => { });
 const contributionModeManager = window.SidepanelContributionMode?.createContributionModeManager({
   state: {
     getLatestState: () => latestState,
@@ -20229,9 +20248,7 @@ btnUpiInfoHelperBalance?.addEventListener('click', async () => {
   }
 });
 
-btnUpiRedeemCdkeyStatusRefresh?.addEventListener('click', () => {
-  refreshAllUpiRedeemCdkeyStatuses();
-});
+bindCdkPoolEvents();
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
@@ -20355,48 +20372,6 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
   input?.addEventListener('blur', () => {
     saveSettings({ silent: true }).catch(() => { });
   });
-});
-
-btnImportCdkPool?.addEventListener('click', () => {
-  importCdkPoolFromTextarea({ channel: 'upi', autoResume: true }).catch((error) => {
-    showToast(`导入 CDK 失败：${error.message}`, 'error');
-  });
-});
-
-btnDeleteAllCdkPool?.addEventListener('click', () => {
-  deleteAllUpiRedeemCdkeys('upi').catch((error) => {
-    showToast(`删除 CDK 失败：${error.message}`, 'error');
-  });
-});
-
-btnImportIdealCdkPool?.addEventListener('click', () => {
-  importCdkPoolFromTextarea({ channel: 'ideal', autoResume: true }).catch((error) => {
-    showToast(`导入 IDEAL CDK 失败：${error.message}`, 'error');
-  });
-});
-
-btnDeleteAllIdealCdkPool?.addEventListener('click', () => {
-  deleteAllUpiRedeemCdkeys('ideal').catch((error) => {
-    showToast(`删除 IDEAL CDK 失败：${error.message}`, 'error');
-  });
-});
-
-inputUpiRedeemCdkeyPool?.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault();
-    importCdkPoolFromTextarea({ channel: 'upi', autoResume: true }).catch((error) => {
-      showToast(`导入 CDK 失败：${error.message}`, 'error');
-    });
-  }
-});
-
-inputIdealRedeemCdkeyPool?.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault();
-    importCdkPoolFromTextarea({ channel: 'ideal', autoResume: true }).catch((error) => {
-      showToast(`导入 IDEAL CDK 失败：${error.message}`, 'error');
-    });
-  }
 });
 
 selectMailProvider.addEventListener('change', async () => {
