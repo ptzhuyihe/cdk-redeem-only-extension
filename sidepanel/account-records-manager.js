@@ -3495,10 +3495,14 @@
           helpers.showToast?.(buildUpiRedeemSuccessExportBlockedMessage(summary), 'warn', 3200);
           return;
         }
-        helpers.downloadTextFile(`${rows.join('\n')}\n`, buildUpiRedeemSuccessEmailExportFileName(), 'text/plain;charset=utf-8');
+        const downloadResult = await helpers.downloadTextFile(`${rows.join('\n')}\n`, buildUpiRedeemSuccessEmailExportFileName(), 'text/plain;charset=utf-8');
+        if (downloadResult?.cancelled) {
+          helpers.showToast?.('已取消导出兑换成功邮箱 2FA。', 'info', 1800);
+          return;
+        }
         helpers.showToast?.(`已按远端 CDK 状态导出 ${rows.length} 条兑换成功邮箱 2FA。`, 'success', 2200);
       } catch (error) {
-        helpers.showToast?.(`导出前查询 UPI 兑换/会员状态失败：${error.message}`, 'error');
+        helpers.showToast?.(`导出兑换成功邮箱 2FA 失败：${error.message}`, 'error');
       } finally {
         setExportButtonsBusy(false);
         render();
@@ -3517,7 +3521,11 @@
           helpers.showToast?.('没有已保存的 UPI 密码 2FA 备份。', 'warn', 2600);
           return;
         }
-        helpers.downloadTextFile(response.fileContent, response.fileName, 'text/plain;charset=utf-8');
+        const downloadResult = await helpers.downloadTextFile(response.fileContent, response.fileName, 'text/plain;charset=utf-8');
+        if (downloadResult?.cancelled) {
+          helpers.showToast?.('已取消导出已保存密码 2FA。', 'info', 1800);
+          return;
+        }
         helpers.showToast?.(`已导出 ${response.count || 0} 条已保存密码 2FA 备份。`, 'success', 2200);
       } catch (error) {
         helpers.showToast?.(`导出已保存密码 2FA 失败：${error.message}`, 'error');
@@ -4329,7 +4337,7 @@
       if (getAvailableUpiRedeemCdkeyCount(currentState, redeemChannel) <= 0) {
         return { started: false, reason: 'no-cdk' };
       }
-      const credentials = getEnabledFreeUpiCredentialMembershipRows();
+      const credentials = getEnabledFreeUpiCredentialMembershipRowsForChannel(redeemChannel);
       if (!credentials.length) {
         return { started: false, reason: 'no-free-credentials' };
       }
@@ -4553,7 +4561,11 @@
           helpers.showToast?.(`${getMembershipStatusTitle(rawStatus)} 分组没有可导出的记录。`, 'warn', 1800);
           return;
         }
-        helpers.downloadTextFile(response.fileContent, response.fileName, 'text/plain;charset=utf-8');
+        const downloadResult = await helpers.downloadTextFile(response.fileContent, response.fileName, 'text/plain;charset=utf-8');
+        if (downloadResult?.cancelled) {
+          helpers.showToast?.(`已取消导出${getMembershipStatusTitle(rawStatus)}记录。`, 'info', 1800);
+          return;
+        }
         if (response?.results) {
           state.syncLatestState({
             upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(response.results),
@@ -4706,10 +4718,12 @@
             addLocallyDeletedRedeemPlusEmails(deleteChannel, deletedEmails);
           }
           deletedEmails.forEach((email) => disabledUpiCredentialMembershipEmails.delete(email));
-          setUpiCredentialMembershipPoolRows(
-            upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
-            upiCredentialMembershipPoolSource
-          );
+          if (deleteStatus === 'free') {
+            setUpiCredentialMembershipPoolRows(
+              upiCredentialMembershipPoolRows.filter((item) => !deletedSet.has(normalizeUpiCredentialMembershipEmail(item.email))),
+              upiCredentialMembershipPoolSource
+            );
+          }
         }
         const stateUpdates = {};
         if (response?.results) {

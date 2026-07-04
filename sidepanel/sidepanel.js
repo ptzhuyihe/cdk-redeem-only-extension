@@ -894,6 +894,7 @@ const AUTO_FALLBACK_THREAD_INTERVAL_DEFAULT_MINUTES = 0;
 const AUTO_RUN_MAX_RETRIES_PER_ROUND = 3;
 const AUTO_STEP_DELAY_MIN_SECONDS = 0;
 const AUTO_STEP_DELAY_MAX_SECONDS = 600;
+const AUTO_STEP_DELAY_DEFAULT_SECONDS = 10;
 const VERIFICATION_RESEND_COUNT_MIN = 0;
 const VERIFICATION_RESEND_COUNT_MAX = 20;
 const DEFAULT_VERIFICATION_RESEND_COUNT = 0;
@@ -2831,31 +2832,110 @@ function triggerAnchorDownload(objectUrl, fileName) {
   anchor.remove();
 }
 
-function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8') {
-  const blob = new Blob([content], { type: mimeType });
-  const objectUrl = URL.createObjectURL(blob);
+function buildDownloadDataUrl(content, mimeType = 'application/json;charset=utf-8') {
+  return `data:${mimeType},${encodeURIComponent(String(content ?? ''))}`;
+}
+
+function canUseTextFileSavePicker() {
+  if (typeof window === 'undefined' || typeof window.showSaveFilePicker !== 'function') {
+    return false;
+  }
+  return true;
+}
+
+async function requestTextFileSaveTarget(fileName, mimeType = 'application/json;charset=utf-8') {
+  if (!canUseTextFileSavePicker()) {
+    return { saved: false, unavailable: true };
+  }
   const downloadFileName = normalizeDownloadFileName(fileName, mimeType);
-  const revokeObjectUrl = () => setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  const extension = inferDownloadExtension(mimeType);
+  const baseMimeType = String(mimeType || 'text/plain').split(';')[0] || 'text/plain';
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: downloadFileName,
+      types: [
+        {
+          description: extension === 'json' ? 'JSON 文件' : '文本文件',
+          accept: {
+            [baseMimeType]: [`.${extension}`],
+          },
+        },
+      ],
+    });
+    return { saved: false, handle, fileName: downloadFileName, method: 'file-picker' };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      return { saved: false, cancelled: true };
+    }
+    return { saved: false, error };
+  }
+}
+
+async function writeTextFileToSaveTarget(saveTarget, content, mimeType = 'application/json;charset=utf-8') {
+  if (!saveTarget?.handle || typeof saveTarget.handle.createWritable !== 'function') {
+    return { saved: false, unavailable: true };
+  }
+  try {
+    const writable = await saveTarget.handle.createWritable();
+    await writable.write(new Blob([content], { type: mimeType }));
+    await writable.close();
+    return { saved: true, fileName: saveTarget.fileName || 'download', method: 'file-picker' };
+  } catch (error) {
+    return { saved: false, error };
+  }
+}
+
+async function saveTextFileWithPicker(content, fileName, mimeType = 'application/json;charset=utf-8') {
+  const saveTarget = await requestTextFileSaveTarget(fileName, mimeType);
+  if (saveTarget.cancelled || saveTarget.unavailable || saveTarget.error) {
+    return saveTarget;
+  }
+  return writeTextFileToSaveTarget(saveTarget, content, mimeType);
+}
+
+async function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8', options = {}) {
+  const downloadFileName = normalizeDownloadFileName(fileName, mimeType);
+  const pickerResult = options?.saveTarget?.handle
+    ? await writeTextFileToSaveTarget(options.saveTarget, content, mimeType)
+    : await saveTextFileWithPicker(content, downloadFileName, mimeType);
+  if (pickerResult.saved || pickerResult.cancelled) {
+    return pickerResult;
+  }
+  if (pickerResult.error) {
+    throw pickerResult.error;
+  }
+
   if (typeof chrome !== 'undefined' && chrome?.downloads?.download) {
+    const downloadUrl = buildDownloadDataUrl(content, mimeType);
     try {
-      chrome.downloads.download({
-        url: objectUrl,
-        filename: downloadFileName,
-        saveAs: false,
-      }, () => {
-        const error = chrome.runtime?.lastError;
-        if (error) {
-          triggerAnchorDownload(objectUrl, downloadFileName);
-        }
-        revokeObjectUrl();
+      return await new Promise((resolve) => {
+        chrome.downloads.download({
+          url: downloadUrl,
+          filename: downloadFileName,
+          conflictAction: 'uniquify',
+          saveAs: false,
+        }, () => {
+          const error = chrome.runtime?.lastError;
+          if (error) {
+            const blob = new Blob([content], { type: mimeType });
+            const objectUrl = URL.createObjectURL(blob);
+            triggerAnchorDownload(objectUrl, downloadFileName);
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+            resolve({ saved: true, fileName: downloadFileName, method: 'anchor-fallback', error });
+            return;
+          }
+          resolve({ saved: true, fileName: downloadFileName, method: 'downloads' });
+        });
       });
-      return;
     } catch {
       // Fall through to the anchor fallback below.
     }
   }
+  const blob = new Blob([content], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
   triggerAnchorDownload(objectUrl, downloadFileName);
-  revokeObjectUrl();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  return { saved: true, fileName: downloadFileName, method: 'anchor' };
 }
 
 function setCurrentSessionExportButtonsDisabled(disabled) {
@@ -2894,6 +2974,18 @@ async function exportCurrentSessionJson(format) {
   if (!confirmed) {
     return;
   }
+  const saveTarget = await requestTextFileSaveTarget(
+    `current-session-${normalizedFormat}-${buildDownloadFileTimestamp()}.json`,
+    'application/json;charset=utf-8'
+  );
+  if (saveTarget?.cancelled) {
+    showToast('已取消导出当前 SESSION。', 'info', 1800);
+    return;
+  }
+  if (saveTarget?.error) {
+    showToast('导出当前 SESSION JSON 失败：' + (saveTarget.error?.message || '无法打开保存窗口。'), 'error', 3200);
+    return;
+  }
   setCurrentSessionExportButtonsDisabled(true);
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2907,7 +2999,13 @@ async function exportCurrentSessionJson(format) {
     if (!response?.fileContent || !response?.fileName) {
       throw new Error('后台未返回可下载的 SESSION JSON。');
     }
-    downloadTextFile(response.fileContent, response.fileName);
+    const downloadResult = await downloadTextFile(response.fileContent, response.fileName, 'application/json;charset=utf-8', {
+      saveTarget,
+    });
+    if (downloadResult?.cancelled) {
+      showToast('已取消导出当前 SESSION。', 'info', 1800);
+      return;
+    }
     const label = normalizedFormat === 'sub2' ? 'SUB2 JSON' : 'CPA JSON';
     showToast(`已导出当前 SESSION：${label}`, 'success', 1800);
     (response.warnings || []).forEach((warning) => {
@@ -4053,7 +4151,7 @@ async function refreshUpiRedeemCdkeyStatuses(options = {}) {
     upiRedeemCdkeyStatusRefreshInFlight = false;
     if (!silent && btnUpiRedeemCdkeyStatusRefresh) {
       btnUpiRedeemCdkeyStatusRefresh.disabled = false;
-      btnUpiRedeemCdkeyStatusRefresh.textContent = '刷新状态';
+      btnUpiRedeemCdkeyStatusRefresh.textContent = '刷新全部状态';
     }
     if (shouldResumeAutoRefresh) {
       scheduleUpiRedeemCdkeyStatusAutoRefresh();
@@ -5483,12 +5581,12 @@ function normalizeAutoRunThreadIntervalMinutes(value) {
 function normalizeAutoStepDelaySeconds(value) {
   const rawValue = String(value ?? '').trim();
   if (!rawValue) {
-    return null;
+    return AUTO_STEP_DELAY_DEFAULT_SECONDS;
   }
 
   const numeric = Number(rawValue);
   if (!Number.isFinite(numeric)) {
-    return null;
+    return AUTO_STEP_DELAY_DEFAULT_SECONDS;
   }
 
   return Math.min(AUTO_STEP_DELAY_MAX_SECONDS, Math.max(AUTO_STEP_DELAY_MIN_SECONDS, Math.floor(numeric)));
@@ -5904,7 +6002,7 @@ function normalizeVerificationResendCount(value, fallback) {
 
 function formatAutoStepDelayInputValue(value) {
   const normalized = normalizeAutoStepDelaySeconds(value);
-  return normalized === null ? '' : String(normalized);
+  return String(normalized);
 }
 
 function splitCustomEmailPoolEntrySource(value = '') {
@@ -19195,6 +19293,19 @@ bindContributionModeEvents();
 renderStepsList();
 
 async function exportSettingsFile() {
+  const saveTarget = await requestTextFileSaveTarget(
+    `multipage-settings-${buildDownloadFileTimestamp()}.json`,
+    'application/json;charset=utf-8'
+  );
+  if (saveTarget?.cancelled) {
+    showToast('\u5df2\u53d6\u6d88\u5bfc\u51fa\u914d\u7f6e\u3002', 'info', 1800);
+    return;
+  }
+  if (saveTarget?.error) {
+    showToast('\u5bfc\u51fa\u914d\u7f6e\u5931\u8d25\uff1a' + (saveTarget.error?.message || '无法打开保存窗口。'), 'error');
+    return;
+  }
+
   closeConfigMenu();
   configActionInFlight = true;
   updateConfigMenuControls();
@@ -19214,8 +19325,14 @@ async function exportSettingsFile() {
       throw new Error('\u672a\u751f\u6210\u53ef\u4e0b\u8f7d\u7684\u914d\u7f6e\u6587\u4ef6\u3002');
     }
 
-    downloadTextFile(response.fileContent, response.fileName);
-    showToast('\u914d\u7f6e\u5df2\u5bfc\u51fa\uff1a' + response.fileName, 'success', 2200);
+    const downloadResult = await downloadTextFile(response.fileContent, response.fileName, 'application/json;charset=utf-8', {
+      saveTarget,
+    });
+    if (downloadResult?.cancelled) {
+      showToast('\u5df2\u53d6\u6d88\u5bfc\u51fa\u914d\u7f6e\u3002', 'info', 1800);
+      return;
+    }
+    showToast('\u914d\u7f6e\u5df2\u5bfc\u51fa\uff1a' + (downloadResult?.fileName || response.fileName), 'success', 2200);
   } catch (err) {
     showToast('\u5bfc\u51fa\u914d\u7f6e\u5931\u8d25\uff1a' + err.message, 'error');
   } finally {
@@ -20335,7 +20452,7 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
 });
 
 btnImportCdkPool?.addEventListener('click', () => {
-  importCdkPoolFromTextarea({ channel: 'upi' }).catch((error) => {
+  importCdkPoolFromTextarea({ channel: 'upi', autoResume: true }).catch((error) => {
     showToast(`导入 CDK 失败：${error.message}`, 'error');
   });
 });
@@ -20347,7 +20464,7 @@ btnDeleteAllCdkPool?.addEventListener('click', () => {
 });
 
 btnImportIdealCdkPool?.addEventListener('click', () => {
-  importCdkPoolFromTextarea({ channel: 'ideal' }).catch((error) => {
+  importCdkPoolFromTextarea({ channel: 'ideal', autoResume: true }).catch((error) => {
     showToast(`导入 IDEAL CDK 失败：${error.message}`, 'error');
   });
 });
@@ -20361,7 +20478,7 @@ btnDeleteAllIdealCdkPool?.addEventListener('click', () => {
 inputUpiRedeemCdkeyPool?.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
-    importCdkPoolFromTextarea({ channel: 'upi' }).catch((error) => {
+    importCdkPoolFromTextarea({ channel: 'upi', autoResume: true }).catch((error) => {
       showToast(`导入 CDK 失败：${error.message}`, 'error');
     });
   }
@@ -20370,7 +20487,7 @@ inputUpiRedeemCdkeyPool?.addEventListener('keydown', (event) => {
 inputIdealRedeemCdkeyPool?.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
-    importCdkPoolFromTextarea({ channel: 'ideal' }).catch((error) => {
+    importCdkPoolFromTextarea({ channel: 'ideal', autoResume: true }).catch((error) => {
       showToast(`导入 IDEAL CDK 失败：${error.message}`, 'error');
     });
   }

@@ -211,7 +211,8 @@
       const entriesWithCurrent = withCurrentFlag(renderedEntries);
       const usedCount = entriesWithCurrent.filter((entry) => entry.used).length;
       const enabledCount = entriesWithCurrent.filter((entry) => entry.enabled).length;
-      dom.customEmailPoolSummary.textContent = `已加载 ${entriesWithCurrent.length} 个邮箱，其中 ${enabledCount} 个启用，${usedCount} 个已标记为已用。`;
+      const availableCount = entriesWithCurrent.filter((entry) => entry.enabled && !entry.used).length;
+      dom.customEmailPoolSummary.textContent = `已加载 ${entriesWithCurrent.length} 个邮箱，其中 ${availableCount} 个可用，${enabledCount} 个启用，${usedCount} 个已标记为已用。`;
       if (dom.btnCustomEmailPoolClearUsed) dom.btnCustomEmailPoolClearUsed.disabled = loading || usedCount === 0;
       if (dom.btnCustomEmailPoolDeleteAll) dom.btnCustomEmailPoolDeleteAll.disabled = loading || entriesWithCurrent.length === 0;
 

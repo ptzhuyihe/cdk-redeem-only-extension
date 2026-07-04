@@ -3386,26 +3386,12 @@
       batchRunning = true;
       batchStopRequested = false;
       const startedAt = new Date().toISOString();
-      const runtimeState = {
-        ...(await getState()),
-        ...(input.settings || {}),
-      };
-      let currentResults = await getStoredResults();
-      let items = Array.isArray(currentResults.items) ? [...currentResults.items] : [];
-      const existingItem = items.find((item) => normalizeEmail(item?.email) === targetEmail) || {};
+      let runtimeState = {};
+      let currentResults = null;
+      let items = [];
+      let existingItem = {};
       let backupCredential = {};
-      try {
-        const pool = await getUpiCredentialMembershipCredentialPool();
-        backupCredential = (pool.items || []).find((item) => normalizeEmail(item?.email) === targetEmail) || {};
-      } catch {
-        backupCredential = {};
-      }
-      const credential = normalizeResultItem({
-        ...existingItem,
-        ...backupCredential,
-        ...inputCredential,
-        email: targetEmail,
-      });
+      let credential = null;
 
       const updateSingleStage = async (stage, reason = '') => {
         throwIfMembershipStopRequested('check');
@@ -3436,6 +3422,25 @@
       };
 
       try {
+        runtimeState = {
+          ...(await getState()),
+          ...(input.settings || {}),
+        };
+        currentResults = await getStoredResults();
+        items = Array.isArray(currentResults.items) ? [...currentResults.items] : [];
+        existingItem = items.find((item) => normalizeEmail(item?.email) === targetEmail) || {};
+        try {
+          const pool = await getUpiCredentialMembershipCredentialPool();
+          backupCredential = (pool.items || []).find((item) => normalizeEmail(item?.email) === targetEmail) || {};
+        } catch {
+          backupCredential = {};
+        }
+        credential = normalizeResultItem({
+          ...existingItem,
+          ...backupCredential,
+          ...inputCredential,
+          email: targetEmail,
+        });
         await addLog(`UPI 单账号会员检测：开始检测 ${targetEmail} 是否已开通 Plus/Pro/Team。`, 'info');
         await updateSingleStage('token', '正在获取/确认 AT');
         const resultItem = await checkOneCredential(credential, {
@@ -3480,6 +3485,22 @@
           item: resultItem,
           results: currentResults,
         };
+      } catch (error) {
+        if (currentResults) {
+          const finishedAt = new Date().toISOString();
+          const stopped = isMembershipStopError(error) || batchStopRequested;
+          await saveResults({
+            ...currentResults,
+            items,
+            running: false,
+            updatedAt: finishedAt,
+            finishedAt: stopped ? (currentResults.finishedAt || '') : finishedAt,
+            stoppedAt: stopped ? finishedAt : (currentResults.stoppedAt || ''),
+            flowStage: stopped ? currentResults.flowStage : '',
+            flowStageEmail: stopped ? currentResults.flowStageEmail : '',
+          }).catch(() => null);
+        }
+        throw error;
       } finally {
         batchRunning = false;
       }
@@ -3507,16 +3528,20 @@
       batchRunning = true;
       batchStopRequested = false;
       const startedAt = new Date().toISOString();
+      let currentResults = null;
+      let items = [];
+      let source = '';
+      let credentials = [];
       try {
         const runtimeState = {
           ...(await getState()),
           ...(input.settings || {}),
         };
-        const source = normalizeString(input.source || (input.text || input.fileContent ? 'txt' : 'local'));
-        const credentials = source === 'local'
+        source = normalizeString(input.source || (input.text || input.fileContent ? 'txt' : 'local'));
+        credentials = source === 'local'
           ? await getBackupCredentialsFromLocalStorage()
           : resolveInputCredentials(input);
-        let currentResults = await saveResults({
+        currentResults = await saveResults({
           items: [],
           running: true,
           startedAt,
@@ -3538,7 +3563,7 @@
         }
 
         await addLog(`UPI 备份账号会员核验：开始核验 ${credentials.length} 个账号。`, 'info');
-        const items = [];
+        items = [];
         for (const credential of credentials) {
           throwIfStopped();
           if (batchStopRequested) break;
@@ -3606,6 +3631,25 @@
           await addLog(`UPI 备份账号会员核验：完成 ${finalResults.completed}/${finalResults.total}，有会员 ${finalResults.paidCount}，无会员 ${finalResults.freeCount}，失败 ${finalResults.failedCount}。`, 'ok');
         }
         return finalResults;
+      } catch (error) {
+        if (currentResults) {
+          const finishedAt = new Date().toISOString();
+          const stopped = isMembershipStopError(error) || batchStopRequested;
+          await saveResults({
+            ...currentResults,
+            items,
+            running: false,
+            updatedAt: finishedAt,
+            finishedAt: stopped ? '' : finishedAt,
+            stoppedAt: stopped ? finishedAt : '',
+            flowStage: stopped ? currentResults.flowStage : '',
+            flowStageEmail: stopped ? currentResults.flowStageEmail : '',
+            source,
+            total: credentials.length,
+            completed: items.length,
+          }).catch(() => null);
+        }
+        throw error;
       } finally {
         batchRunning = false;
       }

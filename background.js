@@ -1128,7 +1128,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunDelayEnabled: false,
   operationDelayEnabled: false,
   autoRunDelayMinutes: 30,
-  autoStepDelaySeconds: null,
+  autoStepDelaySeconds: 10,
   step6CookieCleanupEnabled: false,
   signupMethod: DEFAULT_SIGNUP_METHOD,
   verificationResendCount: DEFAULT_VERIFICATION_RESEND_COUNT,
@@ -13719,7 +13719,10 @@ async function executeNodeAndWait(nodeId, delayAfter = 2000) {
   }
   let completionPayload = null;
 
-  const delaySeconds = normalizeAutoStepDelaySeconds((await getState()).autoStepDelaySeconds, null);
+  const delaySeconds = normalizeAutoStepDelaySeconds(
+    (await getState()).autoStepDelaySeconds,
+    PERSISTED_SETTING_DEFAULTS.autoStepDelaySeconds
+  );
   if (delaySeconds > 0) {
     await addLog(
       `自动运行：节点 ${normalizedNodeId} 执行前额外等待 ${delaySeconds} 秒，避免节奏过快。`,

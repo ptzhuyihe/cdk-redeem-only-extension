@@ -2332,6 +2332,16 @@ header {
   transform: none;
 }
 
+.upi-credential-backup-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.upi-credential-backup-actions .btn {
+  flex: 0 0 auto;
+}
+
 .icloud-tag.pending,
 .icloud-tag.running {
   background: var(--blue-soft);
