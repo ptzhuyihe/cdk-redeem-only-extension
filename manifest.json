@@ -55,6 +55,7 @@
         "content/auth-page-recovery.js",
         "content/signup-dom-utils.js",
         "content/signup-entry-page.js",
+        "content/signup-verification-page.js",
         "content/signup-page.js"
       ],
       "run_at": "document_idle"
