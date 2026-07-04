@@ -19217,53 +19217,32 @@ const bindContributionModeEvents = contributionModeManager?.bindEvents
 bindContributionModeEvents();
 renderStepsList();
 
+const settingsTransferManager = window.SidepanelSettingsTransferManager?.createSettingsTransferManager?.({
+  controls: {
+    setConfigActionInFlight: (value) => {
+      configActionInFlight = Boolean(value);
+    },
+    updateConfigMenuControls,
+  },
+  helpers: {
+    buildDownloadFileTimestamp,
+    closeConfigMenu,
+    downloadTextFile,
+    flushPendingSettingsBeforeExport,
+    requestTextFileSaveTarget,
+    showToast,
+  },
+  runtime: {
+    sendMessage: (message) => chrome.runtime.sendMessage(message),
+  },
+});
+
 async function exportSettingsFile() {
-  const saveTarget = await requestTextFileSaveTarget(
-    `multipage-settings-${buildDownloadFileTimestamp()}.json`,
-    'application/json;charset=utf-8'
-  );
-  if (saveTarget?.cancelled) {
-    showToast('\u5df2\u53d6\u6d88\u5bfc\u51fa\u914d\u7f6e\u3002', 'info', 1800);
+  if (!settingsTransferManager?.exportSettingsFile) {
+    showToast('导出配置失败：配置导出模块未加载。', 'error');
     return;
   }
-  if (saveTarget?.error) {
-    showToast('\u5bfc\u51fa\u914d\u7f6e\u5931\u8d25\uff1a' + (saveTarget.error?.message || '无法打开保存窗口。'), 'error');
-    return;
-  }
-
-  closeConfigMenu();
-  configActionInFlight = true;
-  updateConfigMenuControls();
-
-  try {
-    await flushPendingSettingsBeforeExport();
-    const response = await chrome.runtime.sendMessage({
-      type: 'EXPORT_SETTINGS',
-      source: 'sidepanel',
-      payload: {},
-    });
-
-    if (response?.error) {
-      throw new Error(response.error);
-    }
-    if (!response?.fileContent || !response?.fileName) {
-      throw new Error('\u672a\u751f\u6210\u53ef\u4e0b\u8f7d\u7684\u914d\u7f6e\u6587\u4ef6\u3002');
-    }
-
-    const downloadResult = await downloadTextFile(response.fileContent, response.fileName, 'application/json;charset=utf-8', {
-      saveTarget,
-    });
-    if (downloadResult?.cancelled) {
-      showToast('\u5df2\u53d6\u6d88\u5bfc\u51fa\u914d\u7f6e\u3002', 'info', 1800);
-      return;
-    }
-    showToast('\u914d\u7f6e\u5df2\u5bfc\u51fa\uff1a' + (downloadResult?.fileName || response.fileName), 'success', 2200);
-  } catch (err) {
-    showToast('\u5bfc\u51fa\u914d\u7f6e\u5931\u8d25\uff1a' + err.message, 'error');
-  } finally {
-    configActionInFlight = false;
-    updateConfigMenuControls();
-  }
+  return settingsTransferManager.exportSettingsFile();
 }
 
 async function importSettingsFromFile(file) {

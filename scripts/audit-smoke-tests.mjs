@@ -107,6 +107,7 @@ function checkCoreFiles() {
     'content/signup-page.js',
     'sidepanel/sidepanel.html',
     'sidepanel/download-service.js',
+    'sidepanel/settings-transfer-manager.js',
     'sidepanel/cdk-pool-manager.js',
     'sidepanel/sidepanel.js',
     'sidepanel/account-records-manager.js',
@@ -134,6 +135,7 @@ function checkStaticContracts() {
   const sidepanel = readText('sidepanel/sidepanel.js');
   const sidepanelHtml = readText('sidepanel/sidepanel.html');
   const downloadService = readText('sidepanel/download-service.js');
+  const settingsTransferManager = readText('sidepanel/settings-transfer-manager.js');
   const cdkPoolManager = readText('sidepanel/cdk-pool-manager.js');
   const accountRecords = readText('sidepanel/account-records-manager.js');
   const router = readText('background/message-router.js');
@@ -145,11 +147,14 @@ function checkStaticContracts() {
   assertIncludes(sidepanel, 'const AUTO_STEP_DELAY_DEFAULT_SECONDS = 10;', 'sidepanel step delay default');
   assertIncludes(sidepanel, 'requestTextFileSaveTarget', 'sidepanel export picker support');
   assertIncludes(sidepanelHtml, 'src="download-service.js"', 'download service script load');
+  assertIncludes(sidepanelHtml, 'src="settings-transfer-manager.js"', 'settings transfer manager script load');
   assertIncludes(sidepanelHtml, 'src="cdk-pool-manager.js"', 'CDK pool manager script load');
   assertIncludes(downloadService, 'createDownloadService', 'download service factory');
   assertIncludes(downloadService, 'chromeApi.downloads.download', 'download service browser API fallback');
+  assertIncludes(settingsTransferManager, 'createSettingsTransferManager', 'settings transfer manager factory');
+  assertIncludes(settingsTransferManager, "type: 'EXPORT_SETTINGS'", 'settings export route lives in transfer manager');
   assertIncludes(cdkPoolManager, 'createCdkPoolManager', 'CDK pool manager factory');
-  assertIncludes(sidepanel, 'multipage-settings-', 'settings export filename');
+  assertIncludes(settingsTransferManager, 'multipage-settings-', 'settings export filename');
   assertIncludes(background, 'containsSensitiveRuntimeData: true', 'settings export sensitive data marker');
 
   [
@@ -223,6 +228,7 @@ function checkModuleSizeGuard() {
   readText('scripts/module-size-report.mjs');
   assertFileLineCountAtMost('sidepanel/sidepanel.js', 26000, 'sidepanel composition root growth guard');
   assertFileLineCountAtMost('sidepanel/download-service.js', 500, 'download service size guard');
+  assertFileLineCountAtMost('sidepanel/settings-transfer-manager.js', 500, 'settings transfer manager size guard');
   assertFileLineCountAtMost('sidepanel/cdk-pool-manager.js', 700, 'CDK pool manager size guard');
   assertFileLineCountAtMost('background.js', 20000, 'background service worker growth guard');
   assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
