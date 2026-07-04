@@ -109,6 +109,7 @@ function checkCoreFiles() {
     'background/upi-credential-membership-checker.js',
     'background/verification-flow.js',
     'content/signup-dom-utils.js',
+    'content/signup-entry-page.js',
     'content/signup-page.js',
     'sidepanel/sidepanel.html',
     'sidepanel/download-service.js',
@@ -151,6 +152,7 @@ function checkStaticContracts() {
   const upiRedeem = readText('background/steps/upi-redeem.js');
   const checker = readText('background/upi-credential-membership-checker.js');
   const signupDomUtils = readText('content/signup-dom-utils.js');
+  const signupEntryPage = readText('content/signup-entry-page.js');
   const gitignore = readText('.gitignore');
 
   assertMatch(background, /autoStepDelaySeconds:\s*10\b/, 'background default settings');
@@ -192,9 +194,14 @@ function checkStaticContracts() {
   assertIncludes(router, 'getRedeemChannelStateHelpers()', 'router channel state wrapper');
   assertIncludes(router, 'getRedeemCdkeyUsageHelpers()', 'router CDK usage wrapper');
   assertIncludes(background, "'content/signup-dom-utils.js'", 'background signup DOM utils injection');
+  assertIncludes(background, "'content/signup-entry-page.js'", 'background signup entry page injection');
   assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-dom-utils.js', 'manifest signup DOM utils load');
+  assertIncludes(JSON.stringify(readJson('manifest.json')), 'content/signup-entry-page.js', 'manifest signup entry page load');
   assertIncludes(signupDomUtils, 'MultiPageSignupDomUtils', 'signup DOM utils global');
   assertIncludes(signupDomUtils, 'getAssociatedInputText', 'signup DOM associated input helper');
+  assertIncludes(signupEntryPage, 'MultiPageSignupEntryPage', 'signup entry page global');
+  assertIncludes(signupEntryPage, 'findSignupEntryTrigger', 'signup entry trigger helper');
+  assertIncludes(signupEntryPage, 'प्लान्स?', 'signup entry excludes Hindi plans/pricing');
 
   [
     'btn-upi-redeem-cdkey-status-refresh',
@@ -275,6 +282,7 @@ function checkModuleSizeGuard() {
   assertFileLineCountAtMost('background/redeem/redeem-channel-state.js', 300, 'redeem channel state size guard');
   assertFileLineCountAtMost('background/redeem/redeem-cdkey-usage.js', 400, 'redeem CDK usage size guard');
   assertFileLineCountAtMost('content/signup-dom-utils.js', 300, 'signup DOM utils size guard');
+  assertFileLineCountAtMost('content/signup-entry-page.js', 400, 'signup entry page size guard');
   assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
   assertFileLineCountAtMost('background/upi-credential-membership-checker.js', 7000, 'membership checker growth guard');
   assertFileLineCountAtMost('sidepanel/account-records-manager.js', 5600, 'account records manager growth guard');
