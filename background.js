@@ -3854,66 +3854,48 @@ function isCleanupPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function stripFormerNetworkKeysDeep(value) {
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((item) => {
-      const result = stripFormerNetworkKeysDeep(item);
-      changed = changed || result.changed;
-      return result.value;
-    });
-    return { value: changed ? next : value, changed };
-  }
-  if (!isCleanupPlainObject(value)) {
-    return { value, changed: false };
-  }
-
-  let changed = false;
-  const next = {};
-  for (const [key, entryValue] of Object.entries(value)) {
-    if (String(key).startsWith(FORMER_NETWORK_STORAGE_PREFIX)) {
-      changed = true;
-      continue;
-    }
-    const result = stripFormerNetworkKeysDeep(entryValue);
-    changed = changed || result.changed;
-    next[key] = result.value;
-  }
-  return { value: changed ? next : value, changed };
-}
-
-function buildFormerNetworkStorageCleanupPatch(payload = {}) {
+function buildFormerNetworkNestedCleanupPatch(payload = {}) {
   const updates = {};
-  for (const key of ['runtimeState', 'serviceState']) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
-      continue;
-    }
-    const result = stripFormerNetworkKeysDeep(payload[key]);
-    const nextValue = isCleanupPlainObject(result.value)
-      ? { ...result.value }
-      : result.value;
-    let changed = result.changed;
-    if (isCleanupPlainObject(nextValue)) {
-      if (Object.prototype.hasOwnProperty.call(nextValue, 'proxy')) {
-        delete nextValue.proxy;
-        changed = true;
-      }
-      const nestedServiceState = nextValue.serviceState;
-      if (
-        isCleanupPlainObject(nestedServiceState)
-        && Object.prototype.hasOwnProperty.call(nestedServiceState, 'proxy')
-      ) {
-        const nextServiceState = { ...nestedServiceState };
-        delete nextServiceState.proxy;
-        nextValue.serviceState = nextServiceState;
-        changed = true;
-      }
-    }
-    if (changed) {
-      updates[key] = nextValue;
-    }
+  const serviceState = payload.serviceState;
+  if (
+    isCleanupPlainObject(serviceState)
+    && Object.prototype.hasOwnProperty.call(serviceState, 'proxy')
+  ) {
+    const nextServiceState = { ...serviceState };
+    delete nextServiceState.proxy;
+    updates.serviceState = nextServiceState;
+  }
+
+  const runtimeState = payload.runtimeState;
+  const runtimeServiceState = runtimeState?.serviceState;
+  if (
+    isCleanupPlainObject(runtimeState)
+    && isCleanupPlainObject(runtimeServiceState)
+    && Object.prototype.hasOwnProperty.call(runtimeServiceState, 'proxy')
+  ) {
+    const nextRuntimeServiceState = { ...runtimeServiceState };
+    delete nextRuntimeServiceState.proxy;
+    updates.runtimeState = {
+      ...runtimeState,
+      serviceState: nextRuntimeServiceState,
+    };
   }
   return updates;
+}
+
+async function cleanupFormerNetworkNestedState(storageArea) {
+  if (typeof storageArea.get !== 'function' || typeof storageArea.set !== 'function') {
+    return false;
+  }
+
+  const freshPayload = await storageArea.get(['runtimeState', 'serviceState']).catch(() => ({}));
+  const updates = buildFormerNetworkNestedCleanupPatch(freshPayload);
+  if (!Object.keys(updates).length) {
+    return false;
+  }
+
+  await storageArea.set(updates);
+  return true;
 }
 
 async function cleanupFormerNetworkStorageArea(storageArea, payload = {}) {
@@ -3926,13 +3908,10 @@ async function cleanupFormerNetworkStorageArea(storageArea, payload = {}) {
     await storageArea.remove(keysToRemove);
   }
 
-  const updates = buildFormerNetworkStorageCleanupPatch(payload);
-  if (Object.keys(updates).length && typeof storageArea.set === 'function') {
-    await storageArea.set(updates);
-  }
+  const nestedChanged = await cleanupFormerNetworkNestedState(storageArea);
 
   return {
-    changed: keysToRemove.length > 0 || Object.keys(updates).length > 0,
+    changed: keysToRemove.length > 0 || nestedChanged,
     removedKeys: keysToRemove.length,
   };
 }
