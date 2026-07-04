@@ -683,11 +683,6 @@ function requireFlowDefinitionResolver() {
   return flowDefinitionResolver;
 }
 
-function normalizeCardHelperHelperPhoneMode(value = '') {
-  const normalized = String(value || '').trim().toLowerCase();
-  return normalized === 'auto' || normalized === 'builtin' ? 'auto' : 'manual';
-}
-
 function normalizeContributionModeSource(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
   return normalized === CONTRIBUTION_SOURCE_SUB2API
@@ -12326,7 +12321,6 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   getStopRequested: () => stopRequested,
   hasSavedNodeProgress,
   isCloudCheckoutAlreadyPaidFailure,
-  isRemovedPhonePlatformRateLimitFailure,
   isChatgptSessionReaderNonFreeTrialFailure,
   isUpiRedeemBackendFailure,
   isUpiRedeemNetworkFailure,
@@ -14401,14 +14395,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
     : (isBoundEmailReloginTailStep && Number.isFinite(boundEmailReloginStep) && boundEmailReloginStep > 0
       ? boundEmailReloginStep
       : authChainStartStep);
-  if (isRemovedPhonePlatformRateLimitFailure(errorMessage)) {
-    return {
-      shouldRestart: false,
-      restartStep: authChainStartStep,
-      errorMessage,
-      authState: null,
-    };
-  }
 
   if (!Number.isFinite(normalizedStep) || normalizedStep < authChainStartStep || normalizedStep > lastStepId) {
     return {

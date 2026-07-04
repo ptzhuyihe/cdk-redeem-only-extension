@@ -6,6 +6,7 @@ const ROOT_DIR = process.cwd();
 const TARGET_FILES = [
   'manifest.json',
   'background.js',
+  'background/settings-normalizers.js',
   'background/message-router.js',
   'background/auto-run-controller.js',
   'background/runtime-state.js',
@@ -41,6 +42,8 @@ const REMOVED_CONTENT_SCRIPT = 'content/signup-phone-page.js';
 
 const PHONE_SMS_PATTERNS = [
   { label: 'signup phone content script reference', pattern: /signup-phone-page|content\/signup-phone-page\.js/i },
+  { label: 'removed phone runtime classifier', pattern: /\b(?:RemovedPhone|isRemovedPhonePlatformRateLimitFailure)\b/ },
+  { label: 'phone mode helper remnant', pattern: /\b(?:PhoneMode|normalizeCardHelperHelperPhoneMode)\b/ },
   { label: 'signup phone symbol', pattern: /\b(?:SignupPhone|signupPhone|SIGNUP_PHONE)\w*\b/i },
   { label: 'phone entry state', pattern: /\b(?:phone_entry_page|add_phone_page|phone_verification_page|phone_verification|add_phone)\b/i },
   { label: 'phone auth route slug', pattern: /add[-_]phone|phone[-_]verification/i },
@@ -61,6 +64,7 @@ const PHONE_SMS_PATTERNS = [
   { label: 'loaded signup phone state branch', pattern: /['"]phone_entry['"]|switchToPhoneTrigger/i },
   { label: 'phone signup capability flag', pattern: /\b(?:SIGNUP_METHOD_PHONE|supportsPhoneSignup|phoneVerificationEnabled)\b/i },
   { label: 'phone signup method branch', pattern: /\bsignupMethod\b\s*={2,3}\s*['"]phone['"]|\bsignupMethod\b.{0,80}['"]phone['"]|['"]phone['"].{0,80}\bsignupMethod\b/i },
+  { label: 'phone signup method return', pattern: /\breturn\s+['"]phone['"]|\?\s*['"]phone['"]/i },
   { label: 'phone identity equality branch', pattern: /\baccountIdentifierType\b\s*={2,3}\s*['"]phone['"]/i },
   { label: 'phone identity branch', pattern: /\baccountIdentifierType\b.{0,80}['"]phone['"]|['"]phone['"].{0,80}\baccountIdentifierType\b/i },
   { label: 'signup phone state key', pattern: /\bsignupPhone(?:[A-Z]\w*)?\b/i },

@@ -43,10 +43,8 @@
     }
   }
 
-  function normalizeSignupMethod(value = '') {
-    return String(value || '').trim().toLowerCase() === 'phone'
-      ? 'phone'
-      : 'email';
+  function normalizeSignupMethod() {
+    return 'email';
   }
 
   function createSettingsNormalizers(config = {}) {
