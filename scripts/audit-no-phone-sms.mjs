@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 const ROOT_DIR = process.cwd();
-const TARGET_FILES = [
+const STATIC_TARGET_FILES = [
   'manifest.json',
   'background.js',
   'background/settings-normalizers.js',
@@ -56,6 +56,59 @@ const TARGET_FILES = [
 ];
 
 const REMOVED_CONTENT_SCRIPT = 'content/signup-phone-page.js';
+
+function normalizeProjectPath(value = '') {
+  return path.normalize(String(value || '').trim()).replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function isLocalAssetReference(value = '') {
+  const normalized = String(value || '').trim();
+  return Boolean(normalized)
+    && !/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(normalized)
+    && !/^(?:data:|mailto:|#)/i.test(normalized);
+}
+
+function resolveAssetPath(fromFile, assetPath) {
+  if (!isLocalAssetReference(assetPath)) {
+    return '';
+  }
+  return normalizeProjectPath(path.join(path.dirname(fromFile), assetPath));
+}
+
+function collectManifestContentScripts() {
+  const manifestPath = path.join(ROOT_DIR, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const scripts = [];
+  for (const entry of manifest.content_scripts || []) {
+    for (const scriptPath of entry.js || []) {
+      scripts.push(normalizeProjectPath(scriptPath));
+    }
+  }
+  return scripts;
+}
+
+function collectSidepanelAssets() {
+  const sidepanelPath = 'sidepanel/sidepanel.html';
+  const absolutePath = path.join(ROOT_DIR, sidepanelPath);
+  const html = fs.readFileSync(absolutePath, 'utf8');
+  const assets = [];
+  const tagPattern = /<(script|link)\b[^>]*\b(?:src|href)=["']([^"']+)["'][^>]*>/gi;
+  let match = tagPattern.exec(html);
+  while (match) {
+    const resolved = resolveAssetPath(sidepanelPath, match[2]);
+    if (resolved && /\.(?:js|css)$/i.test(resolved)) {
+      assets.push(resolved);
+    }
+    match = tagPattern.exec(html);
+  }
+  return assets;
+}
+
+const TARGET_FILES = Array.from(new Set([
+  ...STATIC_TARGET_FILES,
+  ...collectManifestContentScripts(),
+  ...collectSidepanelAssets(),
+])).sort();
 
 const PHONE_SMS_PATTERNS = [
   { label: 'signup phone content script reference', pattern: /signup-phone-page|content\/signup-phone-page\.js/i },
