@@ -2003,6 +2003,14 @@ let customEmailPoolEntriesState = [];
 
 const EYE_OPEN_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_CLOSED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19C5 19 1 12 1 12a21.77 21.77 0 0 1 5.06-6.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>';
+const sidepanelUiHelpers = window.SidepanelUiHelpers?.createSidepanelUiHelpers?.({
+  documentRef: document,
+  navigatorRef: navigator,
+  icons: {
+    eyeOpen: EYE_OPEN_ICON,
+    eyeClosed: EYE_CLOSED_ICON,
+  },
+});
 const COPY_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 const parseHotmailImportText = window.HotmailUtils?.parseHotmailImportText;
 const normalizeHotmailServiceModeFromUtils = window.HotmailUtils?.normalizeHotmailServiceMode;
@@ -18034,72 +18042,20 @@ async function fetchGeneratedEmail(options = {}) {
   }
 }
 
-function syncToggleButtonLabel(button, input, labels) {
-  if (!button || !input) return;
-
-  const isHidden = input.type === 'password';
-  button.innerHTML = isHidden ? EYE_OPEN_ICON : EYE_CLOSED_ICON;
-  button.setAttribute('aria-label', isHidden ? labels.show : labels.hide);
-  button.title = isHidden ? labels.show : labels.hide;
-}
-
-function getPasswordToggleLabels(button) {
-  if (!button) {
-    return {
-      show: '\u663e\u793a\u5185\u5bb9',
-      hide: '\u9690\u85cf\u5185\u5bb9',
-    };
-  }
-  const show = button.dataset?.showLabel
-    || button.getAttribute('aria-label')
-    || button.title
-    || '\u663e\u793a\u5185\u5bb9';
-  const hide = button.dataset?.hideLabel
-    || String(show).replace(/^\u663e\u793a/, '\u9690\u85cf')
-    || '\u9690\u85cf\u5185\u5bb9';
-  return { show, hide };
-}
-
 function syncPasswordVisibilityToggle(button) {
-  const targetId = String(button?.dataset?.passwordToggle || '').trim();
-  const input = targetId ? document.getElementById(targetId) : null;
-  if (!button || !input) return;
-  syncToggleButtonLabel(button, input, getPasswordToggleLabels(button));
+  return sidepanelUiHelpers?.syncPasswordVisibilityToggle?.(button);
 }
 
 function syncPasswordVisibilityToggles(root = document) {
-  root.querySelectorAll?.('[data-password-toggle]').forEach(syncPasswordVisibilityToggle);
+  return sidepanelUiHelpers?.syncPasswordVisibilityToggles?.(root);
 }
 
 function bindPasswordVisibilityToggles(root = document) {
-  root.querySelectorAll?.('[data-password-toggle]').forEach((button) => {
-    if (button.dataset?.passwordToggleBound === 'true') {
-      syncPasswordVisibilityToggle(button);
-      return;
-    }
-    if (button.dataset) {
-      button.dataset.passwordToggleBound = 'true';
-    }
-    syncPasswordVisibilityToggle(button);
-    button.addEventListener('click', () => {
-      const targetId = String(button.dataset?.passwordToggle || '').trim();
-      const input = targetId ? document.getElementById(targetId) : null;
-      if (!input) return;
-      input.type = input.type === 'password' ? 'text' : 'password';
-      syncPasswordVisibilityToggle(button);
-    });
-  });
+  return sidepanelUiHelpers?.bindPasswordVisibilityToggles?.(root);
 }
 
 async function copyTextToClipboard(text) {
-  const value = String(text || '').trim();
-  if (!value) {
-    throw new Error('没有可复制的内容。');
-  }
-  if (!navigator.clipboard?.writeText) {
-    throw new Error('当前环境不支持剪贴板复制。');
-  }
-  await navigator.clipboard.writeText(value);
+  return sidepanelUiHelpers?.copyTextToClipboard?.(text);
 }
 
 const hotmailManager = window.SidepanelHotmailManager?.createHotmailManager({
