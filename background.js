@@ -15,6 +15,7 @@ importScripts(
   'background/registration-email-state.js',
   'background/workflow-engine.js',
   'background/runtime-state.js',
+  'background/settings-normalizers.js',
   'background/flow-definition-resolver.js',
   'background/generated-email-helpers.js',
   'background/signup-flow-helpers.js',
@@ -1403,32 +1404,29 @@ const DEFAULT_STATE = {
   preferredIcloudHost: '',
 };
 
-function normalizeAutoRunDelayMinutes(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return PERSISTED_SETTING_DEFAULTS.autoRunDelayMinutes;
+const settingsNormalizers = self.MultiPageBackgroundSettingsNormalizers?.createSettingsNormalizers?.({
+  autoRunDelayMaxMinutes: AUTO_RUN_DELAY_MAX_MINUTES,
+  autoRunDelayMinMinutes: AUTO_RUN_DELAY_MIN_MINUTES,
+  autoStepDelayMaxSeconds: AUTO_STEP_DELAY_MAX_ALLOWED_SECONDS,
+  autoStepDelayMinSeconds: AUTO_STEP_DELAY_MIN_ALLOWED_SECONDS,
+  persistedSettingDefaults: PERSISTED_SETTING_DEFAULTS,
+  verificationResendCountMax: VERIFICATION_RESEND_COUNT_MAX,
+  verificationResendCountMin: VERIFICATION_RESEND_COUNT_MIN,
+});
+
+function requireSettingsNormalizers() {
+  if (!settingsNormalizers) {
+    throw new Error('设置归一化模块未加载。');
   }
-  return Math.min(
-    AUTO_RUN_DELAY_MAX_MINUTES,
-    Math.max(AUTO_RUN_DELAY_MIN_MINUTES, Math.floor(numeric))
-  );
+  return settingsNormalizers;
+}
+
+function normalizeAutoRunDelayMinutes(value) {
+  return requireSettingsNormalizers().normalizeAutoRunDelayMinutes(value);
 }
 
 function normalizeAutoRunFallbackThreadIntervalMinutes(value) {
-  const rawValue = String(value ?? '').trim();
-  if (!rawValue) {
-    return 0;
-  }
-
-  const numeric = Number(rawValue);
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-
-  return Math.min(
-    AUTO_RUN_DELAY_MAX_MINUTES,
-    Math.max(0, Math.floor(numeric))
-  );
+  return requireSettingsNormalizers().normalizeAutoRunFallbackThreadIntervalMinutes(value);
 }
 
 function normalizeRemovedNetworkAutoSyncIntervalMinutes(value, fallback = REMOVED_NETWORK_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES) {
@@ -1607,20 +1605,7 @@ function normalizeRemovedNetworkServiceProfilesForSettings(value = {}, fallbackS
 }
 
 function normalizeAutoStepDelaySeconds(value, fallback = null) {
-  const rawValue = String(value ?? '').trim();
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const numeric = Number(rawValue);
-  if (!Number.isFinite(numeric)) {
-    return fallback;
-  }
-
-  return Math.min(
-    AUTO_STEP_DELAY_MAX_ALLOWED_SECONDS,
-    Math.max(AUTO_STEP_DELAY_MIN_ALLOWED_SECONDS, Math.floor(numeric))
-  );
+  return requireSettingsNormalizers().normalizeAutoStepDelaySeconds(value, fallback);
 }
 
 function normalizePlusHostedCheckoutOauthDelaySeconds(value, fallback = 10) {
@@ -1795,20 +1780,7 @@ function normalizeOutlookEmailPlusAliasMaxPerMailbox(value, fallback = OUTLOOK_A
 }
 
 function normalizeVerificationResendCount(value, fallback) {
-  const rawValue = String(value ?? '').trim();
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const numeric = Number(rawValue);
-  if (!Number.isFinite(numeric)) {
-    return fallback;
-  }
-
-  return Math.min(
-    VERIFICATION_RESEND_COUNT_MAX,
-    Math.max(VERIFICATION_RESEND_COUNT_MIN, Math.floor(numeric))
-  );
+  return requireSettingsNormalizers().normalizeVerificationResendCount(value, fallback);
 }
 
 function normalizePhoneVerificationReplacementLimit(value, fallback = DEFAULT_PHONE_VERIFICATION_REPLACEMENT_LIMIT) {
@@ -1917,47 +1889,15 @@ function normalizePhoneActivationRetryRounds(value, fallback = DEFAULT_PHONE_ACT
 }
 
 function normalizeBoundedIntegerSetting(value, fallback, min, max) {
-  const rawValue = String(value ?? '').trim();
-  const numeric = Number(rawValue);
-  const fallbackNumeric = Number(fallback);
-  const normalizedFallback = Number.isFinite(fallbackNumeric)
-    ? Math.min(max, Math.max(min, Math.floor(fallbackNumeric)))
-    : min;
-  if (!rawValue || !Number.isFinite(numeric)) {
-    return normalizedFallback;
-  }
-  return Math.min(max, Math.max(min, Math.floor(numeric)));
+  return requireSettingsNormalizers().normalizeBoundedIntegerSetting(value, fallback, min, max);
 }
 
 function normalizeLocalHttpBaseUrl(value = '', fallback = 'http://127.0.0.1:18767') {
-  const rawValue = String(value || fallback).trim();
-  try {
-    const parsed = new URL(rawValue);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return fallback;
-    }
-    const endpointPath = parsed.pathname.replace(/\/+$/g, '') || '/';
-    if (['/otp', '/latest-otp', '/health'].includes(endpointPath)) {
-      parsed.pathname = '';
-      parsed.search = '';
-      parsed.hash = '';
-    }
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return fallback;
-  }
+  return requireSettingsNormalizers().normalizeLocalHttpBaseUrl(value, fallback);
 }
 
 function normalizeUrl(value = '', fallback = '') {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) {
-    return fallback;
-  }
-  try {
-    return new URL(trimmed).toString();
-  } catch {
-    return fallback;
-  }
+  return requireSettingsNormalizers().normalizeUrl(value, fallback);
 }
 
 function normalizeRemovedSmsMainMaxPrice(value = '') {
@@ -2108,9 +2048,7 @@ function normalizeRemovedPhoneProviderOrder(value = [], fallbackOrder = []) {
   return normalized.slice(0, DEFAULT_REMOVED_PHONE_PROVIDER_ORDER.length);
 }
 function normalizeSignupMethod(value = '') {
-  return String(value || '').trim().toLowerCase() === 'phone'
-    ? 'phone'
-    : 'email';
+  return requireSettingsNormalizers().normalizeSignupMethod(value);
 }
 
 function getFlowCapabilityRegistry() {

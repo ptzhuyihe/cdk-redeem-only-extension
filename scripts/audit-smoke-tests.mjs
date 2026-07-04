@@ -101,6 +101,7 @@ function checkCoreFiles() {
   [
     'background.js',
     'background/message-router.js',
+    'background/settings-normalizers.js',
     'background/flow-definition-resolver.js',
     'background/steps/upi-redeem.js',
     'background/upi-credential-membership-checker.js',
@@ -133,6 +134,7 @@ function checkSyntax() {
 
 function checkStaticContracts() {
   const background = readText('background.js');
+  const settingsNormalizers = readText('background/settings-normalizers.js');
   const flowDefinitionResolver = readText('background/flow-definition-resolver.js');
   const sidepanel = readText('sidepanel/sidepanel.js');
   const sidepanelHtml = readText('sidepanel/sidepanel.html');
@@ -159,6 +161,11 @@ function checkStaticContracts() {
   assertIncludes(cdkPoolManager, 'createCdkPoolManager', 'CDK pool manager factory');
   assertIncludes(settingsTransferManager, 'multipage-settings-', 'settings export filename');
   assertIncludes(background, 'containsSensitiveRuntimeData: true', 'settings export sensitive data marker');
+  assertIncludes(background, "'background/settings-normalizers.js'", 'background settings normalizers script load');
+  assertIncludes(background, 'requireSettingsNormalizers()', 'background settings normalizer compatibility wrappers');
+  assertIncludes(settingsNormalizers, 'createSettingsNormalizers', 'settings normalizers factory');
+  assertIncludes(settingsNormalizers, 'normalizeAutoStepDelaySeconds', 'settings normalizer step delay');
+  assertIncludes(settingsNormalizers, 'normalizeLocalHttpBaseUrl', 'settings normalizer URL cleanup');
   assertIncludes(background, "'background/flow-definition-resolver.js'", 'background flow resolver script load');
   assertIncludes(background, 'requireFlowDefinitionResolver()', 'background flow resolver compatibility wrappers');
   assertIncludes(flowDefinitionResolver, 'createFlowDefinitionResolver', 'flow resolver factory');
@@ -239,6 +246,7 @@ function checkModuleSizeGuard() {
   assertFileLineCountAtMost('sidepanel/settings-transfer-manager.js', 500, 'settings transfer manager size guard');
   assertFileLineCountAtMost('sidepanel/cdk-pool-manager.js', 700, 'CDK pool manager size guard');
   assertFileLineCountAtMost('background.js', 20000, 'background service worker growth guard');
+  assertFileLineCountAtMost('background/settings-normalizers.js', 500, 'settings normalizers size guard');
   assertFileLineCountAtMost('background/flow-definition-resolver.js', 500, 'flow definition resolver size guard');
   assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
   assertFileLineCountAtMost('background/upi-credential-membership-checker.js', 7000, 'membership checker growth guard');
