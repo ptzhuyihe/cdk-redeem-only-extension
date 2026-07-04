@@ -114,6 +114,9 @@ function checkCoreFiles() {
     'content/signup-verification-page.js',
     'content/signup-page.js',
     'sidepanel/sidepanel.html',
+    'sidepanel/styles/settings.css',
+    'sidepanel/styles/cdk-pools.css',
+    'sidepanel/styles/account-records.css',
     'sidepanel/download-service.js',
     'sidepanel/settings-transfer-manager.js',
     'sidepanel/cdk-pool-manager.js',
@@ -165,6 +168,9 @@ function checkStaticContracts() {
   assertIncludes(sidepanelHtml, 'src="download-service.js"', 'download service script load');
   assertIncludes(sidepanelHtml, 'src="settings-transfer-manager.js"', 'settings transfer manager script load');
   assertIncludes(sidepanelHtml, 'src="cdk-pool-manager.js"', 'CDK pool manager script load');
+  assertIncludes(sidepanelHtml, 'href="styles/settings.css"', 'settings stylesheet load');
+  assertIncludes(sidepanelHtml, 'href="styles/cdk-pools.css"', 'CDK pools stylesheet load');
+  assertIncludes(sidepanelHtml, 'href="styles/account-records.css"', 'account records stylesheet load');
   assertIncludes(downloadService, 'createDownloadService', 'download service factory');
   assertIncludes(downloadService, 'chromeApi.downloads.download', 'download service browser API fallback');
   assertIncludes(settingsTransferManager, 'createSettingsTransferManager', 'settings transfer manager factory');
@@ -287,6 +293,10 @@ function checkStaticContracts() {
 function checkModuleSizeGuard() {
   readText('scripts/module-size-report.mjs');
   assertFileLineCountAtMost('sidepanel/sidepanel.js', 26000, 'sidepanel composition root growth guard');
+  assertFileLineCountAtMost('sidepanel/sidepanel.css', 2500, 'sidepanel base stylesheet growth guard');
+  assertFileLineCountAtMost('sidepanel/styles/settings.css', 1800, 'settings stylesheet size guard');
+  assertFileLineCountAtMost('sidepanel/styles/cdk-pools.css', 500, 'CDK pools stylesheet size guard');
+  assertFileLineCountAtMost('sidepanel/styles/account-records.css', 1200, 'account records stylesheet size guard');
   assertFileLineCountAtMost('sidepanel/download-service.js', 500, 'download service size guard');
   assertFileLineCountAtMost('sidepanel/settings-transfer-manager.js', 500, 'settings transfer manager size guard');
   assertFileLineCountAtMost('sidepanel/cdk-pool-manager.js', 700, 'CDK pool manager size guard');
