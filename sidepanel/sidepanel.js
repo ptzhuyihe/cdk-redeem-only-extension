@@ -19219,18 +19219,32 @@ renderStepsList();
 
 const settingsTransferManager = window.SidepanelSettingsTransferManager?.createSettingsTransferManager?.({
   controls: {
+    resetImportSettingsFile: () => {
+      if (inputImportSettingsFile) {
+        inputImportSettingsFile.value = '';
+      }
+    },
     setConfigActionInFlight: (value) => {
       configActionInFlight = Boolean(value);
     },
     updateConfigMenuControls,
   },
   helpers: {
+    applySettingsState,
     buildDownloadFileTimestamp,
     closeConfigMenu,
     downloadTextFile,
     flushPendingSettingsBeforeExport,
+    openConfirmModal,
     requestTextFileSaveTarget,
+    reloadUpiCredentialMembershipAfterRuntimeImport: () => (
+      typeof accountRecordsManager?.reloadUpiCredentialMembershipAfterRuntimeImport === 'function'
+        ? accountRecordsManager.reloadUpiCredentialMembershipAfterRuntimeImport({ silent: true }).catch(() => null)
+        : null
+    ),
+    settlePendingSettingsBeforeImport,
     showToast,
+    updateStatusDisplay: () => updateStatusDisplay(latestState),
   },
   runtime: {
     sendMessage: (message) => chrome.runtime.sendMessage(message),
@@ -19246,63 +19260,11 @@ async function exportSettingsFile() {
 }
 
 async function importSettingsFromFile(file) {
-  if (!file) return;
-
-  configActionInFlight = true;
-  closeConfigMenu();
-  updateConfigMenuControls();
-
-  try {
-    await settlePendingSettingsBeforeImport();
-    const rawText = await file.text();
-
-    let parsedConfig = null;
-    try {
-      parsedConfig = JSON.parse(rawText);
-    } catch {
-      throw new Error('\u914d\u7f6e\u6587\u4ef6\u4e0d\u662f\u6709\u6548\u7684 JSON\u3002');
-    }
-
-    const confirmed = await openConfirmModal({
-      title: '\u5bfc\u5165\u914d\u7f6e',
-      message: '\u786e\u8ba4\u5bfc\u5165\u914d\u7f6e\u6587\u4ef6 "' + file.name + '" \u5417\uff1f\u5bfc\u5165\u540e\u4f1a\u8986\u76d6\u5f53\u524d\u914d\u7f6e\u3002',
-      confirmLabel: '\u786e\u8ba4\u8986\u76d6\u5bfc\u5165',
-      confirmVariant: 'btn-danger',
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    const response = await chrome.runtime.sendMessage({
-      type: 'IMPORT_SETTINGS',
-      source: 'sidepanel',
-      payload: {
-        config: parsedConfig,
-      },
-    });
-
-    if (response?.error) {
-      throw new Error(response.error);
-    }
-    if (!response?.state) {
-      throw new Error('\u5bfc\u5165\u540e\u672a\u8fd4\u56de\u6700\u65b0\u914d\u7f6e\u72b6\u6001\u3002');
-    }
-
-    applySettingsState(response.state);
-    if (typeof accountRecordsManager?.reloadUpiCredentialMembershipAfterRuntimeImport === 'function') {
-      await accountRecordsManager.reloadUpiCredentialMembershipAfterRuntimeImport({ silent: true }).catch(() => null);
-    }
-    updateStatusDisplay(latestState);
-    showToast('\u914d\u7f6e\u5df2\u5bfc\u5165\uff0c\u5f53\u524d\u914d\u7f6e\u5df2\u8986\u76d6\u3002', 'success', 2200);
-  } catch (err) {
-    showToast('\u5bfc\u5165\u914d\u7f6e\u5931\u8d25\uff1a' + err.message, 'error');
-  } finally {
-    configActionInFlight = false;
-    updateConfigMenuControls();
-    if (inputImportSettingsFile) {
-      inputImportSettingsFile.value = '';
-    }
+  if (!settingsTransferManager?.importSettingsFromFile) {
+    showToast('导入配置失败：配置导入模块未加载。', 'error');
+    return;
   }
+  return settingsTransferManager.importSettingsFromFile(file);
 }
 
 function syncPasswordToggleLabel() {

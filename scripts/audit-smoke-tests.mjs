@@ -153,6 +153,7 @@ function checkStaticContracts() {
   assertIncludes(downloadService, 'chromeApi.downloads.download', 'download service browser API fallback');
   assertIncludes(settingsTransferManager, 'createSettingsTransferManager', 'settings transfer manager factory');
   assertIncludes(settingsTransferManager, "type: 'EXPORT_SETTINGS'", 'settings export route lives in transfer manager');
+  assertIncludes(settingsTransferManager, "type: 'IMPORT_SETTINGS'", 'settings import route lives in transfer manager');
   assertIncludes(cdkPoolManager, 'createCdkPoolManager', 'CDK pool manager factory');
   assertIncludes(settingsTransferManager, 'multipage-settings-', 'settings export filename');
   assertIncludes(background, 'containsSensitiveRuntimeData: true', 'settings export sensitive data marker');
