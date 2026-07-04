@@ -18,6 +18,7 @@ importScripts(
   'background/settings-normalizers.js',
   'background/flow-definition-resolver.js',
   'background/redeem/redeem-channel-state.js',
+  'background/redeem/redeem-cdkey-usage.js',
   'background/generated-email-helpers.js',
   'background/signup-flow-helpers.js',
   'background/mail-rule-registry.js',

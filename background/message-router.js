@@ -427,6 +427,11 @@
       return rootScope.MultiPageRedeemChannelState || {};
     }
 
+    function getRedeemCdkeyUsageHelpers() {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      return rootScope.MultiPageRedeemCdkeyUsage || {};
+    }
+
     function normalizeRedeemChannel(value = '') {
       const helper = getRedeemChannelStateHelpers().normalizeRedeemChannel;
       if (typeof helper === 'function') {
@@ -436,6 +441,10 @@
     }
 
     function getRedeemChannelUsage(state = {}, channel = 'upi') {
+      const helper = getRedeemCdkeyUsageHelpers().getRedeemChannelUsage;
+      if (typeof helper === 'function') {
+        return helper(state, channel);
+      }
       const source = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
       if (normalizeRedeemChannel(channel) === 'ideal') {
         return Object.prototype.hasOwnProperty.call(source, 'idealRedeemCdkeyUsage')
@@ -449,6 +458,10 @@
     }
 
     function getRedeemChannelUsageUpdates(channel = 'upi', usage = {}) {
+      const helper = getRedeemCdkeyUsageHelpers().buildRedeemChannelUsageUpdates;
+      if (typeof helper === 'function') {
+        return helper(channel, usage);
+      }
       const source = usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : {};
       if (normalizeRedeemChannel(channel) === 'ideal') {
         return {
@@ -728,6 +741,10 @@
     }
 
     function getUpiRedeemStateValueForRetry(state = {}, key = '') {
+      const helper = getRedeemCdkeyUsageHelpers().getUpiRedeemStateValue;
+      if (typeof helper === 'function') {
+        return helper(state, key);
+      }
       const normalizedKey = normalizeString(key);
       if (!normalizedKey) return undefined;
       if (state?.[normalizedKey] !== undefined) return state[normalizedKey];

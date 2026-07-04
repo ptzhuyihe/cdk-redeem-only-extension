@@ -104,6 +104,7 @@ function checkCoreFiles() {
     'background/settings-normalizers.js',
     'background/flow-definition-resolver.js',
     'background/redeem/redeem-channel-state.js',
+    'background/redeem/redeem-cdkey-usage.js',
     'background/steps/upi-redeem.js',
     'background/upi-credential-membership-checker.js',
     'background/verification-flow.js',
@@ -138,6 +139,7 @@ function checkStaticContracts() {
   const settingsNormalizers = readText('background/settings-normalizers.js');
   const flowDefinitionResolver = readText('background/flow-definition-resolver.js');
   const redeemChannelState = readText('background/redeem/redeem-channel-state.js');
+  const redeemCdkeyUsage = readText('background/redeem/redeem-cdkey-usage.js');
   const sidepanel = readText('sidepanel/sidepanel.js');
   const sidepanelHtml = readText('sidepanel/sidepanel.html');
   const downloadService = readText('sidepanel/download-service.js');
@@ -174,12 +176,19 @@ function checkStaticContracts() {
   assertIncludes(flowDefinitionResolver, 'getStepDefinitionsForState', 'flow resolver step definitions');
   assertIncludes(flowDefinitionResolver, 'getNodeDefinitionsForState', 'flow resolver node definitions');
   assertIncludes(background, "'background/redeem/redeem-channel-state.js'", 'background redeem channel state script load');
+  assertIncludes(background, "'background/redeem/redeem-cdkey-usage.js'", 'background redeem CDK usage script load');
   assertIncludes(redeemChannelState, 'createRedeemChannelState', 'redeem channel state factory');
   assertIncludes(redeemChannelState, 'getRedeemChannelFailureField', 'redeem channel failure field helper');
   assertIncludes(redeemChannelState, 'isRedeemChannelDailyLimitReason', 'redeem daily-limit helper');
+  assertIncludes(redeemCdkeyUsage, 'createRedeemCdkeyUsage', 'redeem CDK usage factory');
+  assertIncludes(redeemCdkeyUsage, 'getUpiRedeemStateValue', 'redeem CDK legacy alias helper');
+  assertIncludes(redeemCdkeyUsage, 'buildRedeemChannelUsageUpdates', 'redeem CDK usage update helper');
   assertIncludes(upiRedeem, 'getRedeemChannelStateHelpers()', 'UPI redeem channel state wrapper');
+  assertIncludes(upiRedeem, 'getRedeemCdkeyUsageHelpers()', 'UPI redeem CDK usage wrapper');
   assertIncludes(checker, 'getRedeemChannelStateHelpers()', 'membership checker channel state wrapper');
+  assertIncludes(checker, 'getRedeemCdkeyUsageHelpers()', 'membership checker CDK usage wrapper');
   assertIncludes(router, 'getRedeemChannelStateHelpers()', 'router channel state wrapper');
+  assertIncludes(router, 'getRedeemCdkeyUsageHelpers()', 'router CDK usage wrapper');
 
   [
     'btn-upi-redeem-cdkey-status-refresh',
@@ -258,6 +267,7 @@ function checkModuleSizeGuard() {
   assertFileLineCountAtMost('background/settings-normalizers.js', 500, 'settings normalizers size guard');
   assertFileLineCountAtMost('background/flow-definition-resolver.js', 500, 'flow definition resolver size guard');
   assertFileLineCountAtMost('background/redeem/redeem-channel-state.js', 300, 'redeem channel state size guard');
+  assertFileLineCountAtMost('background/redeem/redeem-cdkey-usage.js', 400, 'redeem CDK usage size guard');
   assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
   assertFileLineCountAtMost('background/upi-credential-membership-checker.js', 7000, 'membership checker growth guard');
   assertFileLineCountAtMost('sidepanel/account-records-manager.js', 5600, 'account records manager growth guard');

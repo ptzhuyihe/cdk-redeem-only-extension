@@ -61,6 +61,11 @@
       return rootScope.MultiPageRedeemChannelState || {};
     }
 
+    function getRedeemCdkeyUsageHelpers() {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      return rootScope.MultiPageRedeemCdkeyUsage || {};
+    }
+
     function normalizeRedeemChannel(value = '') {
       const helper = getRedeemChannelStateHelpers().normalizeRedeemChannel;
       if (typeof helper === 'function') {
@@ -258,18 +263,30 @@
     }
 
     function getRedeemChannelPoolKey(channel = 'upi') {
+      const helper = getRedeemCdkeyUsageHelpers().getRedeemChannelPoolKey;
+      if (typeof helper === 'function') {
+        return helper(channel);
+      }
       return normalizeRedeemChannel(channel) === 'ideal'
         ? 'idealRedeemCdkeyPoolText'
         : 'upiRedeemCdkeyPoolText';
     }
 
     function getRedeemChannelUsageKey(channel = 'upi') {
+      const helper = getRedeemCdkeyUsageHelpers().getRedeemChannelUsageKey;
+      if (typeof helper === 'function') {
+        return helper(channel);
+      }
       return normalizeRedeemChannel(channel) === 'ideal'
         ? 'idealRedeemCdkeyUsage'
         : 'upiRedeemCdkeyUsage';
     }
 
     function getRedeemChannelPoolText(state = {}, channel = 'upi') {
+      const helper = getRedeemCdkeyUsageHelpers().getRedeemChannelPoolText;
+      if (typeof helper === 'function') {
+        return helper(state, channel);
+      }
       const normalizedChannel = normalizeRedeemChannel(channel);
       if (normalizedChannel === 'ideal') {
         return normalizeString(state?.idealRedeemCdkeyPoolText);
@@ -278,6 +295,10 @@
     }
 
     function getRedeemChannelUsage(state = {}, channel = 'upi') {
+      const helper = getRedeemCdkeyUsageHelpers().getRedeemChannelUsage;
+      if (typeof helper === 'function') {
+        return helper(state, channel, { defaultValue: {} }) || {};
+      }
       const normalizedChannel = normalizeRedeemChannel(channel);
       if (normalizedChannel === 'ideal') {
         return state?.idealRedeemCdkeyUsage || {};
@@ -286,6 +307,10 @@
     }
 
     function buildRedeemChannelUsageUpdates(channel = 'upi', usage = {}) {
+      const helper = getRedeemCdkeyUsageHelpers().buildRedeemChannelUsageUpdates;
+      if (typeof helper === 'function') {
+        return helper(channel, usage, { normalizeUsage: normalizeUpiRedeemCdkeyUsage });
+      }
       const normalizedUsage = normalizeUpiRedeemCdkeyUsage(usage || {});
       if (normalizeRedeemChannel(channel) === 'ideal') {
         return {
@@ -386,6 +411,10 @@
     }
 
     function getUpiRedeemStateValue(state = {}, key = '') {
+      const helper = getRedeemCdkeyUsageHelpers().getUpiRedeemStateValue;
+      if (typeof helper === 'function') {
+        return helper(state, key);
+      }
       const normalizedKey = normalizeString(key);
       if (!normalizedKey) {
         return undefined;
