@@ -249,28 +249,15 @@
       if (rawRecordId) {
         return rawRecordId.toLowerCase();
       }
-      const rawIdentifierType = String(record.accountIdentifierType || '').trim().toLowerCase();
-      const hasPhoneOnlyIdentifier = !record.email && (
-        record.phoneNumber
-        || record.phone
-        || record.number
-        || (record.accountIdentifier && !/@/.test(String(record.accountIdentifier || '')))
-      );
-      const identifierType = rawIdentifierType === 'phone'
-        || (!rawIdentifierType && hasPhoneOnlyIdentifier)
-        ? 'phone'
-        : 'email';
       const identifier = String(
-        record.accountIdentifier
-        || (identifierType === 'phone' ? (record.phoneNumber || record.phone || record.number || '') : (record.email || ''))
+        record.email
+        || record.accountIdentifier
         || ''
       ).trim();
       if (!identifier) {
         return '';
       }
-      return identifierType === 'phone'
-        ? `phone:${identifier.toLowerCase()}`
-        : identifier.toLowerCase();
+      return identifier.toLowerCase();
     }
 
     function getRecordDisplayStatus(record = {}) {
@@ -2420,24 +2407,15 @@
     }
 
     function buildCurrentAccountRecordId(currentState = {}) {
-      const accountIdentifierType = String(currentState.accountIdentifierType || '').trim().toLowerCase();
       const email = String(currentState.email || '').trim();
-      const phoneNumber = String(
-        currentState.signupPhoneNumber
-        || currentState.phoneNumber
-        || currentState.phone
-        || ''
-      ).trim();
       const accountIdentifier = String(
         currentState.accountIdentifier
-        || (accountIdentifierType === 'phone' ? phoneNumber : email)
+        || email
         || ''
       ).trim();
       return buildRecordId({
-        accountIdentifierType,
         accountIdentifier,
         email,
-        phoneNumber,
       });
     }
 
@@ -2462,19 +2440,6 @@
     }
 
     function getRecordIdentifierType(record = {}) {
-      const rawType = String(record.accountIdentifierType || '').trim().toLowerCase();
-      if (rawType === 'phone') {
-        return 'phone';
-      }
-      if (rawType === 'email') {
-        return 'email';
-      }
-      if (!record.email && (record.phoneNumber || record.phone || record.number)) {
-        return 'phone';
-      }
-      if (!record.email && record.accountIdentifier && !/@/.test(String(record.accountIdentifier || ''))) {
-        return 'phone';
-      }
       return 'email';
     }
 
@@ -2488,33 +2453,23 @@
     }
 
     function getRecordPhoneNumber(record = {}) {
-      const identifierType = getRecordIdentifierType(record);
       return String(
         record.phoneNumber
         || record.phone
         || record.number
-        || (identifierType === 'phone' ? record.accountIdentifier : '')
         || ''
       ).trim();
     }
 
     function getRecordPrimaryIdentifier(record = {}) {
-      const identifierType = getRecordIdentifierType(record);
       const email = getRecordEmail(record);
-      const phoneNumber = getRecordPhoneNumber(record);
-      return identifierType === 'phone'
-        ? (phoneNumber || String(record.accountIdentifier || '').trim() || email)
-        : (email || String(record.accountIdentifier || '').trim() || phoneNumber);
+      return email || String(record.accountIdentifier || '').trim();
     }
 
     function getRecordSecondaryIdentifier(record = {}) {
-      const identifierType = getRecordIdentifierType(record);
       const email = getRecordEmail(record);
       const phoneNumber = getRecordPhoneNumber(record);
-      if (identifierType === 'phone' && email) {
-        return `邮箱 ${email}`;
-      }
-      if (identifierType !== 'phone' && phoneNumber) {
+      if (email && phoneNumber) {
         return `绑定手机号 ${phoneNumber}`;
       }
       return '';

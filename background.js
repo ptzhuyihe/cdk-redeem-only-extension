@@ -8785,7 +8785,7 @@ function isLikelyLoggedInChatgptHomeUrl(rawUrl) {
   if (!isSignupEntryHost(String(parsed.hostname || '').toLowerCase())) {
     return false;
   }
-  return !/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
+  return !/^\/(?:auth\/|create-account\/|email-verification|log-in)(?:[/?#]|$)/i.test(parsed.pathname || '');
 }
 
 function isSignupPasswordPageUrl(rawUrl) {
@@ -9428,24 +9428,12 @@ function isVerificationMailPollingError(error) {
   return /未在 .*邮箱中找到新的匹配邮件|未在 Hotmail 收件箱中找到新的匹配验证码|邮箱轮询结束，但未获取到验证码|无法获取新的(?:注册|登录)验证码|页面未能重新就绪|页面通信异常|did not respond in \d+s/i.test(message);
 }
 
-function isAddPhoneAuthFailure(error) {
-  if (typeof loggingStatus !== 'undefined' && loggingStatus?.isAddPhoneAuthFailure) {
-    return loggingStatus.isAddPhoneAuthFailure(error);
-  }
-  const message = getErrorMessage(error);
-  if (/\u624b\u673a\u53f7\u8f93\u5165\u6a21\u5f0f|phone\s+entry/i.test(message)) {
-    return false;
-  }
-  return /https:\/\/auth\.openai\.com\/add-phone(?:[/?#]|$)|\badd-phone\b|\u6dfb\u52a0\u624b\u673a\u53f7|\u624b\u673a\u53f7\u7801|\u8fdb\u5165\u624b\u673a\u53f7\u9875\u9762|\u624b\u673a\u53f7\u9875|\u624b\u673a\u53f7\u9875\u9762|phone\s+number|telephone/i.test(message);
-}
-
 function getLoginAuthStateLabel(state) {
   if (typeof loggingStatus !== 'undefined' && loggingStatus?.getLoginAuthStateLabel) {
     return loggingStatus.getLoginAuthStateLabel(state);
   }
   switch (state) {
     case 'verification_page': return '登录验证码页';
-    case 'phone_verification_page': return '附加认证验证码页';
     case 'password_page': return '密码页';
     case 'email_page': return '邮箱输入页';
     case 'phone_entry_page': return '附加认证输入页';
@@ -12345,7 +12333,6 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   getState,
   getStopRequested: () => stopRequested,
   hasSavedNodeProgress,
-  isAddPhoneAuthFailure,
   isCloudCheckoutAlreadyPaidFailure,
   isRemovedPhonePlatformRateLimitFailure,
   isChatgptSessionReaderNonFreeTrialFailure,
@@ -13063,7 +13050,7 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
             ? `当前认证页：${authStateLabel}`
             : '未获取到认证页状态';
         await addLog(
-          `节点 ${getNodeLabel(nodeId, latestState)}：检测到报错且当前未进入 add-phone，正在回到节点 ${restartNodeId} 重新开始授权流程（第 ${postStep7RestartCount} 次重开）。${authStateSuffix}；原因：${restartDecision.errorMessage || '未知错误'}`,
+          `节点 ${getNodeLabel(nodeId, latestState)}：检测到认证后链路报错，正在回到节点 ${restartNodeId} 重新开始授权流程（第 ${postStep7RestartCount} 次重开）。${authStateSuffix}；原因：${restartDecision.errorMessage || '未知错误'}`,
           'warn'
         );
         await invalidateDownstreamAfterAutoRunNodeRestart(resetAfterNodeId, {
@@ -13073,11 +13060,6 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
         continue;
       }
 
-      if (restartDecision.blockedByAddPhone) {
-        const addPhoneUrl = restartDecision.authState?.url || 'https://auth.openai.com/add-phone';
-        const authChainStartNodeId = String(getNodeIdByStepForState(restartDecision.restartStep, await getState()) || 'oauth-login').trim();
-        await addLog(`节点 ${getNodeLabel(nodeId, latestState)}：检测到认证流程进入 add-phone（${addPhoneUrl}），停止自动回到节点 ${authChainStartNodeId} 重开。`, 'warn');
-      }
       throw err;
     }
   }
@@ -13421,7 +13403,6 @@ const step7Executor = self.MultiPageBackgroundStep7?.createStep7Executor({
   getOAuthFlowStepTimeoutMs,
   getState,
   getTabId,
-  isAddPhoneAuthFailure,
   isStep6RecoverableResult,
   isStep6SuccessResult,
   refreshOAuthUrlBeforeStep6,
@@ -14367,18 +14348,6 @@ function isStep6RecoverableResult(result) {
   return result?.step6Outcome === 'recoverable';
 }
 
-function isAddPhoneAuthUrl(url) {
-  return /https:\/\/auth\.openai\.com\/(?:add-phone|phone-verification)(?:[/?#]|$)/i.test(String(url || '').trim());
-}
-
-function isAddPhoneAuthState(authState = {}) {
-  return authState?.state === 'add_phone_page'
-    || authState?.state === 'phone_verification_page'
-    || Boolean(authState?.addPhonePage)
-    || Boolean(authState?.phoneVerificationPage)
-    || isAddPhoneAuthUrl(authState?.url);
-}
-
 async function getPostStep6AutoRestartDecision(step, error) {
   const resolveStepKey = (stepId, state) => {
     if (typeof getStepExecutionKeyForState === 'function') {
@@ -14443,8 +14412,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
   if (isRemovedPhonePlatformRateLimitFailure(errorMessage)) {
     return {
       shouldRestart: false,
-      blockedByAddPhone: false,
-      forcedByPhoneVerificationTimeout: false,
       restartStep: authChainStartStep,
       errorMessage,
       authState: null,
@@ -14454,8 +14421,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
   if (!Number.isFinite(normalizedStep) || normalizedStep < authChainStartStep || normalizedStep > lastStepId) {
     return {
       shouldRestart: false,
-      blockedByAddPhone: false,
-      forcedByPhoneVerificationTimeout: false,
       restartStep: authChainStartStep,
       errorMessage,
       authState: null,
@@ -14465,19 +14430,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
   if (shouldForceRestartFromStep7) {
     return {
       shouldRestart: true,
-      blockedByAddPhone: false,
-      forcedByPhoneVerificationTimeout: true,
-      restartStep: authChainStartStep,
-      errorMessage,
-      authState: null,
-    };
-  }
-
-  if (isAddPhoneAuthFailure(error) || isAddPhoneAuthUrl(errorMessage)) {
-    return {
-      shouldRestart: false,
-      blockedByAddPhone: true,
-      forcedByPhoneVerificationTimeout: false,
       restartStep: authChainStartStep,
       errorMessage,
       authState: null,
@@ -14497,21 +14449,8 @@ async function getPostStep6AutoRestartDecision(step, error) {
     });
   }
 
-  if (isAddPhoneAuthState(authState) && !isRemovedPhonePlatformRateLimitFailure(errorMessage)) {
-    return {
-      shouldRestart: false,
-      blockedByAddPhone: true,
-      forcedByPhoneVerificationTimeout: false,
-      restartStep: authChainStartStep,
-      errorMessage,
-      authState,
-    };
-  }
-
   return {
     shouldRestart: true,
-    blockedByAddPhone: false,
-    forcedByPhoneVerificationTimeout: false,
     restartStep: restartAnchorStep,
     errorMessage,
     authState,
@@ -15147,20 +15086,10 @@ async function ensureStep8VerificationPageReady(options = {}) {
     ...options,
     ...overrides,
   });
-  const isAllowedPhonePageState = (pageState) => Boolean(
-    options.allowPhoneVerificationPage
-    && (
-      pageState?.state === 'add_phone_page'
-      || pageState?.state === 'phone_verification_page'
-      || pageState?.addPhonePage
-      || pageState?.phoneVerificationPage
-    )
-  );
   let pageState = await inspectState();
   if (
     pageState.state === 'verification_page'
     || pageState.state === 'oauth_consent_page'
-    || isAllowedPhonePageState(pageState)
     || (options.allowAddEmailPage && pageState.state === 'add_email_page')
   ) {
     return pageState;
@@ -15189,7 +15118,6 @@ async function ensureStep8VerificationPageReady(options = {}) {
       if (
         pageState.state === 'verification_page'
         || pageState.state === 'oauth_consent_page'
-        || isAllowedPhonePageState(pageState)
         || (options.allowAddEmailPage && pageState.state === 'add_email_page')
       ) {
         return pageState;
@@ -15265,7 +15193,6 @@ async function ensureStep8VerificationPageReady(options = {}) {
       if (
         pageState.state === 'verification_page'
         || pageState.state === 'oauth_consent_page'
-        || isAllowedPhonePageState(pageState)
         || (options.allowAddEmailPage && pageState.state === 'add_email_page')
       ) {
         return pageState;
@@ -15273,7 +15200,7 @@ async function ensureStep8VerificationPageReady(options = {}) {
       if (pageState.maxCheckAttemptsBlocked) {
         throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
       }
-      if (pageState.state === 'add_phone_page' || pageState.state === 'phone_verification_page') {
+      if (pageState.state === 'add_phone_page') {
         const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
         throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
       }
@@ -15283,7 +15210,7 @@ async function ensureStep8VerificationPageReady(options = {}) {
     throw new Error(`STEP8_RESTART_STEP7::步骤 ${visibleStep}：当前认证页进入登录超时报错页，请回到步骤 ${authLoginStep} 重新开始。${urlPart}`.trim());
   }
 
-  if (pageState.state === 'add_phone_page' || pageState.state === 'phone_verification_page') {
+  if (pageState.state === 'add_phone_page') {
     const urlPart = pageState.url ? ` URL: ${pageState.url}` : '';
     throw new Error(`步骤 ${visibleStep}：当前认证页进入手机号页面，当前流程无法继续自动授权。${urlPart}`.trim());
   }
@@ -15535,9 +15462,6 @@ async function waitForStep8Ready(tabId, timeoutMs = STEP8_READY_WAIT_TIMEOUT_MS,
     if (pageState?.maxCheckAttemptsBlocked) {
       throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
     }
-    if (pageState?.addPhonePage || pageState?.phoneVerificationPage) {
-      return pageState;
-    }
     if (pageState?.retryPage) {
       const retryUrl = String(pageState?.url || '').trim();
       const consentLikeRetry = Boolean(
@@ -15737,22 +15661,6 @@ async function waitForStep8ClickEffect(tabId, baselineUrl, timeoutMs = STEP8_CLI
     if (pageState?.maxCheckAttemptsBlocked) {
       throw new Error(`${CLOUDFLARE_SECURITY_BLOCK_ERROR_PREFIX}${CLOUDFLARE_SECURITY_BLOCK_USER_MESSAGE}`);
     }
-    if (pageState?.addPhonePage) {
-      return {
-        progressed: false,
-        reason: 'auth_fallback',
-        pageState,
-        url: pageState.url || baselineUrl || '',
-      };
-    }
-    if (pageState?.phoneVerificationPage) {
-      return {
-        progressed: false,
-        reason: 'auth_fallback',
-        pageState,
-        url: pageState.url || baselineUrl || '',
-      };
-    }
     if (pageState?.verificationPage || pageState?.addEmailPage) {
       return {
         progressed: false,
@@ -15884,14 +15792,7 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
     );
   }
 
-  if (isAddPhoneAuthState(authState)) {
-    const stateLabel = getLoginAuthStateLabel(authState.state);
-    await addLog(
-      `当前认证页为 ${stateLabel}，将直接回到步骤 ${authLoginStep} 重新拉起授权链路，避免验证码/OAuth 恢复冲突。`,
-      'warn',
-      { step: visibleStep, stepKey: 'confirm-oauth' }
-    );
-  } else if (authState && authState.state && !['verification_page', 'oauth_consent_page'].includes(authState.state)) {
+  if (authState && authState.state && !['verification_page', 'oauth_consent_page'].includes(authState.state)) {
     const stateLabel = getLoginAuthStateLabel(authState.state);
     await addLog(
       `当前认证页为 ${stateLabel}，不满足快速恢复条件，将回到步骤 ${authLoginStep} 重开授权链路。`,

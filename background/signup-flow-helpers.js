@@ -146,12 +146,6 @@
       }
     }
 
-    function fallbackSignupPhoneVerificationPageUrl(rawUrl) {
-      const parsed = parseUrlSafely(rawUrl);
-      if (!parsed) return false;
-      return /\/phone-verification(?:[/?#]|$)/i.test(parsed.pathname || '');
-    }
-
     function fallbackSignupProfilePageUrl(rawUrl) {
       const parsed = parseUrlSafely(rawUrl);
       if (!parsed) return false;
@@ -164,12 +158,6 @@
       }
       if (isSignupEmailVerificationPageUrl(rawUrl)) {
         return 'verification_page';
-      }
-      const isPhoneVerificationUrl = typeof isSignupPhoneVerificationPageUrl === 'function'
-        ? isSignupPhoneVerificationPageUrl(rawUrl)
-        : fallbackSignupPhoneVerificationPageUrl(rawUrl);
-      if (isPhoneVerificationUrl) {
-        return 'phone_verification_page';
       }
       const isProfileUrl = typeof isSignupProfilePageUrl === 'function'
         ? isSignupProfilePageUrl(rawUrl)
@@ -361,32 +349,6 @@
       throw new Error(message);
     }
 
-    function getPreservedPhoneIdentityForEmailResolution(state = {}, options = {}) {
-      if (!Boolean(options?.preserveAccountIdentity)) {
-        return null;
-      }
-      const accountIdentifierType = String(state?.accountIdentifierType || '').trim().toLowerCase();
-      const signupPhoneNumber = String(
-        state?.signupPhoneNumber
-        || (accountIdentifierType === 'phone' ? state?.accountIdentifier : '')
-        || state?.signupPhoneCompletedActivation?.phoneNumber
-        || state?.signupPhoneActivation?.phoneNumber
-        || ''
-      ).trim();
-      if (accountIdentifierType !== 'phone' && !signupPhoneNumber) {
-        return null;
-      }
-      return {
-        accountIdentifierType: 'phone',
-        accountIdentifier: signupPhoneNumber || String(state?.accountIdentifier || '').trim(),
-        signupPhoneNumber,
-        signupPhoneActivation: state?.signupPhoneActivation || null,
-        signupPhoneCompletedActivation: state?.signupPhoneCompletedActivation || null,
-        signupPhoneVerificationRequestedAt: state?.signupPhoneVerificationRequestedAt ?? null,
-        signupPhoneVerificationPurpose: state?.signupPhoneVerificationPurpose || '',
-      };
-    }
-
     async function persistResolvedSignupEmail(resolvedEmail, state = {}, options = {}) {
       if (resolvedEmail === state.email && !options?.preserveAccountIdentity) {
         return;
@@ -399,14 +361,6 @@
             preserveAccountIdentity: Boolean(options?.preserveAccountIdentity),
           });
         }
-        return;
-      }
-      const preservedPhoneIdentity = getPreservedPhoneIdentityForEmailResolution(state, options);
-      if (preservedPhoneIdentity && typeof setState === 'function') {
-        if (!generatedEmailAlreadyPersisted && resolvedEmail !== state.email) {
-          await setEmailState(resolvedEmail, { source: 'flow' });
-        }
-        await setState(preservedPhoneIdentity);
         return;
       }
       if (resolvedEmail !== state.email) {
