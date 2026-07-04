@@ -275,10 +275,10 @@
       6: 'wait-registration-success',
       7: 'oauth-login',
       8: 'fetch-login-code',
-      9: 'post-login-phone-verification',
+      9: 'confirm-oauth',
       10: 'confirm-oauth',
       11: 'fetch-login-code',
-      12: 'post-login-phone-verification',
+      12: 'confirm-oauth',
       13: 'confirm-oauth',
       14: 'platform-verify',
       15: 'platform-verify',
@@ -2876,22 +2876,17 @@
             notifyNodeError(nodeId, '流程已被用户停止。');
             return { ok: true, error: userMessage };
           }
-          const currentState = await getState();
-          const currentNodeStatus = currentState?.nodeStatuses?.[nodeId] || '';
-          const isSignupPhonePasswordMismatch = /SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(String(message.error || ''));
           if (isStopError(message.error)) {
             await setNodeStatus(nodeId, 'stopped');
             await addLog('已被用户停止', 'warn', { nodeId });
             await appendManualAccountRunRecordIfNeeded(`node:${nodeId}:stopped`, null, message.error);
             notifyNodeError(nodeId, message.error);
           } else {
-            if (!(isSignupPhonePasswordMismatch && currentNodeStatus === 'failed')) {
-              await setNodeStatus(nodeId, 'failed');
-              await addLog(`失败：${message.error}`, 'error', {
-                nodeId,
-              });
-              await appendManualAccountRunRecordIfNeeded(`node:${nodeId}:failed`, null, message.error);
-            }
+            await setNodeStatus(nodeId, 'failed');
+            await addLog(`失败：${message.error}`, 'error', {
+              nodeId,
+            });
+            await appendManualAccountRunRecordIfNeeded(`node:${nodeId}:failed`, null, message.error);
             notifyNodeError(nodeId, message.error);
           }
           return { ok: true };

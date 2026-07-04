@@ -13,6 +13,15 @@ const TARGET_FILES = [
   'background/steps/fill-password.js',
   'background/steps/fetch-signup-code.js',
   'shared/flow-capabilities.js',
+  'shared/source-registry.js',
+  'content/activation-utils.js',
+  'content/utils.js',
+  'content/operation-delay.js',
+  'content/auth-page-recovery.js',
+  'content/signup-dom-utils.js',
+  'content/signup-entry-page.js',
+  'content/signup-verification-page.js',
+  'content/signup-page.js',
   'sidepanel/sidepanel.js',
   'sidepanel/sidepanel.html',
   'sidepanel/styles/settings.css',
@@ -24,6 +33,11 @@ const REMOVED_CONTENT_SCRIPT = 'content/signup-phone-page.js';
 
 const PHONE_SMS_PATTERNS = [
   { label: 'signup phone content script reference', pattern: /signup-phone-page|content\/signup-phone-page\.js/ },
+  { label: 'loaded signup phone command', pattern: /\b(?:SUBMIT_PHONE_NUMBER|ENSURE_SIGNUP_PHONE_ENTRY_READY)\b/ },
+  { label: 'loaded signup phone selector or trigger', pattern: /\b(?:SIGNUP_PHONE_INPUT_SELECTOR|SIGNUP_SWITCH_TO_PHONE_PATTERN|SIGNUP_PHONE_ACTION_PATTERN|findSignupUsePhoneTrigger|getSignupPhoneInput|waitForSignupPhoneEntryState|submitSignupPhoneNumberAndContinue)\b/ },
+  { label: 'loaded signup phone helper module reference', pattern: /\b(?:MultiPageSignupPhonePage|createSignupPhonePage)\b/ },
+  { label: 'loaded signup phone operation label', pattern: /signup-phone-entry|submit-signup-phone|switch-to-signup-phone|signup-phone-number/ },
+  { label: 'loaded signup phone state branch', pattern: /['"]phone_entry['"]|switchToPhoneTrigger/ },
   { label: 'phone signup capability flag', pattern: /\b(?:SIGNUP_METHOD_PHONE|supportsPhoneSignup|phoneVerificationEnabled)\b/ },
   { label: 'phone signup method branch', pattern: /\bsignupMethod\b.{0,80}['"]phone['"]|['"]phone['"].{0,80}\bsignupMethod\b/ },
   { label: 'phone identity branch', pattern: /\baccountIdentifierType\b.{0,80}['"]phone['"]|['"]phone['"].{0,80}\baccountIdentifierType\b/ },
@@ -34,7 +48,7 @@ const PHONE_SMS_PATTERNS = [
   { label: 'removed text pool phone provider', pattern: /\b(?:removedRemovedTextPool|REMOVED_PHONE_PROVIDER_REMOVED_TEXT_POOL|removedTextPool(?:BaseUrl|ApiKey|Country|CountryId|CountryLabel|CountryFallback|MaxPrice|MinPrice|PreferredPrice|Service|ServiceCode))\b|Removed\s+Text\s+Pool/i },
   { label: 'SMS provider label', pattern: /\b(?:5sim|GrizzlySMS)\b|Removed\s+SMS/i },
   { label: 'phone activation/reuse helper', pattern: /\b\w*(?:phoneActivation|freePhoneReuse|supportsPhoneActivationReuseProvider|supportsFreePhoneReuseProvider)\w*\b/i },
-  { label: 'phone signup UI text', pattern: /手机接码|手机号注册|短信接码|接码平台|手机号接码|手机验证码/ },
+  { label: 'phone signup UI text', pattern: /手机接码|手机号注册|短信接码|接码平台|手机号接码/ },
 ];
 
 const matches = [];

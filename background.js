@@ -971,10 +971,6 @@ Object.assign(PERSISTED_SETTING_DEFAULTS, {
   chatgptSessionReaderCloudConversionApiKey: BUILTIN_CHATGPT_SESSION_READER_CLOUD_CONVERSION_API_KEY,
   chatgptSessionReaderConversionProxyUrl: '',
   removedContactVerificationUrl: '',
-  removedContactPhoneNumber: '',
-  removedContactRemovedTextPoolText: '',
-  removedContactRemovedTextPoolUsage: {},
-  removedContactRemovedTextPoolAutoDisableEnabled: false,
   removedContactCardDeclinedRetryEnabled: true,
   removedContactFirstDirectResendEnabled: false,
   removedContactFirstResendWaitSeconds: HOSTED_CHECKOUT_FIRST_RESEND_WAIT_DEFAULT_SECONDS,
@@ -982,9 +978,6 @@ Object.assign(PERSISTED_SETTING_DEFAULTS, {
   removedContactVerificationPollAttempts: HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS_DEFAULT,
   removedContactVerificationPollIntervalSeconds: HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_DEFAULT_SECONDS,
   removedContactVerificationResendMaxAttempts: HOSTED_CHECKOUT_VERIFICATION_RESEND_MAX_ATTEMPTS_DEFAULT,
-  chatGptApiRemovedTextPoolText: '',
-  chatGptApiRemovedTextPoolUsage: {},
-  chatGptApiRemovedTextPoolAutoDisableEnabled: false,
   removedPaymentWorkerEnabled: true,
   removedPaymentWorkerBrowserBackend: 'local',
   removedPaymentWorkerAdsPowerApiBase: 'http://127.0.0.1:50325',
@@ -10833,12 +10826,10 @@ const AUTO_RUN_BACKGROUND_COMPLETED_STEP_KEYS = new Set([
   'chatgpt-session-reader-billing',
   'legacyWallet-approve',
   'chatgpt-session-reader-return',
-  'post-login-phone-verification',
   'bind-email',
   'fetch-bind-email-code',
   'relogin-bound-email',
   'fetch-bound-email-login-code',
-  'post-bound-email-phone-verification',
 ]);
 const STEP_COMPLETION_SIGNAL_STEP_KEYS = new Set([
   'fill-password',
@@ -11457,12 +11448,10 @@ async function waitForRunningStepsToFinish(payload = {}) {
 const AUTH_CHAIN_NODE_IDS = new Set([
   'oauth-login',
   'fetch-login-code',
-  'post-login-phone-verification',
   'bind-email',
   'fetch-bind-email-code',
   'relogin-bound-email',
   'fetch-bound-email-login-code',
-  'post-bound-email-phone-verification',
   'confirm-oauth',
   'platform-verify',
 ]);
@@ -14440,7 +14429,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
   const isBoundEmailReloginTailStep = [
     'relogin-bound-email',
     'fetch-bound-email-login-code',
-    'post-bound-email-phone-verification',
   ].includes(currentNodeKey);
   const shouldRetryFromConfirmStep = currentNodeKey === 'platform-verify'
     && Number.isFinite(confirmOauthStep)
@@ -15925,7 +15913,6 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
   const supportedRecoveryNodeIds = new Set([
     'oauth-login',
     'fetch-login-code',
-    'post-login-phone-verification',
     'bind-email',
     'fetch-bind-email-code',
   ]);
@@ -15945,8 +15932,6 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
         return step7Executor.executeStep7(payload);
       case 'fetch-login-code':
         return step8Executor.executeStep8(payload);
-      case 'post-login-phone-verification':
-        return step8Executor.executePostLoginPhoneVerification(payload);
       case 'bind-email':
         return step8Executor.executeBindEmail(payload);
       case 'fetch-bind-email-code':
@@ -16014,12 +15999,10 @@ function getStep9AuthFallbackRecoveryNodeIds(latestState = {}, visibleStep = 9) 
   const supportedRecoveryNodeIds = new Set([
     'oauth-login',
     'fetch-login-code',
-    'post-login-phone-verification',
     'bind-email',
     'fetch-bind-email-code',
     'relogin-bound-email',
     'fetch-bound-email-login-code',
-    'post-bound-email-phone-verification',
   ]);
   return workflowNodeIds
     .slice(authStartIndex, confirmIndex)
@@ -16038,8 +16021,6 @@ async function runStep9AuthFallbackRecoveryNode(nodeId, latestState = {}) {
       return step7Executor.executeStep7(payload);
     case 'fetch-login-code':
       return step8Executor.executeStep8(payload);
-    case 'post-login-phone-verification':
-      return step8Executor.executePostLoginPhoneVerification(payload);
     case 'bind-email':
       return step8Executor.executeBindEmail(payload);
     case 'fetch-bind-email-code':
@@ -16048,8 +16029,6 @@ async function runStep9AuthFallbackRecoveryNode(nodeId, latestState = {}) {
       return executeReloginBoundEmail(payload);
     case 'fetch-bound-email-login-code':
       return step8Executor.executeBoundEmailLoginCode(payload);
-    case 'post-bound-email-phone-verification':
-      return step8Executor.executeBoundEmailPostLoginPhoneVerification(payload);
     default:
       throw new Error(`OAuth 回流恢复不支持节点 ${nodeId}。`);
   }

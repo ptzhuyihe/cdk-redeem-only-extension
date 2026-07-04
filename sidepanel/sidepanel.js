@@ -606,11 +606,7 @@ const REMOVED_PAYMENT_WORKER_MAX_ATTEMPTS_LIMIT = 20;
 const REMOVED_PAYMENT_WORKER_ALLOWED_PAYMENT_LOCALES = new Set(['en', 'zh-CN', 'zh-TW', 'ja', 'ko', 'de', 'fr', 'es', 'id', 'pt-BR']);
 const CHATGPT_SESSION_READER_PROFILE_SETTING_KEYS = Object.freeze([
   'removedContactVerificationUrl',
-  'removedContactPhoneNumber',
-  'removedContactRemovedTextPoolText',
-  'removedContactRemovedTextPoolUsage',
   'removedContactCardDeclinedRetryEnabled',
-  'removedContactRemovedTextPoolAutoDisableEnabled',
   'removedContactFirstDirectResendEnabled',
   'removedContactFirstResendWaitSeconds',
   'removedContactSubsequentResendWaitSeconds',
@@ -3747,11 +3743,7 @@ function normalizeChatgptSessionReaderModeValue(value = '') {
 function buildDefaultChatgptSessionReaderProfile() {
   return {
     removedContactVerificationUrl: '',
-    removedContactPhoneNumber: '',
-    removedContactRemovedTextPoolText: '',
-    removedContactRemovedTextPoolUsage: {},
     removedContactCardDeclinedRetryEnabled: true,
-    removedContactRemovedTextPoolAutoDisableEnabled: false,
     removedContactFirstDirectResendEnabled: false,
     removedContactFirstResendWaitSeconds: 20,
     removedContactSubsequentResendWaitSeconds: 25,
@@ -3907,22 +3899,8 @@ function normalizeChatgptSessionReaderProfileValue(profile = {}, fallback = null
     removedContactVerificationUrl: normalizeRemovedContactVerificationUrlValue(
       rawProfile.removedContactVerificationUrl ?? baseProfile.removedContactVerificationUrl
     ),
-    removedContactPhoneNumber: normalizeRemovedContactPhoneValue(
-      rawProfile.removedContactPhoneNumber ?? baseProfile.removedContactPhoneNumber
-    ),
-    removedContactRemovedTextPoolText: normalizeRemovedContactRemovedTextPoolTextValue(
-      rawProfile.removedContactRemovedTextPoolText ?? baseProfile.removedContactRemovedTextPoolText
-    ),
-    removedContactRemovedTextPoolUsage: rawProfile.removedContactRemovedTextPoolUsage && typeof rawProfile.removedContactRemovedTextPoolUsage === 'object'
-      ? rawProfile.removedContactRemovedTextPoolUsage
-      : (baseProfile.removedContactRemovedTextPoolUsage && typeof baseProfile.removedContactRemovedTextPoolUsage === 'object'
-        ? baseProfile.removedContactRemovedTextPoolUsage
-        : {}),
     removedContactCardDeclinedRetryEnabled: Boolean(
       rawProfile.removedContactCardDeclinedRetryEnabled ?? baseProfile.removedContactCardDeclinedRetryEnabled
-    ),
-    removedContactRemovedTextPoolAutoDisableEnabled: Boolean(
-      rawProfile.removedContactRemovedTextPoolAutoDisableEnabled ?? baseProfile.removedContactRemovedTextPoolAutoDisableEnabled
     ),
     removedContactFirstDirectResendEnabled: Boolean(
       rawProfile.removedContactFirstDirectResendEnabled ?? baseProfile.removedContactFirstDirectResendEnabled
@@ -3958,11 +3936,7 @@ function buildLegacyChatgptSessionReaderProfileFromState(state = {}) {
     chatgptSessionReaderCloudConversionApiKey: state?.chatgptSessionReaderCloudConversionApiKey,
     chatgptSessionReaderConversionProxyUrl: state?.chatgptSessionReaderConversionProxyUrl,
     removedContactVerificationUrl: state?.removedContactVerificationUrl,
-    removedContactPhoneNumber: state?.removedContactPhoneNumber,
-    removedContactRemovedTextPoolText: state?.removedContactRemovedTextPoolText,
-    removedContactRemovedTextPoolUsage: state?.removedContactRemovedTextPoolUsage,
     removedContactCardDeclinedRetryEnabled: state?.removedContactCardDeclinedRetryEnabled,
-    removedContactRemovedTextPoolAutoDisableEnabled: state?.removedContactRemovedTextPoolAutoDisableEnabled,
     removedContactFirstDirectResendEnabled: state?.removedContactFirstDirectResendEnabled,
     removedContactFirstResendWaitSeconds: state?.removedContactFirstResendWaitSeconds,
     removedContactSubsequentResendWaitSeconds: state?.removedContactSubsequentResendWaitSeconds,
@@ -4062,9 +4036,6 @@ function getSelectedChatgptSessionReaderMode(state = latestState) {
 function buildChatgptSessionReaderProfileFromInputs() {
   return normalizeChatgptSessionReaderProfileValue({
     removedContactVerificationUrl: inputRemovedContactVerificationUrl?.value || '',
-    removedContactPhoneNumber: inputRemovedContactPhone?.value || '',
-    removedContactRemovedTextPoolText: inputRemovedContactRemovedTextPool?.value || '',
-    removedContactRemovedTextPoolUsage: latestState?.removedContactRemovedTextPoolUsage || {},
     removedContactCardDeclinedRetryEnabled: Boolean(inputRemovedContactCardDeclinedRetryEnabled?.checked),
   });
 }
@@ -4145,15 +4116,6 @@ function applyChatgptSessionReaderProfileToInputs(state = latestState, options =
   }
   if (inputRemovedContactVerificationUrl) {
     inputRemovedContactVerificationUrl.value = normalizeRemovedContactVerificationUrlValue(profile.removedContactVerificationUrl || '');
-  }
-  if (inputRemovedContactPhone) {
-    inputRemovedContactPhone.value = normalizeRemovedContactPhoneValue(profile.removedContactPhoneNumber || '');
-  }
-  if (inputRemovedContactRemovedTextPool) {
-    inputRemovedContactRemovedTextPool.value = normalizeRemovedContactRemovedTextPoolTextValue(profile.removedContactRemovedTextPoolText || '');
-  }
-  if (inputRemovedContactRemovedTextPoolAutoDisableEnabled) {
-    inputRemovedContactRemovedTextPoolAutoDisableEnabled.checked = Boolean(normalizedState?.removedContactRemovedTextPoolAutoDisableEnabled);
   }
   if (inputRemovedContactFirstDirectResendEnabled) {
     inputRemovedContactFirstDirectResendEnabled.checked = Boolean(normalizedState?.removedContactFirstDirectResendEnabled);
@@ -6176,18 +6138,6 @@ function collectSettingsPayload() {
       : '',
     ...buildRemovedPaymentWorkerSettingsPayloadFromInputs(),
     ...buildChatgptSessionReaderLegacyPatchFromProfile(activeChatgptSessionReaderProfile),
-    chatGptApiRemovedTextPoolText: typeof inputChatGptApiRemovedTextPool !== 'undefined' && inputChatGptApiRemovedTextPool
-      ? normalizeRemovedContactRemovedTextPoolTextValue(inputChatGptApiRemovedTextPool.value)
-      : '',
-    chatGptApiRemovedTextPoolUsage: latestState?.chatGptApiRemovedTextPoolUsage && typeof latestState.chatGptApiRemovedTextPoolUsage === 'object'
-      ? latestState.chatGptApiRemovedTextPoolUsage
-      : {},
-    chatGptApiRemovedTextPoolAutoDisableEnabled: typeof inputChatGptApiRemovedTextPoolAutoDisableEnabled !== 'undefined' && inputChatGptApiRemovedTextPoolAutoDisableEnabled
-      ? Boolean(inputChatGptApiRemovedTextPoolAutoDisableEnabled.checked)
-      : false,
-    removedContactRemovedTextPoolAutoDisableEnabled: typeof inputRemovedContactRemovedTextPoolAutoDisableEnabled !== 'undefined' && inputRemovedContactRemovedTextPoolAutoDisableEnabled
-      ? Boolean(inputRemovedContactRemovedTextPoolAutoDisableEnabled.checked)
-      : false,
     removedContactCardDeclinedRetryEnabled: typeof inputRemovedContactCardDeclinedRetryEnabled !== 'undefined' && inputRemovedContactCardDeclinedRetryEnabled
       ? Boolean(inputRemovedContactCardDeclinedRetryEnabled.checked)
       : true,
@@ -8829,18 +8779,12 @@ btnRemovedContactManualFetch?.addEventListener('click', () => {
 
 inputRemovedContactPhone?.addEventListener('input', () => {
   validateRemovedContactContactConfig();
-  syncActiveChatgptSessionReaderProfilePatch({
-    removedContactPhoneNumber: inputRemovedContactPhone.value,
-  });
   markSettingsDirty(true);
   scheduleSettingsAutoSave();
 });
 inputRemovedContactPhone?.addEventListener('blur', () => {
   inputRemovedContactPhone.value = normalizeRemovedContactPhoneValue(inputRemovedContactPhone.value);
   validateRemovedContactContactConfig();
-  syncActiveChatgptSessionReaderProfilePatch({
-    removedContactPhoneNumber: inputRemovedContactPhone.value,
-  });
   saveSettings({ silent: true }).catch(() => { });
 });
 
@@ -9541,31 +9485,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         inputRemovedContactVerificationUrl.value = normalizeRemovedContactVerificationUrlValue(message.payload.removedContactVerificationUrl);
         setRemovedContactManualCodeDisplay('未获取');
         validateRemovedContactContactConfig();
-      }
-      if (message.payload.removedContactPhoneNumber !== undefined && inputRemovedContactPhone) {
-        inputRemovedContactPhone.value = normalizeRemovedContactPhoneValue(message.payload.removedContactPhoneNumber);
-        validateRemovedContactContactConfig();
-      }
-      if (message.payload.removedContactRemovedTextPoolText !== undefined && inputRemovedContactRemovedTextPool) {
-        inputRemovedContactRemovedTextPool.value = normalizeRemovedContactRemovedTextPoolTextValue(message.payload.removedContactRemovedTextPoolText);
-        queueRemovedRemovedTextPoolRefresh();
-        validateRemovedContactContactConfig();
-      }
-      if (message.payload.removedContactRemovedTextPoolUsage !== undefined || message.payload.removedContactCurrentSmsEntry !== undefined) {
-        queueRemovedRemovedTextPoolRefresh();
-      }
-      if (message.payload.removedContactRemovedTextPoolAutoDisableEnabled !== undefined && inputRemovedContactRemovedTextPoolAutoDisableEnabled) {
-        inputRemovedContactRemovedTextPoolAutoDisableEnabled.checked = Boolean(message.payload.removedContactRemovedTextPoolAutoDisableEnabled);
-      }
-      if (message.payload.chatGptApiRemovedTextPoolText !== undefined && inputChatGptApiRemovedTextPool) {
-        inputChatGptApiRemovedTextPool.value = normalizeRemovedContactRemovedTextPoolTextValue(message.payload.chatGptApiRemovedTextPoolText);
-        queueChatGptApiRemovedTextPoolRefresh();
-      }
-      if (message.payload.chatGptApiRemovedTextPoolUsage !== undefined || message.payload.chatGptApiCurrentSmsEntry !== undefined) {
-        queueChatGptApiRemovedTextPoolRefresh();
-      }
-      if (message.payload.chatGptApiRemovedTextPoolAutoDisableEnabled !== undefined && inputChatGptApiRemovedTextPoolAutoDisableEnabled) {
-        inputChatGptApiRemovedTextPoolAutoDisableEnabled.checked = Boolean(message.payload.chatGptApiRemovedTextPoolAutoDisableEnabled);
       }
       if (message.payload.removedContactFirstDirectResendEnabled !== undefined && inputRemovedContactFirstDirectResendEnabled) {
         inputRemovedContactFirstDirectResendEnabled.checked = Boolean(message.payload.removedContactFirstDirectResendEnabled);

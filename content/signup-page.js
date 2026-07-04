@@ -36,13 +36,11 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'RECOVER_STEP5_SUBMIT_RETRY_PAGE'
       || message.type === 'TRIGGER_STEP5_PROFILE_SUBMIT'
       || message.type === 'RESEND_VERIFICATION_CODE'
-      || message.type === 'SUBMIT_PHONE_NUMBER'
       || message.type === 'SUBMIT_PHONE_VERIFICATION_CODE'
       || message.type === 'RESEND_PHONE_VERIFICATION_CODE'
       || message.type === 'CHECK_PHONE_RESEND_ERROR'
       || message.type === 'RETURN_TO_ADD_PHONE'
       || message.type === 'ENSURE_SIGNUP_ENTRY_READY'
-      || message.type === 'ENSURE_SIGNUP_PHONE_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PASSWORD_PAGE_READY'
       || message.type === 'START_SET_GPT_PASSWORD_RESET'
       || message.type === 'PREPARE_SET_GPT_PASSWORD'
@@ -139,7 +137,7 @@ function resolveCommandNodeId(message = {}) {
   const visibleStep = Number(message.payload?.visibleStep || message.step) || 0;
   if (visibleStep === 4) return 'fetch-signup-code';
   if (visibleStep === 8 || visibleStep === 11) return 'fetch-login-code';
-  if (visibleStep === 9 || visibleStep === 12) return 'post-login-phone-verification';
+  if (visibleStep === 9 || visibleStep === 12) return 'confirm-oauth';
   if (visibleStep === 10 || visibleStep === 13) return 'confirm-oauth';
   if (visibleStep === 16) return 'confirm-oauth';
   if (visibleStep === 14 || visibleStep === 15 || visibleStep === 17) return 'platform-verify';
@@ -187,12 +185,7 @@ async function handleCommand(message) {
         undefined,
         message.payload || {}
       );
-    case 'SUBMIT_PHONE_NUMBER':
-      return await phoneAuthHelpers.submitPhoneNumber(message.payload);
     case 'SUBMIT_PHONE_VERIFICATION_CODE':
-      if (message.payload?.purpose === 'signup') {
-        return await fillVerificationCode(message.step || 4, message.payload);
-      }
       if (message.payload?.purpose === 'login') {
         return await fillVerificationCode(message.step || 8, message.payload);
       }
@@ -205,8 +198,6 @@ async function handleCommand(message) {
       return await phoneAuthHelpers.returnToAddPhone(undefined, message.payload || {});
     case 'ENSURE_SIGNUP_ENTRY_READY':
       return await ensureSignupEntryReady();
-    case 'ENSURE_SIGNUP_PHONE_ENTRY_READY':
-      return await ensureSignupPhoneEntryReady();
     case 'ENSURE_SIGNUP_PASSWORD_PAGE_READY':
       return await ensureSignupPasswordPageReady();
     case 'START_SET_GPT_PASSWORD_RESET':
@@ -434,21 +425,6 @@ function findResendVerificationCodeTrigger({ allowDisabled = false } = {}) {
 
 function isEmailVerificationPage() {
   return Boolean(getSignupVerificationPageHelpers().isEmailVerificationPage?.());
-}
-
-let signupPhonePageHelpers = null;
-
-function getSignupPhonePageHelpers() {
-  if (signupPhonePageHelpers) {
-    return signupPhonePageHelpers;
-  }
-  const rootScope = typeof self !== 'undefined' ? self : window;
-  signupPhonePageHelpers = rootScope.MultiPageSignupPhonePage?.createSignupPhonePage?.({
-    documentRef: document,
-    navigatorRef: rootScope?.navigator || globalThis?.navigator || null,
-    phoneCountryUtils: rootScope?.MultiPagePhoneCountryUtils || globalThis?.MultiPagePhoneCountryUtils || {},
-  }) || {};
-  return signupPhonePageHelpers;
 }
 
 function getContactVerificationServerErrorText() {
@@ -728,16 +704,8 @@ function getSignupEmailInput() {
   return getSignupEntryPageHelpers().getSignupEmailInput?.() || null;
 }
 
-function getSignupPhoneInput() {
-  return getSignupEntryPageHelpers().getSignupPhoneInput?.() || null;
-}
-
 function findSignupUseEmailTrigger() {
   return getSignupEntryPageHelpers().findSignupUseEmailTrigger?.() || null;
-}
-
-function findSignupUsePhoneTrigger() {
-  return getSignupEntryPageHelpers().findSignupUsePhoneTrigger?.() || null;
 }
 
 function findSignupMoreOptionsTrigger() {
@@ -777,15 +745,6 @@ function getSignupPasswordDisplayedEmail() {
 }
 
 function inspectSignupEntryState() {
-  if (typeof isPhoneVerificationPageReady === 'function' && isPhoneVerificationPageReady()) {
-    return {
-      state: 'phone_verification_page',
-      verificationTarget: typeof getVerificationCodeTarget === 'function' ? getVerificationCodeTarget() : null,
-      displayedPhone: typeof getPhoneVerificationDisplayedPhone === 'function' ? getPhoneVerificationDisplayedPhone() : '',
-      url: location.href,
-    };
-  }
-
   const passwordInput = getSignupPasswordInput();
   if (isSignupPasswordPage() && passwordInput) {
     return {
@@ -804,17 +763,6 @@ function inspectSignupEntryState() {
       state: 'email_entry',
       emailInput,
       continueButton: getSignupEmailContinueButton({ allowDisabled: true }),
-      switchToPhoneTrigger: findSignupUsePhoneTrigger(),
-      url: location.href,
-    };
-  }
-
-  const phoneInput = getSignupPhoneInput();
-  if (phoneInput) {
-    return {
-      state: 'phone_entry',
-      phoneInput,
-      switchToEmailTrigger: findSignupUseEmailTrigger(),
       url: location.href,
     };
   }
@@ -874,7 +822,6 @@ function getSignupEntryStateSummary(snapshot = inspectSignupEntryState()) {
     state: snapshot?.state || 'unknown',
     url: snapshot?.url || location.href,
     hasEmailInput: Boolean(snapshot?.emailInput || getSignupEmailInput()),
-    hasPhoneInput: Boolean(snapshot?.phoneInput || getSignupPhoneInput()),
     hasPasswordInput: Boolean(snapshot?.passwordInput || getSignupPasswordInput()),
   };
 
@@ -902,14 +849,6 @@ function getSignupEntryStateSummary(snapshot = inspectSignupEntryState()) {
       tag: (snapshot.switchToEmailTrigger.tagName || '').toLowerCase(),
       text: getActionText(snapshot.switchToEmailTrigger).slice(0, 80),
       enabled: isActionEnabled(snapshot.switchToEmailTrigger),
-    };
-  }
-
-  if (snapshot?.switchToPhoneTrigger) {
-    summary.switchToPhoneTrigger = {
-      tag: (snapshot.switchToPhoneTrigger.tagName || '').toLowerCase(),
-      text: getActionText(snapshot.switchToPhoneTrigger).slice(0, 80),
-      enabled: isActionEnabled(snapshot.switchToPhoneTrigger),
     };
   }
 
@@ -1042,7 +981,6 @@ function getSignupEntryDiagnostics() {
       devicePixelRatio: Number(view?.devicePixelRatio) || 0,
     },
     hasEmailInput: Boolean(getSignupEmailInput()),
-    hasPhoneInput: Boolean(getSignupPhoneInput()),
     hasPasswordInput: Boolean(getSignupPasswordInput()),
     hasSwitchToEmailAction: Boolean(findSignupUseEmailTrigger()),
     bodyContainsSignupText: isSignupAuthEntryTriggerText(getPageTextSnapshot()),
@@ -1201,7 +1139,7 @@ async function waitForSignupEntryState(options = {}) {
       return snapshot;
     }
 
-    if (snapshot.state === 'phone_entry' || snapshot.state === 'email_choice_entry') {
+    if (snapshot.state === 'email_choice_entry') {
       if (!autoOpenEntry) {
         return snapshot;
       }
@@ -1210,27 +1148,21 @@ async function waitForSignupEntryState(options = {}) {
         lastSwitchToEmailAt = Date.now();
         loggedMissingSwitchToEmail = false;
         if (logDiagnostics) {
-          log(snapshot.state === 'phone_entry'
-            ? `步骤 ${step}：检测到手机号输入模式，准备点击切换邮箱入口："${getActionText(snapshot.switchToEmailTrigger).slice(0, 80)}"`
-            : `步骤 ${step}：检测到组合认证入口，准备点击邮箱入口："${getActionText(snapshot.switchToEmailTrigger).slice(0, 80)}"`);
+          log(`步骤 ${step}：检测到组合认证入口，准备点击邮箱入口："${getActionText(snapshot.switchToEmailTrigger).slice(0, 80)}"`);
         }
-        log(snapshot.state === 'phone_entry'
-          ? '步骤 2：检测到手机号输入模式，正在切换到邮箱输入模式...'
-          : '步骤 2：检测到组合认证入口，正在打开邮箱输入模式...');
+        log('步骤 2：检测到组合认证入口，正在打开邮箱输入模式...');
         await humanPause(350, 900);
         await performOperationWithDelay({ stepKey: 'signup-entry', kind: 'click', label: 'switch-to-signup-email' }, async () => {
           simulateClick(snapshot.switchToEmailTrigger);
         });
       } else if (!snapshot.switchToEmailTrigger && !loggedMissingSwitchToEmail) {
         loggedMissingSwitchToEmail = true;
-        log(snapshot.state === 'phone_entry'
-          ? '步骤 2：检测到手机号输入模式，但暂未识别到“改用邮箱/继续使用电子邮件地址登录”按钮，继续等待界面稳定...'
-          : '步骤 2：检测到组合认证入口，但暂未识别到“继续使用邮箱”按钮，继续等待界面稳定...', 'warn');
+        log('步骤 2：检测到组合认证入口，但暂未识别到“继续使用邮箱”按钮，继续等待界面稳定...', 'warn');
       }
 
       if (logDiagnostics && !slowSnapshotLogged && Date.now() - start >= 5000) {
         slowSnapshotLogged = true;
-        log(`步骤 ${step}：等待手机号入口切换超过 5 秒，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
+        log(`步骤 ${step}：等待邮箱入口切换超过 5 秒，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
       }
 
       await sleep(250);
@@ -1297,7 +1229,7 @@ function isUnifiedAuthLoginEntryPage() {
 }
 
 function normalizeSignupEntryReadyResult(snapshot) {
-  if (snapshot.state === 'entry_home' || snapshot.state === 'email_choice_entry' || snapshot.state === 'phone_entry' || snapshot.state === 'email_entry' || snapshot.state === 'password_page') {
+  if (snapshot.state === 'entry_home' || snapshot.state === 'email_choice_entry' || snapshot.state === 'email_entry' || snapshot.state === 'password_page') {
     return {
       ready: true,
       state: snapshot.state,
@@ -1338,23 +1270,6 @@ async function ensureSignupEntryReady(timeout = 25000) {
 
   log(`注册入口识别失败，诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
   throw new Error('当前页面没有可用的注册入口，也不在邮箱/密码页。URL: ' + location.href);
-}
-
-async function ensureSignupPhoneEntryReady(timeout = 25000) {
-  const snapshot = await waitForSignupPhoneEntryState({ timeout, step: 2 });
-  if (
-    (snapshot.state === 'phone_entry' && snapshot.phoneInput)
-    || snapshot.state === 'password_page'
-  ) {
-    return {
-      ready: true,
-      state: snapshot.state,
-      url: snapshot.url || location.href,
-    };
-  }
-
-  log(`手机号注册入口识别失败，诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
-  throw new Error('当前页面没有可用的手机号注册入口，也不在密码页。URL: ' + location.href);
 }
 
 async function ensureSignupPasswordPageReady(timeout = 20000) {
@@ -1446,54 +1361,129 @@ async function fillSignupEmailAndContinue(email, step) {
 }
 
 function normalizePhoneDigits(value) {
-  return getSignupPhonePageHelpers().normalizePhoneDigits?.(value) || '';
+  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
+    || globalThis?.MultiPagePhoneCountryUtils
+    || {};
+  if (typeof phoneCountryUtils.normalizePhoneDigits === 'function') {
+    return phoneCountryUtils.normalizePhoneDigits(value);
+  }
+  return String(value || '').replace(/\D+/g, '');
 }
 
 function extractDialCodeFromText(value) {
-  return getSignupPhonePageHelpers().extractDialCodeFromText?.(value) || '';
+  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
+    || globalThis?.MultiPagePhoneCountryUtils
+    || {};
+  if (typeof phoneCountryUtils.extractDialCodeFromText === 'function') {
+    return phoneCountryUtils.extractDialCodeFromText(value);
+  }
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  const match = text.match(/(?:^|[^\d])\+\s*(\d{1,4})(?=\D|$)/);
+  return match?.[1] ? normalizePhoneDigits(match[1]) : '';
 }
 
 function dispatchSignupPhoneFieldEvents(element) {
-  getSignupPhonePageHelpers().dispatchSignupPhoneFieldEvents?.(element);
+  if (!element || typeof element.dispatchEvent !== 'function') {
+    return;
+  }
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function normalizeSignupCountryLabel(value) {
-  return getSignupPhonePageHelpers().normalizeSignupCountryLabel?.(value) || '';
+  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
+    || globalThis?.MultiPagePhoneCountryUtils
+    || {};
+  if (typeof phoneCountryUtils.normalizeCountryLabel === 'function') {
+    return phoneCountryUtils.normalizeCountryLabel(value);
+  }
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
+    .trim();
 }
 
 function getSignupCountryLabelAliases(value) {
-  return getSignupPhonePageHelpers().getSignupCountryLabelAliases?.(value) || [];
+  const normalized = normalizeSignupCountryLabel(value);
+  return normalized ? [normalized] : [];
 }
 
 function isLooseSignupCountryLabelMatch(optionLabel, targetLabel) {
-  return Boolean(getSignupPhonePageHelpers().isLooseSignupCountryLabelMatch?.(optionLabel, targetLabel));
+  const left = normalizeSignupCountryLabel(optionLabel);
+  const right = normalizeSignupCountryLabel(targetLabel);
+  return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
 }
 
 function getSignupPhoneOptionLabel(option) {
-  return getSignupPhonePageHelpers().getSignupPhoneOptionLabel?.(option) || '';
+  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
+    || globalThis?.MultiPagePhoneCountryUtils
+    || {};
+  if (typeof phoneCountryUtils.getOptionLabel === 'function') {
+    return phoneCountryUtils.getOptionLabel(option);
+  }
+  return String(option?.label || option?.textContent || option?.innerText || option?.value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeSignupCountryOptionValue(value) {
-  return getSignupPhonePageHelpers().normalizeSignupCountryOptionValue?.(value) || '';
+  return String(value || '').trim().toUpperCase();
 }
 
 function getSignupRegionDisplayName(regionCode, locale) {
-  return getSignupPhonePageHelpers().getSignupRegionDisplayName?.(regionCode, locale) || '';
+  const code = normalizeSignupCountryOptionValue(regionCode);
+  if (!/^[A-Z]{2}$/.test(code) || typeof Intl?.DisplayNames !== 'function') {
+    return '';
+  }
+  try {
+    return new Intl.DisplayNames([locale || navigator?.language || 'en'], { type: 'region' }).of(code) || '';
+  } catch {
+    return '';
+  }
 }
 
 function getSignupPhoneCountryMatchLabels(option) {
-  return getSignupPhonePageHelpers().getSignupPhoneCountryMatchLabels?.(option) || [];
+  const phoneCountryUtils = (typeof self !== 'undefined' ? self : globalThis)?.MultiPagePhoneCountryUtils
+    || globalThis?.MultiPagePhoneCountryUtils
+    || {};
+  if (typeof phoneCountryUtils.getOptionMatchLabels === 'function') {
+    return phoneCountryUtils.getOptionMatchLabels(option, {
+      document: typeof document !== 'undefined' ? document : null,
+      navigator: (typeof self !== 'undefined' ? self : globalThis)?.navigator || globalThis?.navigator || null,
+      getOptionLabel: getSignupPhoneOptionLabel,
+    });
+  }
+  const labels = new Set();
+  const add = (label) => {
+    const normalized = normalizeSignupCountryLabel(label);
+    if (normalized) labels.add(normalized);
+  };
+  add(getSignupPhoneOptionLabel(option));
+  add(option?.value);
+  add(getSignupRegionDisplayName(option?.value));
+  return Array.from(labels);
 }
 
 function isSameSignupCountryOption(left, right) {
-  return Boolean(getSignupPhonePageHelpers().isSameSignupCountryOption?.(left, right));
+  if (!left || !right) {
+    return false;
+  }
+  const leftValue = normalizeSignupCountryOptionValue(left.value);
+  const rightValue = normalizeSignupCountryOptionValue(right.value);
+  if (leftValue && rightValue && leftValue === rightValue) {
+    return true;
+  }
+  return getSignupPhoneCountryMatchLabels(left).some((leftLabel) => (
+    getSignupPhoneCountryMatchLabels(right).some((rightLabel) => leftLabel === rightLabel)
+  ));
 }
 
-function getSignupPhoneForm(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneForm(phoneInput = null) {
   return phoneInput?.closest?.('form') || null;
 }
 
-function getSignupPhoneControlRoots(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneControlRoots(phoneInput = null) {
   const roots = [];
   const addRoot = (root) => {
     if (root && !roots.includes(root)) {
@@ -1549,7 +1539,7 @@ function isSignupPhoneCountrySelect(select) {
   ));
 }
 
-function getSignupPhoneCountrySelect(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneCountrySelect(phoneInput = null) {
   const selects = [];
   for (const root of getSignupPhoneControlRoots(phoneInput)) {
     for (const select of querySignupPhoneCountryElements(root, 'select')) {
@@ -1561,7 +1551,7 @@ function getSignupPhoneCountrySelect(phoneInput = getSignupPhoneInput()) {
   return selects.find(isSignupPhoneCountrySelect) || selects[0] || null;
 }
 
-function getSignupPhoneSelectedCountryOption(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneSelectedCountryOption(phoneInput = null) {
   const select = getSignupPhoneCountrySelect(phoneInput);
   if (!select || select.selectedIndex < 0) {
     return null;
@@ -1569,7 +1559,7 @@ function getSignupPhoneSelectedCountryOption(phoneInput = getSignupPhoneInput())
   return select.options?.[select.selectedIndex] || null;
 }
 
-function getSignupPhoneCountryButtonText(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneCountryButtonText(phoneInput = null) {
   const button = getSignupPhoneCountryButton(phoneInput);
   if (!button) return '';
   const valueNode = button.querySelector('.react-aria-SelectValue');
@@ -1578,7 +1568,7 @@ function getSignupPhoneCountryButtonText(phoneInput = getSignupPhoneInput()) {
     .trim();
 }
 
-function getSignupPhoneCountryButton(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneCountryButton(phoneInput = null) {
   const candidates = [];
   for (const root of getSignupPhoneControlRoots(phoneInput)) {
     const buttons = querySignupPhoneCountryElements(
@@ -1596,7 +1586,7 @@ function getSignupPhoneCountryButton(phoneInput = getSignupPhoneInput()) {
     || null;
 }
 
-function getSignupPhoneDisplayedDialCode(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneDisplayedDialCode(phoneInput = null) {
   const buttonDialCode = extractDialCodeFromText(getSignupPhoneCountryButtonText(phoneInput));
   if (buttonDialCode) {
     return buttonDialCode;
@@ -1614,7 +1604,7 @@ function getSignupPhoneDisplayedDialCode(phoneInput = getSignupPhoneInput()) {
   return '';
 }
 
-function getSignupPhoneHiddenNumberInput(phoneInput = getSignupPhoneInput()) {
+function getSignupPhoneHiddenNumberInput(phoneInput = null) {
   const form = getSignupPhoneForm(phoneInput);
   if (!form || typeof form.querySelector !== 'function') {
     return null;
@@ -1804,7 +1794,7 @@ function findSignupPhoneCountryOptionByPhoneNumber(phoneInput, phoneNumber) {
   return bestMatch;
 }
 
-async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInput = getSignupPhoneInput(), options = {}) {
+async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInput = null, options = {}) {
   const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
     ? getOperationDelayRunner()
     : async (metadata, operation) => {
@@ -1819,13 +1809,13 @@ async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInpu
     ? (select.options?.[select.selectedIndex] || null)
     : null;
   if (selectedOption && isSameSignupCountryOption(selectedOption, targetOption)) {
-    await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-select' }, async () => {
+    await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-select' }, async () => {
       dispatchSignupPhoneFieldEvents(select);
     });
     await sleep(120);
     return isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options);
   }
-  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-select' }, async () => {
+  await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-select' }, async () => {
     select.value = String(targetOption.value || '');
     dispatchSignupPhoneFieldEvents(select);
   });
@@ -1970,7 +1960,7 @@ async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption
     return scrolled;
   };
 
-  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'open-signup-phone-country-listbox' }, async () => {
+  await performOperationWithDelay({ stepKey: 'phone-country', kind: 'click', label: 'open-phone-country-listbox' }, async () => {
     simulateClick(button);
   });
   await sleep(200);
@@ -1982,7 +1972,7 @@ async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption
     throwIfStopped();
     const option = findSignupPhoneCountryListboxOption(targetOption, options);
     if (option) {
-      await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-listbox-option' }, async () => {
+      await performOperationWithDelay({ stepKey: 'phone-country', kind: 'select', label: 'phone-country-listbox-option' }, async () => {
         simulateClick(option);
       });
       await sleep(450);
@@ -2385,206 +2375,11 @@ function resolveSignupPhoneDialCode(phoneInput, options = {}) {
   return knownDialCodes.find((code) => digits.startsWith(code) && digits.length > code.length) || '';
 }
 
-async function waitForSignupPhoneEntryState(options = {}) {
-  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
-    ? getOperationDelayRunner()
-    : async (metadata, operation) => {
-        const rootScope = typeof window !== 'undefined' ? window : globalThis;
-        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
-        return typeof gate === 'function' ? gate(metadata, operation) : operation();
-      };
-  const {
-    timeout = 20000,
-    step = 2,
-  } = options;
-  const start = Date.now();
-  const maxSignupEntryClickRetries = 5;
-  const maxSignupEntryClickAttempts = maxSignupEntryClickRetries + 1;
-  let lastTriggerClickAt = 0;
-  let clickAttempts = 0;
-  let lastSwitchToPhoneAt = 0;
-  let lastMoreOptionsClickAt = 0;
-  let slowSnapshotLogged = false;
-
-  while (Date.now() - start < timeout) {
-    throwIfStopped();
-    const snapshot = inspectSignupEntryState();
-
-    if (snapshot.state === 'password_page') {
-      return snapshot;
-    }
-
-    if (snapshot.state === 'phone_entry' && snapshot.phoneInput) {
-      return snapshot;
-    }
-
-    if (snapshot.state === 'email_entry') {
-      const switchToPhone = snapshot.switchToPhoneTrigger || findSignupUsePhoneTrigger();
-      if (switchToPhone && Date.now() - lastSwitchToPhoneAt >= 1500) {
-        lastSwitchToPhoneAt = Date.now();
-        log(`步骤 ${step}：检测到邮箱输入模式，正在切换到手机号注册入口...`);
-        await humanPause(350, 900);
-        await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'switch-to-signup-phone' }, async () => {
-          simulateClick(switchToPhone);
-        });
-      } else {
-        const moreOptionsTrigger = findSignupMoreOptionsTrigger();
-        if (moreOptionsTrigger && Date.now() - lastMoreOptionsClickAt >= 1500) {
-          lastMoreOptionsClickAt = Date.now();
-          log(`步骤 ${step}：手机号入口可能隐藏在更多选项中，正在展开更多选项...`);
-          await humanPause(350, 900);
-          await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'signup-phone-more-options' }, async () => {
-            simulateClick(moreOptionsTrigger);
-          });
-        } else if (!switchToPhone && !slowSnapshotLogged && Date.now() - start >= 5000) {
-          slowSnapshotLogged = true;
-          log(`步骤 ${step}：尚未找到手机号入口，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
-        }
-      }
-      await sleep(250);
-      continue;
-    }
-
-    if (snapshot.state === 'entry_home' && snapshot.signupTrigger) {
-      if (Date.now() - lastTriggerClickAt >= 1500) {
-        if (clickAttempts >= maxSignupEntryClickAttempts) {
-          log(`步骤 ${step}：官网注册入口已完成 ${maxSignupEntryClickRetries} 次重试，页面仍未进入手机号输入页，停止重试。`, 'warn');
-          return snapshot;
-        }
-        lastTriggerClickAt = Date.now();
-        clickAttempts += 1;
-        const retryAttempt = clickAttempts - 1;
-        log(retryAttempt > 0
-          ? `步骤 ${step}：上次点击后仍未进入手机号输入页，准备重试点击官网注册入口（重试 ${retryAttempt}/${maxSignupEntryClickRetries}）...`
-          : `步骤 ${step}：已找到官网注册入口，准备点击...`);
-        await sleep(300);
-        throwIfStopped();
-        const clickTarget = findSignupEntryTrigger({ allowHiddenFallback: false }) || snapshot.signupTrigger;
-        if (!isVisibleElement(clickTarget)) {
-          log(`步骤 ${step}：注册入口仍处于不可见状态，继续按入口重试节奏尝试恢复点击...`, 'warn');
-        }
-        await humanPause(150, 450);
-        await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'open-signup-entry' }, async () => {
-          simulateClick(clickTarget);
-        });
-      }
-      await sleep(250);
-      continue;
-    }
-
-    if (!slowSnapshotLogged && Date.now() - start >= 5000) {
-      slowSnapshotLogged = true;
-      log(`步骤 ${step}：等待手机号注册入口超过 5 秒，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
-    }
-
-    await sleep(250);
-  }
-
-  const finalSnapshot = inspectSignupEntryState();
-  log(`步骤 ${step}：等待手机号注册入口超时，最终状态快照：${JSON.stringify(getSignupEntryStateSummary(finalSnapshot))}`, 'warn');
-  return finalSnapshot;
-}
-
-async function submitSignupPhoneNumberAndContinue(payload = {}) {
-  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
-    ? getOperationDelayRunner()
-    : async (metadata, operation) => {
-        const rootScope = typeof window !== 'undefined' ? window : globalThis;
-        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
-        return typeof gate === 'function' ? gate(metadata, operation) : operation();
-      };
-  const phoneNumber = String(payload.phoneNumber || '').trim();
-  const countryLabel = String(payload.countryLabel || '').trim();
-  if (!phoneNumber) {
-    throw new Error('未提供手机号，步骤 2 无法继续。');
-  }
-
-  const snapshot = await waitForSignupPhoneEntryState({ timeout: 25000, step: 2 });
-  if (snapshot.state === 'password_page') {
-    log('步骤 2：当前已在密码页，无需重复提交手机号。');
-    return {
-      alreadyOnPasswordPage: true,
-      url: snapshot.url || location.href,
-    };
-  }
-
-  if (snapshot.state !== 'phone_entry' || !snapshot.phoneInput) {
-    throw new Error(`步骤 2：未找到可用的手机号输入入口。URL: ${location.href}`);
-  }
-
-  const countrySelection = await ensureSignupPhoneCountrySelected(snapshot.phoneInput, {
-    countryLabel,
-    phoneNumber,
-  });
-  if (countrySelection.hasCountryControl && !countrySelection.matched) {
-    const currentCountryText = getSignupPhoneCountryButtonText(snapshot.phoneInput) || '未知';
-    const targetDialCode = resolveSignupPhoneTargetDialCode({ countryLabel, phoneNumber }, countrySelection.selectedOption);
-    const targetLabel = targetDialCode
-      ? `目标区号 +${targetDialCode}（号码 ${phoneNumber}${countryLabel ? `，国家 ${countryLabel}` : ''}）`
-      : (countryLabel || phoneNumber);
-    throw new Error(`步骤 2：手机号国家下拉框未能自动切换到 ${targetLabel}，当前显示为 ${currentCountryText}，已停止提交以避免区号不匹配。`);
-  }
-
-  const dialCode = resolveSignupPhoneDialCode(snapshot.phoneInput, {
-    phoneNumber,
-    countryId: payload.countryId,
-    countryLabel,
-  });
-  const inputValue = toNationalPhoneNumber(phoneNumber, dialCode);
-  if (!inputValue) {
-    throw new Error('步骤 2：手机号为空，无法填写。');
-  }
-
-  log(`步骤 2：正在填写手机号：${phoneNumber}`);
-  await humanPause(500, 1400);
-  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'fill', label: 'signup-phone-number' }, async () => {
-    fillInput(snapshot.phoneInput, inputValue);
-  });
-  const hiddenPhoneNumberInput = getSignupPhoneHiddenNumberInput(snapshot.phoneInput);
-  const e164PhoneNumber = toE164PhoneNumber(phoneNumber, dialCode);
-  if (hiddenPhoneNumberInput && e164PhoneNumber) {
-    await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'hidden-sync', label: 'signup-phone-hidden-sync' }, async () => {
-      fillInput(hiddenPhoneNumberInput, e164PhoneNumber);
-    });
-  }
-  log(`步骤 2：手机号已填写：${phoneNumber}${dialCode ? `（区号 +${dialCode}，本地号 ${inputValue}）` : ''}`);
-
-  const continueButton = getSignupEmailContinueButton({ allowDisabled: true });
-  if (!continueButton || !isActionEnabled(continueButton)) {
-    throw new Error(`步骤 2：未找到可点击的“继续”按钮。URL: ${location.href}`);
-  }
-
-  log('步骤 2：手机号已准备提交，正在前往下一页...');
-  window.setTimeout(async () => {
-    try {
-      throwIfStopped();
-      await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'submit', label: 'submit-signup-phone' }, async () => {
-        simulateClick(continueButton);
-      });
-    } catch (error) {
-      if (!isStopError(error)) {
-        console.error('[MultiPage:signup-page] deferred signup phone submit failed:', error?.message || error);
-      }
-    }
-  }, 120);
-
-  return {
-    submitted: true,
-    deferredSubmit: true,
-    phoneNumber,
-    phoneInputValue: snapshot.phoneInput?.value || inputValue,
-    url: location.href,
-  };
-}
-
 // ============================================================
 // Step 2: Click Register, fill email, then continue to password page
 // ============================================================
 
 async function step2_clickRegister(payload = {}) {
-  if (payload?.signupMethod === 'phone' || payload?.phoneNumber) {
-    return submitSignupPhoneNumberAndContinue(payload);
-  }
   const { email } = payload;
   return fillSignupEmailAndContinue(email, 2);
 }
@@ -2679,10 +2474,8 @@ async function step3_fillEmailPassword(payload) {
   const { email, password } = payload;
   if (!password) throw new Error('未提供密码，步骤 3 需要可用密码。');
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  const accountIdentifierType = String(payload?.accountIdentifierType || '').trim().toLowerCase() === 'phone'
-    ? 'phone'
-    : 'email';
-  const accountIdentifier = String(payload?.accountIdentifier || email || payload?.phoneNumber || '').trim();
+  const accountIdentifierType = 'email';
+  const accountIdentifier = String(payload?.accountIdentifier || email || '').trim();
 
   let snapshot = inspectSignupEntryState();
   if (snapshot.state === 'entry_home') {
@@ -2690,20 +2483,15 @@ async function step3_fillEmailPassword(payload) {
   }
 
   if (
-    snapshot.state === 'phone_verification_page'
-    || snapshot.state === 'verification_page'
+    snapshot.state === 'verification_page'
     || snapshot.state === 'profile_page'
     || snapshot.state === 'logged_in_home'
   ) {
     const completionPayload = {
       email: email || '',
-      phoneNumber: String(payload?.phoneNumber || '').trim(),
       accountIdentifierType,
       accountIdentifier,
-      signupVerificationRequestedAt: (
-        snapshot.state === 'phone_verification_page'
-        || snapshot.state === 'verification_page'
-      ) ? Date.now() : null,
+      signupVerificationRequestedAt: snapshot.state === 'verification_page' ? Date.now() : null,
       skippedPasswordPage: true,
       deferredSubmit: false,
       ...(snapshot.skipProfileStep ? { skipProfileStep: true } : {}),
@@ -2738,7 +2526,6 @@ async function step3_fillEmailPassword(payload) {
 
   const completionPayload = {
     email,
-    phoneNumber: String(payload?.phoneNumber || '').trim(),
     accountIdentifierType,
     accountIdentifier,
     signupVerificationRequestedAt: passwordSubmitResult.signupVerificationRequestedAt,
@@ -2769,10 +2556,8 @@ const AUTH_ROUTE_ERROR_PATTERN = /405\s+method\s+not\s+allowed|route\s+error.*40
 const STEP4_405_RECOVERY_ERROR_PREFIX = 'STEP4_405_RECOVERY_LIMIT::';
 const STEP4_405_RECOVERY_LIMIT = 3;
 const SIGNUP_USER_ALREADY_EXISTS_ERROR_PREFIX = 'SIGNUP_USER_ALREADY_EXISTS::';
-const SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX = 'SIGNUP_PHONE_PASSWORD_MISMATCH::';
 const STEP8_EMAIL_IN_USE_ERROR_PREFIX = 'STEP8_EMAIL_IN_USE::';
 const SIGNUP_EMAIL_EXISTS_PATTERN = /与此电子邮件地址相关联的帐户已存在|account\s+associated\s+with\s+this\s+email\s+address\s+already\s+exists|email\s+address.*already\s+exists/i;
-const SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN = /incorrect\s+phone\s+number\s+or\s+password|phone\s+number\s+or\s+password|与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i;
 
 const authPageRecovery = self.MultiPageAuthPageRecovery?.createAuthPageRecovery?.({
   detailPattern: AUTH_TIMEOUT_ERROR_DETAIL_PATTERN,
@@ -2819,14 +2604,6 @@ function createSignupUserAlreadyExistsError(message = '') {
   );
 }
 
-function createSignupPhonePasswordMismatchError(detailText = '') {
-  const detail = String(detailText || '').replace(/\s+/g, ' ').trim();
-  const suffix = detail ? `页面提示：${detail}` : '页面提示注册手机号不可继续使用，需重新开始当前轮。';
-  return new Error(
-    `${SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX}步骤 3：检测到注册手机号异常，需要重新开始当前轮。${suffix}`
-  );
-}
-
 function createAuthMaxCheckAttemptsError() {
   return new Error('CF_SECURITY_BLOCKED::您已触发 OpenAI 认证页试行次数限制（max_check_attempts / 試行回数が多すぎます），已完全停止流程；请等待 15-30 分钟后再继续，不要反复点击“重试”。');
 }
@@ -2867,21 +2644,7 @@ function getVisibleFieldErrorText() {
 }
 
 function getSignupPasswordFieldErrorText() {
-  const text = getVisibleFieldErrorText();
-  if (text && SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN.test(text)) {
-    return text;
-  }
-
-  const passwordInput = getSignupPasswordInput();
-  if (passwordInput) {
-    const wrapper = passwordInput.closest('form, [data-rac], [role="group"], section, div');
-    const wrapperText = (wrapper?.textContent || '').replace(/\s+/g, ' ').trim();
-    if (wrapperText && SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN.test(wrapperText)) {
-      return wrapperText;
-    }
-  }
-
-  return '';
+  return getVisibleFieldErrorText();
 }
 
 function isStep5Ready() {
@@ -3058,7 +2821,7 @@ function getStep4PostVerificationState(options = {}) {
     };
   }
 
-  if (getSignupEmailInput() || getSignupPhoneInput() || getSignupPasswordInput()) {
+  if (getSignupEmailInput() || getSignupPasswordInput()) {
     return null;
   }
 
@@ -5126,13 +4889,6 @@ function inspectSignupVerificationState() {
     };
   }
 
-  if (typeof isPhoneVerificationPageReady === 'function' && isPhoneVerificationPageReady()) {
-    return {
-      state: 'verification',
-      phoneVerificationPage: true,
-    };
-  }
-
   if (isVerificationPageStillVisible()) {
     return { state: 'verification' };
   }
@@ -5316,7 +5072,7 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
     if (snapshot.state === 'password') {
       if (snapshot.passwordErrorText) {
         log(`${prepareLogLabel}：检测到密码页报错“${snapshot.passwordErrorText}”，当前轮将回到步骤 1 重新开始。`, 'warn');
-        throw createSignupPhonePasswordMismatchError(snapshot.passwordErrorText);
+        throw new Error(`步骤 3：密码页返回错误，当前轮需要重新开始。页面提示：${snapshot.passwordErrorText}`);
       }
       if (!passwordPageDiagnosticsLogged) {
         passwordPageDiagnosticsLogged = true;
@@ -5402,7 +5158,7 @@ async function waitForPostVerificationPasswordSubmitOutcome(step, options = {}) 
     const snapshot = inspectSignupEntryState();
     if (snapshot.state === 'password_page') {
       if (snapshot.passwordErrorText) {
-        throw createSignupPhonePasswordMismatchError(snapshot.passwordErrorText);
+        throw new Error(`步骤 ${step}：密码提交后仍停留在密码页。页面提示：${snapshot.passwordErrorText}`);
       }
       await sleep(200);
       continue;
@@ -5431,7 +5187,7 @@ async function submitPasswordPageAfterVerificationIfNeeded(step, options = {}) {
     return null;
   }
   if (snapshot.passwordErrorText) {
-    throw createSignupPhonePasswordMismatchError(snapshot.passwordErrorText);
+    throw new Error(`步骤 4：验证码后密码页返回错误。页面提示：${snapshot.passwordErrorText}`);
   }
 
   const password = options?.password || '';

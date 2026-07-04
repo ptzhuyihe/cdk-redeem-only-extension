@@ -297,10 +297,10 @@ const DEFAULT_OPENAI_NODE_BY_STEP = Object.freeze({
   6: 'wait-registration-success',
   7: 'oauth-login',
   8: 'fetch-login-code',
-  9: 'post-login-phone-verification',
+  9: 'confirm-oauth',
   10: 'confirm-oauth',
   11: 'fetch-login-code',
-  12: 'post-login-phone-verification',
+  12: 'confirm-oauth',
   13: 'confirm-oauth',
   14: 'platform-verify',
   15: 'platform-verify',
@@ -586,4 +586,3 @@ function shouldReportReadyForFrame(source, isChildFrame) {
 if (shouldReportReadyForFrame(getRuntimeScriptSource(), window !== window.top)) {
   reportReady();
 }
-
