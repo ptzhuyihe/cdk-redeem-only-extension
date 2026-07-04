@@ -134,7 +134,6 @@
       return normalizeEmail(
         state.email
         || state.step8VerificationTargetEmail
-        || state.boundEmail
         || state.registrationEmailState?.current
         || state.accountIdentifier
       );

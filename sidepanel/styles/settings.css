@@ -150,57 +150,6 @@
   line-height: 1.4;
 }
 
-.auth-verification-card {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-#settings-card > #auth-verification-section.module-divider-start {
-  position: relative;
-  margin-top: 10px;
-  padding-top: 12px;
-}
-
-#settings-card > #auth-verification-section.module-divider-start::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-}
-
-.auth-verification-header-actions {
-  flex: 0 0 auto;
-  align-items: center;
-}
-
-#btn-toggle-auth-verification-section {
-  white-space: nowrap;
-}
-
-.auth-verification-fold-row {
-  display: block;
-}
-
-.auth-verification-fold {
-  width: 100%;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.auth-verification-fold-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: none;
-  padding-top: 0;
-}
-
 .mail2925-base-inline {
   gap: 10px;
 }

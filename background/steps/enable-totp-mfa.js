@@ -505,7 +505,6 @@
       return normalizeEmail(
         state.email
         || state.step8VerificationTargetEmail
-        || state.boundEmail
         || state.registrationEmailState?.current
         || (normalizeString(state.accountIdentifierType).toLowerCase() === 'email' ? state.accountIdentifier : '')
         || state.accountIdentifier
@@ -596,7 +595,6 @@
         accountIdentifierType: 'email',
         accountIdentifier: sessionEmail,
         step8VerificationTargetEmail: '',
-        boundEmail: '',
         registrationEmailState,
       };
       if (!passwordTrusted) {
@@ -610,7 +608,6 @@
         accountIdentifierType: 'email',
         accountIdentifier: sessionEmail,
         step8VerificationTargetEmail: '',
-        boundEmail: '',
         registrationEmailState,
       });
       return {

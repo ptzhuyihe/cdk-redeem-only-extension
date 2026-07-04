@@ -20,6 +20,7 @@ const STATIC_TARGET_FILES = [
   'background/steps/set-gpt-password.js',
   'background/steps/fill-password.js',
   'background/steps/fetch-signup-code.js',
+  'background/steps/enable-totp-mfa.js',
   'shared/flow-capabilities.js',
   'shared/source-registry.js',
   'content/activation-utils.js',
@@ -148,6 +149,8 @@ const PHONE_SMS_PATTERNS = [
   { label: 'SMS provider label', pattern: /\b(?:5sim|GrizzlySMS)\b|Removed\s+SMS/i },
   { label: 'phone activation/reuse helper', pattern: /\b\w*(?:phoneActivation|freePhoneReuse|supportsPhoneActivationReuseProvider|supportsFreePhoneReuseProvider)\w*\b/i },
   { label: 'phone signup UI text', pattern: /手机接码|手机号注册|短信接码|接码平台|手机号接码/ },
+  { label: 'removed bind email route', pattern: /\b(?:bind-email|fetch-bind-email-code|relogin-bound-email|fetch-bound-email-login-code)\b/ },
+  { label: 'removed bind email state', pattern: /\b(?:boundEmail|bindEmailSubmitted)\b/ },
 ];
 
 const matches = [];

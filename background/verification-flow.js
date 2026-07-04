@@ -338,7 +338,6 @@
       const normalizedTarget = normalizeEmailForComparison(
         targetEmail
         || state?.step8VerificationTargetEmail
-        || state?.boundEmail
         || state?.email
       );
       if (!normalizedTarget) {
@@ -2760,7 +2759,6 @@
       const targetEmail = normalizeEmailForComparison(
         options.targetEmail
         || state?.step8VerificationTargetEmail
-        || state?.boundEmail
         || state?.email
       );
       const entry = getCustomEmailVerificationEntry(state, targetEmail);

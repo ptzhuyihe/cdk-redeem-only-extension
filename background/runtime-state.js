@@ -93,7 +93,6 @@
         'accountIdentifier',
         'registrationEmailState',
         'email',
-        'boundEmail',
         'password',
         'lastEmailTimestamp',
         'lastSignupCode',

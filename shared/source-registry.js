@@ -152,8 +152,6 @@
         'fill-profile',
         'oauth-login',
         'submit-verification-code',
-        'bind-email',
-        'fetch-bind-email-code',
         'confirm-oauth',
         'detect-auth-state',
       ],
@@ -425,4 +423,3 @@
     createSourceRegistry,
   };
 });
-

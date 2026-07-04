@@ -2514,16 +2514,14 @@
         }
       }
 
-      if (stepKey === 'oauth-login' || stepKey === 'relogin-bound-email') {
-        if (stepKey === 'oauth-login') {
-          await syncStepAccountIdentityFromPayload(payload);
-        }
+      if (stepKey === 'oauth-login') {
+        await syncStepAccountIdentityFromPayload(payload);
         if (payload.skipLoginVerificationStep) {
           await setState({ loginVerificationRequestedAt: null });
           const latestState = await getState();
           const loginCodeStep = findStepByKeyAfter(
             step,
-            stepKey === 'relogin-bound-email' ? 'fetch-bound-email-login-code' : 'fetch-login-code',
+            'fetch-login-code',
             latestState
           );
           if (loginCodeStep) {
@@ -2542,42 +2540,10 @@
         return;
       }
 
-      if (stepKey === 'fetch-login-code' || stepKey === 'fetch-bound-email-login-code') {
+      if (stepKey === 'fetch-login-code') {
         await setState({
           lastEmailTimestamp: payload.emailTimestamp || null,
           loginVerificationRequestedAt: null,
-        });
-        return;
-      }
-
-      if (stepKey === 'bind-email') {
-        const updates = {};
-        if (payload.bindEmailSubmitted !== undefined) {
-          updates.bindEmailSubmitted = Boolean(payload.bindEmailSubmitted);
-        }
-        if (payload.email !== undefined) {
-          updates.email = payload.email || null;
-        }
-        if (payload.boundEmail !== undefined) {
-          updates.boundEmail = payload.boundEmail || '';
-        } else if (payload.bindEmailSubmitted === false) {
-          updates.boundEmail = '';
-        }
-        if (payload.step8VerificationTargetEmail !== undefined) {
-          updates.step8VerificationTargetEmail = payload.step8VerificationTargetEmail || '';
-        }
-        if (Object.keys(updates).length) {
-          await setState(updates);
-        }
-        return;
-      }
-
-      if (stepKey === 'fetch-bind-email-code') {
-        await setState({
-          lastEmailTimestamp: payload.emailTimestamp || null,
-          loginVerificationRequestedAt: null,
-          step8VerificationTargetEmail: '',
-          bindEmailSubmitted: false,
         });
         return;
       }

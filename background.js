@@ -2103,9 +2103,6 @@ async function clearCurrentRegistrationEmailRuntimeState(state = {}, options = {
   updates.signupVerificationRequestedAt = null;
   updates.loginVerificationRequestedAt = null;
   updates.step8VerificationTargetEmail = '';
-  if (latestState.bindEmailSubmitted || String(latestState.step8VerificationTargetEmail || '').trim()) {
-    updates.bindEmailSubmitted = false;
-  }
 
   if (!statePatchHasChanges(latestState, updates)) {
     return { updated: false };
@@ -9785,8 +9782,6 @@ function getDownstreamStateResets(step, state = {}) {
   if (
     stepKey === 'oauth-login'
     || stepKey === 'fetch-login-code'
-    || stepKey === 'relogin-bound-email'
-    || stepKey === 'fetch-bound-email-login-code'
   ) {
     return {
       lastLoginCode: null,
@@ -10801,10 +10796,6 @@ const AUTO_RUN_BACKGROUND_COMPLETED_STEP_KEYS = new Set([
   'chatgpt-session-reader-billing',
   'legacyWallet-approve',
   'chatgpt-session-reader-return',
-  'bind-email',
-  'fetch-bind-email-code',
-  'relogin-bound-email',
-  'fetch-bound-email-login-code',
 ]);
 const STEP_COMPLETION_SIGNAL_STEP_KEYS = new Set([
   'fill-password',
@@ -11423,10 +11414,6 @@ async function waitForRunningStepsToFinish(payload = {}) {
 const AUTH_CHAIN_NODE_IDS = new Set([
   'oauth-login',
   'fetch-login-code',
-  'bind-email',
-  'fetch-bind-email-code',
-  'relogin-bound-email',
-  'fetch-bound-email-login-code',
   'confirm-oauth',
   'platform-verify',
 ]);
@@ -13672,40 +13659,6 @@ const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
   SUB2API_STEP9_RESPONSE_TIMEOUT_MS,
 });
 
-function resolveBoundEmailForReloginState(state = {}) {
-  return String(
-    state?.boundEmail
-    || state?.step8VerificationTargetEmail
-    || state?.email
-    || state?.registrationEmailState?.current
-    || ''
-  ).trim();
-}
-
-async function executeReloginBoundEmail(state = {}) {
-  const visibleStep = Math.floor(Number(state?.visibleStep) || 0) || 10;
-  const boundEmail = resolveBoundEmailForReloginState(state);
-  if (!boundEmail) {
-    throw new Error(`步骤 ${visibleStep}：缺少绑定邮箱，无法在绑定邮箱后切入邮箱模式 OAuth 登录。`);
-  }
-  await addLog(`步骤 ${visibleStep}：绑定邮箱已提交，正在刷新 OAuth 并使用绑定邮箱 ${boundEmail} 登录...`, 'info', {
-    step: visibleStep,
-    stepKey: 'relogin-bound-email',
-  });
-  return step7Executor.executeStep7({
-    ...state,
-    forceLoginIdentifierType: 'email',
-    forceEmailLogin: true,
-    signupMethod: 'email',
-    resolvedSignupMethod: 'email',
-    accountIdentifierType: 'email',
-    accountIdentifier: boundEmail,
-    email: boundEmail,
-    boundEmail,
-    step8VerificationTargetEmail: boundEmail,
-  });
-}
-
 const stepExecutorsByKey = {
   'open-chatgpt': () => step1Executor.executeStep1(),
   'submit-signup-email': (state) => step2Executor.executeStep2(state),
@@ -14380,11 +14333,6 @@ async function getPostStep6AutoRestartDecision(step, error) {
     : (typeof LAST_STEP_ID === 'number' ? LAST_STEP_ID : 10);
   const currentNodeKey = resolveStepKey(normalizedStep, latestState);
   const confirmOauthStep = findStepIdByKeyForState('confirm-oauth', latestState);
-  const boundEmailReloginStep = findStepIdByKeyForState('relogin-bound-email', latestState);
-  const isBoundEmailReloginTailStep = [
-    'relogin-bound-email',
-    'fetch-bound-email-login-code',
-  ].includes(currentNodeKey);
   const shouldRetryFromConfirmStep = currentNodeKey === 'platform-verify'
     && Number.isFinite(confirmOauthStep)
     && confirmOauthStep > 0
@@ -14392,9 +14340,7 @@ async function getPostStep6AutoRestartDecision(step, error) {
     && isPlatformVerifyTransientRetryError(errorMessage);
   const restartAnchorStep = shouldRetryFromConfirmStep
     ? confirmOauthStep
-    : (isBoundEmailReloginTailStep && Number.isFinite(boundEmailReloginStep) && boundEmailReloginStep > 0
-      ? boundEmailReloginStep
-      : authChainStartStep);
+    : authChainStartStep;
 
   if (!Number.isFinite(normalizedStep) || normalizedStep < authChainStartStep || normalizedStep > lastStepId) {
     return {
@@ -15782,8 +15728,6 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
   const supportedRecoveryNodeIds = new Set([
     'oauth-login',
     'fetch-login-code',
-    'bind-email',
-    'fetch-bind-email-code',
   ]);
   const rawRecoveryNodeIds = workflowNodeIds.slice(authStartIndex, confirmIndex);
   const skippedRecoveryNodeIds = rawRecoveryNodeIds.filter((nodeId) => !supportedRecoveryNodeIds.has(nodeId));
@@ -15801,10 +15745,6 @@ async function recoverOAuthLocalhostTimeout(details = {}) {
         return step7Executor.executeStep7(payload);
       case 'fetch-login-code':
         return step8Executor.executeStep8(payload);
-      case 'bind-email':
-        return step8Executor.executeBindEmail(payload);
-      case 'fetch-bind-email-code':
-        return step8Executor.executeFetchBindEmailCode(payload);
       default:
         throw new Error(`OAuth localhost 恢复不支持节点 ${nodeId}。`);
     }
@@ -15868,10 +15808,6 @@ function getStep9AuthFallbackRecoveryNodeIds(latestState = {}, visibleStep = 9) 
   const supportedRecoveryNodeIds = new Set([
     'oauth-login',
     'fetch-login-code',
-    'bind-email',
-    'fetch-bind-email-code',
-    'relogin-bound-email',
-    'fetch-bound-email-login-code',
   ]);
   return workflowNodeIds
     .slice(authStartIndex, confirmIndex)
@@ -15890,14 +15826,6 @@ async function runStep9AuthFallbackRecoveryNode(nodeId, latestState = {}) {
       return step7Executor.executeStep7(payload);
     case 'fetch-login-code':
       return step8Executor.executeStep8(payload);
-    case 'bind-email':
-      return step8Executor.executeBindEmail(payload);
-    case 'fetch-bind-email-code':
-      return step8Executor.executeFetchBindEmailCode(payload);
-    case 'relogin-bound-email':
-      return executeReloginBoundEmail(payload);
-    case 'fetch-bound-email-login-code':
-      return step8Executor.executeBoundEmailLoginCode(payload);
     default:
       throw new Error(`OAuth 回流恢复不支持节点 ${nodeId}。`);
   }

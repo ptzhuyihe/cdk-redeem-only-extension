@@ -479,15 +479,6 @@ const inputAutoDelayMinutes = document.getElementById('input-auto-delay-minutes'
 const inputAutoStepDelaySeconds = document.getElementById('input-auto-step-delay-seconds');
 const inputOperationDelayEnabled = document.getElementById('input-operation-delay-enabled');
 const inputOAuthFlowTimeoutEnabled = document.getElementById('input-oauth-flow-timeout-enabled');
-const inputVerificationResendCount = document.getElementById('input-verification-resend-count');
-const authVerificationSection = document.getElementById('auth-verification-section');
-const rowAuthVerificationEnabled = document.getElementById('row-auth-verification-enabled');
-const btnToggleAuthVerificationSection = document.getElementById('btn-toggle-auth-verification-section');
-const rowAuthVerificationFold = document.getElementById('row-auth-verification-fold');
-const inputAuthVerificationEnabled = document.getElementById('input-auth-verification-enabled');
-const rowSignupMethod = document.getElementById('row-signup-method');
-const signupMethodButtons = Array.from(document.querySelectorAll('[data-signup-method]'));
-const rowAuthVerificationResendCount = document.getElementById('row-auth-verification-resend-count');
 const rowAccountRunHistoryHelperBaseUrl = document.getElementById('row-account-run-history-helper-base-url');
 const inputAccountRunHistoryHelperBaseUrl = document.getElementById('input-account-run-history-helper-base-url');
 const autoStartModal = document.getElementById('auto-start-modal');
@@ -525,20 +516,6 @@ const actionModalService = window.SidepanelActionModalService?.createActionModal
 });
 const autoHintText = document.querySelector('.auto-hint');
 const stepsList = document.querySelector('.steps-list');
-
-function placeAuthVerificationSectionNearMainSettings() {
-  const mailProviderRow = document.getElementById('row-mail-provider');
-  if (!settingsCard || !authVerificationSection || !mailProviderRow) {
-    return;
-  }
-  authVerificationSection.classList.remove('data-card');
-  authVerificationSection.classList.add('module-divider-start');
-  if (authVerificationSection.parentElement !== settingsCard || authVerificationSection.nextElementSibling !== mailProviderRow) {
-    settingsCard.insertBefore(authVerificationSection, mailProviderRow);
-  }
-}
-
-placeAuthVerificationSectionNearMainSettings();
 
 const PLUS_PAYMENT_METHOD_LEGACY_WALLET = 'legacyWallet';
 const PLUS_PAYMENT_METHOD_LEGACY_PAY = 'legacyPay';
@@ -648,50 +625,6 @@ const NEW_USER_GUIDE_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-new-user-guide-pr
 const AUTO_SKIP_FAILURES_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-skip-failures-prompt-dismissed';
 const AUTO_RUN_FALLBACK_RISK_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-run-fallback-risk-prompt-dismissed';
 const CLOUDFLARE_TEMP_EMAIL_REGISTRATION_LOOKUP_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-cloudflare-temp-email-registration-lookup-prompt-dismissed';
-const AUTH_VERIFICATION_SECTION_EXPANDED_STORAGE_KEY = 'multipage-auth-verification-section-expanded';
-const AUTH_VERIFICATION_SECTION_COLLAPSED_VALUE = '0';
-let authVerificationSectionExpanded = true;
-
-function readAuthVerificationSectionExpanded() {
-  try {
-    const savedValue = window.localStorage?.getItem(AUTH_VERIFICATION_SECTION_EXPANDED_STORAGE_KEY);
-    return savedValue !== AUTH_VERIFICATION_SECTION_COLLAPSED_VALUE;
-  } catch (err) {
-    return true;
-  }
-}
-
-function persistAuthVerificationSectionExpanded(expanded) {
-  try {
-    if (expanded) {
-      window.localStorage?.setItem(AUTH_VERIFICATION_SECTION_EXPANDED_STORAGE_KEY, '1');
-    } else {
-      window.localStorage?.setItem(AUTH_VERIFICATION_SECTION_EXPANDED_STORAGE_KEY, AUTH_VERIFICATION_SECTION_COLLAPSED_VALUE);
-    }
-  } catch (err) {
-    // Ignore storage errors; the current in-memory state is enough for this session.
-  }
-}
-
-function setAuthVerificationSectionExpanded(expanded) {
-  authVerificationSectionExpanded = Boolean(expanded);
-  persistAuthVerificationSectionExpanded(authVerificationSectionExpanded);
-  if (typeof updateAuthVerificationSettingsUI === 'function') {
-    updateAuthVerificationSettingsUI();
-  }
-}
-
-function toggleAuthVerificationSectionExpanded() {
-  setAuthVerificationSectionExpanded(!authVerificationSectionExpanded);
-}
-
-function initAuthVerificationSectionExpandedState() {
-  authVerificationSectionExpanded = readAuthVerificationSectionExpanded();
-  if (typeof updateAuthVerificationSettingsUI === 'function') {
-    updateAuthVerificationSettingsUI();
-  }
-}
-
 function getStepDefinitionsForMode(plusModeEnabled = false, options = {}) {
   const defaultFlowId = typeof DEFAULT_ACTIVE_FLOW_ID !== 'undefined' ? DEFAULT_ACTIVE_FLOW_ID : 'openai';
   const defaultMethod = typeof DEFAULT_PLUS_PAYMENT_METHOD !== 'undefined' ? DEFAULT_PLUS_PAYMENT_METHOD : 'legacyWallet';
@@ -5616,7 +5549,6 @@ function collectSettingsPayload() {
   const rawPlusModeEnabled = typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
     ? Boolean(inputPlusModeEnabled.checked)
     : Boolean(latestState?.plusModeEnabled);
-  const rawAuthVerificationEnabled = Boolean(inputAuthVerificationEnabled?.checked);
   const capabilityState = typeof resolveCurrentSidepanelCapabilities === 'function'
     ? resolveCurrentSidepanelCapabilities({
       panelMode: rawPanelMode,
@@ -5626,7 +5558,6 @@ function collectSettingsPayload() {
         panelMode: rawPanelMode,
         plusAccountAccessStrategy: rawPlusAccountAccessStrategy,
         plusModeEnabled: rawPlusModeEnabled,
-        authVerificationEnabled: rawAuthVerificationEnabled,
         signupMethod: selectedSignupMethod,
       },
     })
@@ -5642,10 +5573,9 @@ function collectSettingsPayload() {
           signupMethod: selectedSignupMethod,
           state: {
             ...(latestState || {}),
-          panelMode: rawPanelMode,
-          plusAccountAccessStrategy: rawPlusAccountAccessStrategy,
-          plusModeEnabled: rawPlusModeEnabled,
-            authVerificationEnabled: rawAuthVerificationEnabled,
+            panelMode: rawPanelMode,
+            plusAccountAccessStrategy: rawPlusAccountAccessStrategy,
+            plusModeEnabled: rawPlusModeEnabled,
             signupMethod: selectedSignupMethod,
           },
         })
@@ -5655,9 +5585,6 @@ function collectSettingsPayload() {
   const effectivePlusModeEnabled = capabilityState
     ? Boolean(capabilityState.runtimeLocks?.plusModeEnabled)
     : rawPlusModeEnabled;
-  const effectiveAuthVerificationEnabled = capabilityState
-    ? Boolean(capabilityState.runtimeLocks?.authVerificationEnabled)
-    : rawAuthVerificationEnabled;
   const effectiveSignupMethod = capabilityState?.effectiveSignupMethod || selectedSignupMethod;
   const effectivePlusAccountAccessStrategy = capabilityState?.effectivePlusAccountAccessStrategy
     || rawPlusAccountAccessStrategy;
@@ -5953,12 +5880,7 @@ function collectSettingsPayload() {
     oauthFlowTimeoutEnabled: typeof inputOAuthFlowTimeoutEnabled !== 'undefined' && inputOAuthFlowTimeoutEnabled
       ? Boolean(inputOAuthFlowTimeoutEnabled.checked)
       : true,
-    authVerificationEnabled: effectiveAuthVerificationEnabled,
     signupMethod: effectiveSignupMethod,
-    verificationResendCount: normalizeVerificationResendCount(
-      inputVerificationResendCount?.value,
-      DEFAULT_VERIFICATION_RESEND_COUNT
-    ),
   };
 }
 
@@ -6270,17 +6192,6 @@ function updateSignupMethodUI() {
     signupMethod: SIGNUP_METHOD_EMAIL,
     upiRedeemStopAfterRedeem: getSelectedUpiRedeemStopAfterRedeem(latestState),
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
-  });
-}
-
-function updateAuthVerificationSettingsUI() {
-  updateSignupMethodUI();
-  [
-    typeof rowAuthVerificationEnabled !== 'undefined' ? rowAuthVerificationEnabled : null,
-    typeof rowAuthVerificationFold !== 'undefined' ? rowAuthVerificationFold : null,
-    typeof rowSignupMethod !== 'undefined' ? rowSignupMethod : null,
-  ].forEach((row) => {
-    if (row) row.style.display = 'none';
   });
 }
 
@@ -7531,7 +7442,6 @@ selectAccountAccessStrategy?.addEventListener('change', async () => {
       totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
     });
     updateSignupMethodUI();
-    updateAuthVerificationSettingsUI();
     updatePanelModeUI();
     markSettingsDirty(true);
     saveSettings({ silent: true }).catch((error) => {
@@ -7883,15 +7793,6 @@ inputAutoDelayMinutes?.addEventListener('input', () => {
 });
 inputAutoDelayMinutes?.addEventListener('blur', () => {
   inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(inputAutoDelayMinutes.value));
-  saveSettings({ silent: true }).catch(() => { });
-});
-
-
-
-inputAuthVerificationEnabled?.addEventListener('change', () => {
-  setSignupMethod(SIGNUP_METHOD_EMAIL);
-  updateAuthVerificationSettingsUI();
-  markSettingsDirty(true);
   saveSettings({ silent: true }).catch(() => { });
 });
 
@@ -8538,20 +8439,6 @@ inputOutlookAliasMaxPerAccount?.addEventListener('blur', () => {
 inputHotmailAliasEnabled?.addEventListener('change', () => {
   updateMailProviderUI();
   markSettingsDirty(true);
-  saveSettings({ silent: true }).catch(() => { });
-});
-
-inputVerificationResendCount?.addEventListener('input', () => {
-  markSettingsDirty(true);
-  scheduleSettingsAutoSave();
-});
-inputVerificationResendCount?.addEventListener('blur', () => {
-  inputVerificationResendCount.value = String(
-    normalizeVerificationResendCount(
-      inputVerificationResendCount.value,
-      DEFAULT_VERIFICATION_RESEND_COUNT
-    )
-  );
   saveSettings({ silent: true }).catch(() => { });
 });
 
@@ -9212,32 +9099,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.oauthFlowTimeoutEnabled !== undefined && typeof inputOAuthFlowTimeoutEnabled !== 'undefined' && inputOAuthFlowTimeoutEnabled) {
         inputOAuthFlowTimeoutEnabled.checked = Boolean(message.payload.oauthFlowTimeoutEnabled);
       }
-      if (
-        (
-          message.payload.verificationResendCount !== undefined
-          || message.payload.signupVerificationResendCount !== undefined
-          || message.payload.loginVerificationResendCount !== undefined
-        )
-        && inputVerificationResendCount
-      ) {
-        const nextVerificationResendCount = message.payload.verificationResendCount !== undefined
-          ? message.payload.verificationResendCount
-          : (message.payload.signupVerificationResendCount ?? message.payload.loginVerificationResendCount);
-        inputVerificationResendCount.value = String(
-          normalizeVerificationResendCount(
-            nextVerificationResendCount,
-            DEFAULT_VERIFICATION_RESEND_COUNT
-          )
-        );
-      }
-      if (message.payload.authVerificationEnabled !== undefined && inputAuthVerificationEnabled) {
-        inputAuthVerificationEnabled.checked = Boolean(message.payload.authVerificationEnabled);
-      }
       if (message.payload.signupMethod !== undefined) {
         setSignupMethod(message.payload.signupMethod);
-      }
-      if (message.payload.authVerificationEnabled !== undefined || message.payload.signupMethod !== undefined) {
-        updateAuthVerificationSettingsUI();
+        updateSignupMethodUI();
       }
       updateAccountRunHistorySettingsUI();
       renderContributionMode();
@@ -9322,9 +9186,6 @@ initializeManualStepActions();
 bindPasswordVisibilityToggles();
 initHotmailListExpandedState();
 initMail2925ListExpandedState();
-if (typeof initAuthVerificationSectionExpandedState === 'function') {
-  initAuthVerificationSectionExpandedState();
-}
 updateSaveButtonState();
 updateConfigMenuControls();
 setLocalCpaStep9Mode(DEFAULT_LOCAL_CPA_STEP9_MODE);

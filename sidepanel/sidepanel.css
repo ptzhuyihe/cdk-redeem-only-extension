@@ -48,7 +48,6 @@ body.upi-only #row-legacyPay-country-code,
 body.upi-only #row-legacyPay-otp,
 body.upi-only #row-legacyPay-pin,
 body.upi-only #removedPaymentWorker-section,
-body.upi-only #auth-verification-section,
 body.upi-only #oauth-status-section {
   display: none !important;
 }
