@@ -745,6 +745,20 @@ const btnAutoStartClose = document.getElementById('btn-auto-start-close');
 const btnAutoStartCancel = document.getElementById('btn-auto-start-cancel');
 const btnAutoStartRestart = document.getElementById('btn-auto-start-restart');
 const btnAutoStartContinue = document.getElementById('btn-auto-start-continue');
+const actionModalService = window.SidepanelActionModalService?.createActionModalService?.({
+  dom: {
+    modal: autoStartModal,
+    title: autoStartTitle,
+    message: autoStartMessage,
+    alert: autoStartAlert,
+    optionRow: modalOptionRow,
+    optionInput: modalOptionInput,
+    optionText: modalOptionText,
+    cancelButton: btnAutoStartCancel,
+    restartButton: btnAutoStartRestart,
+    continueButton: btnAutoStartContinue,
+  },
+});
 const autoHintText = document.querySelector('.auto-hint');
 const stepsList = document.querySelector('.steps-list');
 
@@ -1800,9 +1814,6 @@ let signupPhoneInputFocused = false;
 let signupPhoneInputPersistPromise = null;
 let cloudflareDomainEditMode = false;
 let cloudflareTempEmailDomainEditMode = false;
-let modalChoiceResolver = null;
-let currentModalActions = [];
-let modalResultBuilder = null;
 let activePlusManualConfirmationRequestId = '';
 let plusManualConfirmationDialogInFlight = false;
 let scheduledCountdownTimer = null;
@@ -2282,171 +2293,21 @@ function setOauthLoginCodeDisplay(value = '') {
   displayOauthLoginCode.classList.toggle('has-value', Boolean(normalized));
 }
 
-function resetActionModalOption() {
-  if (!modalOptionRow || !modalOptionInput || !modalOptionText) {
-    return;
-  }
-
-  modalOptionRow.hidden = true;
-  modalOptionInput.checked = false;
-  modalOptionInput.disabled = false;
-  modalOptionText.textContent = '不再提示';
-}
-
-function resetActionModalAlert() {
-  if (!autoStartAlert) {
-    return;
-  }
-
-  autoStartAlert.hidden = true;
-  autoStartAlert.textContent = '';
-  autoStartAlert.className = 'modal-alert';
-}
-
-function setActionModalMessageContent({ text = '', html = '' } = {}) {
-  if (!autoStartMessage) {
-    return;
-  }
-
-  if (html) {
-    autoStartMessage.innerHTML = html;
-    return;
-  }
-
-  autoStartMessage.textContent = text;
-}
-
-function resetActionModalButtons() {
-  const buttons = [btnAutoStartCancel, btnAutoStartRestart, btnAutoStartContinue];
-  buttons.forEach((button) => {
-    if (!button) return;
-    button.hidden = true;
-    button.disabled = false;
-    button.onclick = null;
-  });
-  currentModalActions = [];
-}
-
-function configureActionModalButton(button, action) {
-  if (!button) return;
-  if (!action) {
-    button.hidden = true;
-    button.onclick = null;
-    return;
-  }
-
-  button.hidden = false;
-  button.disabled = false;
-  button.textContent = action.label;
-  button.className = `btn ${action.variant || 'btn-outline'} btn-sm`;
-  button.onclick = () => resolveModalChoice(action.id);
-}
-
-function configureActionModalOption(option) {
-  if (!modalOptionRow || !modalOptionInput || !modalOptionText) {
-    return;
-  }
-
-  if (!option) {
-    resetActionModalOption();
-    return;
-  }
-
-  modalOptionRow.hidden = false;
-  modalOptionInput.checked = Boolean(option.checked);
-  modalOptionInput.disabled = Boolean(option.disabled);
-  modalOptionText.textContent = option.label || '不再提示';
-}
-
-function configureActionModalAlert(alert) {
-  if (!autoStartAlert) {
-    return;
-  }
-
-  if (!alert?.text) {
-    resetActionModalAlert();
-    return;
-  }
-
-  autoStartAlert.hidden = false;
-  autoStartAlert.textContent = alert.text;
-  autoStartAlert.className = `modal-alert${alert.tone === 'danger' ? ' is-danger' : ''}`;
-}
-
 function resolveModalChoice(choice) {
-  const optionChecked = Boolean(modalOptionInput?.checked);
-  const result = typeof modalResultBuilder === 'function'
-    ? modalResultBuilder(choice, { optionChecked })
-    : choice;
-  if (modalChoiceResolver) {
-    modalChoiceResolver(result);
-    modalChoiceResolver = null;
-  }
-  modalResultBuilder = null;
-  resetActionModalButtons();
-  resetActionModalAlert();
-  resetActionModalOption();
-  if (autoStartModal) {
-    autoStartModal.hidden = true;
-  }
+  return actionModalService?.resolveModalChoice?.(choice);
 }
 
 function openActionModal({ title, message, messageHtml, actions, option, alert, buildResult }) {
-  if (!autoStartModal) {
-    return Promise.resolve(null);
-  }
-
-  if (modalChoiceResolver) {
-    resolveModalChoice(null);
-  }
-
-  resetActionModalButtons();
-  autoStartTitle.textContent = title;
-  setActionModalMessageContent({ text: message, html: messageHtml });
-  currentModalActions = actions || [];
-  modalResultBuilder = typeof buildResult === 'function' ? buildResult : null;
-  const buttonSlots = currentModalActions.length <= 2
-    ? [btnAutoStartCancel, btnAutoStartContinue]
-    : [btnAutoStartCancel, btnAutoStartRestart, btnAutoStartContinue];
-  buttonSlots.forEach((button, index) => {
-    configureActionModalButton(button, currentModalActions[index]);
-  });
-  configureActionModalAlert(alert);
-  configureActionModalOption(option);
-  autoStartModal.hidden = false;
-
-  return new Promise((resolve) => {
-    modalChoiceResolver = resolve;
-  });
+  return actionModalService?.openActionModal?.({ title, message, messageHtml, actions, option, alert, buildResult })
+    || Promise.resolve(null);
 }
 
 function openAutoStartChoiceDialog(startStep, options = {}) {
-  const runningStep = Number.isInteger(options.runningStep) ? options.runningStep : null;
-  const continueMessage = runningStep
-    ? `继续当前会先等待步骤 ${runningStep} 完成，再按最新进度自动执行。`
-    : `继续当前会从步骤 ${startStep} 开始自动执行。`;
-  return openActionModal({
-    title: '启动自动',
-    message: `检测到当前已有流程进度。${continueMessage}重新开始会清空当前流程进度并从步骤 1 新开一轮。`,
-    actions: [
-      { id: null, label: '取消', variant: 'btn-ghost' },
-      { id: 'restart', label: '重新开始', variant: 'btn-outline' },
-      { id: 'continue', label: '继续当前', variant: 'btn-primary' },
-    ],
-  });
+  return actionModalService?.openAutoStartChoiceDialog?.(startStep, options) || Promise.resolve(null);
 }
 
 async function openConfirmModal({ title, message, confirmLabel = '确认', confirmVariant = 'btn-primary', alert = null }) {
-  const choice = await openActionModal({
-    title,
-    message,
-    alert,
-    actions: [
-      { id: null, label: '取消', variant: 'btn-ghost' },
-      { id: 'confirm', label: confirmLabel, variant: confirmVariant },
-    ],
-  });
-  return choice === 'confirm';
+  return Boolean(await actionModalService?.openConfirmModal?.({ title, message, confirmLabel, confirmVariant, alert }));
 }
 
 async function openConfirmModalWithOption({
@@ -2460,133 +2321,17 @@ async function openConfirmModalWithOption({
   optionChecked = false,
   optionDisabled = false,
 }) {
-  const result = await openActionModal({
+  return actionModalService?.openConfirmModalWithOption?.({
     title,
     message,
     messageHtml,
+    confirmLabel,
+    confirmVariant,
     alert,
-    actions: [
-      { id: null, label: '取消', variant: 'btn-ghost' },
-      { id: 'confirm', label: confirmLabel, variant: confirmVariant },
-    ],
-    option: {
-      label: optionLabel,
-      checked: optionChecked,
-      disabled: optionDisabled,
-    },
-    buildResult: (choice, meta) => ({
-      choice,
-      optionChecked: Boolean(meta?.optionChecked),
-    }),
-  });
-
-  return {
-    confirmed: result?.choice === 'confirm',
-    optionChecked: Boolean(result?.optionChecked),
-  };
-}
-
-async function openPlusManualConfirmationDialog(options = {}) {
-  const method = String(options.method || '').trim().toLowerCase();
-  if (method === 'legacyWallet-hosted-generic-error') {
-    return openActionModal({
-      title: String(options.title || '').trim() || 'LegacyWallet Checkout 异常',
-      message: String(options.message || '').trim()
-        || 'LegacyWallet Checkout 暂时不可用。请检查 PLUS 是否正常开通，或重新创建 ChatGPT 会话读取。',
-      actions: [
-        { id: 'cancel', label: '取消', variant: 'btn-ghost' },
-        { id: 'check', label: '检查', variant: 'btn-outline' },
-        { id: 'retry', label: '重试', variant: 'btn-primary' },
-      ],
-      alert: { text: '检查会打开 ChatGPT；重试会从创建 ChatGPT 会话读取 重新开始。', tone: 'info' },
-    });
-  }
-  const title = String(options.title || '').trim() || (method === 'legacyPay' ? 'LegacyPay 订阅确认' : '手动确认');
-  const message = String(options.message || '').trim()
-    || (method === 'legacyPay'
-      ? '请在当前订阅页中手动完成 LegacyPay 订阅，完成后点击“我已完成订阅”继续。'
-      : '请先在页面中完成当前手动操作，完成后点击确认继续。');
-  return openActionModal({
-    title,
-    message,
-    actions: [
-      { id: 'cancel', label: '取消等待', variant: 'btn-ghost' },
-      { id: 'confirm', label: '我已完成订阅', variant: 'btn-primary' },
-    ],
-    alert: method === 'legacyPay'
-      ? { text: '确认后流程会直接继续到 Plus 模式第 10 步 OAuth 登录。', tone: 'info' }
-      : null,
-  });
-}
-
-async function syncPlusManualConfirmationDialog() {
-  const requestId = String(latestState?.plusManualConfirmationRequestId || '').trim();
-  const pending = Boolean(latestState?.plusManualConfirmationPending);
-  if (!pending || !requestId || plusManualConfirmationDialogInFlight || activePlusManualConfirmationRequestId === requestId) {
-    return;
-  }
-
-  const step = Number(latestState?.plusManualConfirmationStep) || 0;
-  const method = String(latestState?.plusManualConfirmationMethod || '').trim().toLowerCase();
-  const title = latestState?.plusManualConfirmationTitle;
-  const message = latestState?.plusManualConfirmationMessage;
-  activePlusManualConfirmationRequestId = requestId;
-  plusManualConfirmationDialogInFlight = true;
-  let shouldReopenDialog = false;
-
-  try {
-    const choice = await openPlusManualConfirmationDialog({
-      method,
-      title,
-      message,
-    });
-    const currentRequestId = String(latestState?.plusManualConfirmationRequestId || '').trim();
-    const stillPending = Boolean(latestState?.plusManualConfirmationPending);
-    if (!stillPending || currentRequestId !== requestId) {
-      return;
-    }
-    if (choice == null) {
-      shouldReopenDialog = true;
-      showToast('当前订阅确认仍在等待中，将重新弹出确认窗口。', 'info', 1800);
-      return;
-    }
-
-    const confirmed = choice === 'confirm' || choice === 'retry' || choice === 'check';
-    const response = await chrome.runtime.sendMessage({
-      type: 'RESOLVE_PLUS_MANUAL_CONFIRMATION',
-      source: 'sidepanel',
-      payload: {
-        step,
-        requestId,
-        confirmed,
-        action: choice,
-      },
-    });
-    if (response?.error) {
-      throw new Error(response.error);
-    }
-    if (confirmed) {
-      showToast(method === 'legacyPay' ? 'LegacyPay 订阅已确认，正在继续 OAuth 登录...' : '已确认，流程继续执行中...', 'info', 2200);
-    } else {
-      showToast(method === 'legacyPay' ? '已取消 LegacyPay 订阅等待。' : '已取消当前手动确认。', 'warn', 2200);
-    }
-  } catch (error) {
-    showToast(error?.message || String(error || '未知错误'), 'error');
-  } finally {
-    if (activePlusManualConfirmationRequestId === requestId) {
-      activePlusManualConfirmationRequestId = '';
-    }
-    plusManualConfirmationDialogInFlight = false;
-    if (
-      shouldReopenDialog
-      && latestState?.plusManualConfirmationPending
-      && String(latestState?.plusManualConfirmationRequestId || '').trim() === requestId
-    ) {
-      setTimeout(() => {
-        void syncPlusManualConfirmationDialog();
-      }, 0);
-    }
-  }
+    optionLabel,
+    optionChecked,
+    optionDisabled,
+  }) || { confirmed: false, optionChecked: false };
 }
 
 function isPromptDismissed(storageKey) {

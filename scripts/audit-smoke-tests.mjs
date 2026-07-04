@@ -117,6 +117,7 @@ function checkCoreFiles() {
     'sidepanel/styles/settings.css',
     'sidepanel/styles/cdk-pools.css',
     'sidepanel/styles/account-records.css',
+    'sidepanel/action-modal-service.js',
     'sidepanel/download-service.js',
     'sidepanel/settings-transfer-manager.js',
     'sidepanel/cdk-pool-manager.js',
@@ -171,6 +172,8 @@ function checkStaticContracts() {
   assertIncludes(sidepanelHtml, 'href="styles/settings.css"', 'settings stylesheet load');
   assertIncludes(sidepanelHtml, 'href="styles/cdk-pools.css"', 'CDK pools stylesheet load');
   assertIncludes(sidepanelHtml, 'href="styles/account-records.css"', 'account records stylesheet load');
+  assertIncludes(sidepanelHtml, 'src="action-modal-service.js"', 'action modal service script load');
+  assertIncludes(readText('sidepanel/action-modal-service.js'), 'createActionModalService', 'action modal service factory');
   assertIncludes(downloadService, 'createDownloadService', 'download service factory');
   assertIncludes(downloadService, 'chromeApi.downloads.download', 'download service browser API fallback');
   assertIncludes(settingsTransferManager, 'createSettingsTransferManager', 'settings transfer manager factory');
@@ -297,6 +300,7 @@ function checkModuleSizeGuard() {
   assertFileLineCountAtMost('sidepanel/styles/settings.css', 1800, 'settings stylesheet size guard');
   assertFileLineCountAtMost('sidepanel/styles/cdk-pools.css', 500, 'CDK pools stylesheet size guard');
   assertFileLineCountAtMost('sidepanel/styles/account-records.css', 1200, 'account records stylesheet size guard');
+  assertFileLineCountAtMost('sidepanel/action-modal-service.js', 300, 'action modal service size guard');
   assertFileLineCountAtMost('sidepanel/download-service.js', 500, 'download service size guard');
   assertFileLineCountAtMost('sidepanel/settings-transfer-manager.js', 500, 'settings transfer manager size guard');
   assertFileLineCountAtMost('sidepanel/cdk-pool-manager.js', 700, 'CDK pool manager size guard');
