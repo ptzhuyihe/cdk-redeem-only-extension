@@ -57,6 +57,15 @@ function assertNotMatch(text, pattern, label) {
   }
 }
 
+function assertFileLineCountAtMost(relativePath, maxLines, label) {
+  const text = readText(relativePath);
+  if (!text) return;
+  const lines = text.split(/\r?\n/).length;
+  if (lines > maxLines) {
+    fail(`${label}: ${relativePath} has ${lines} lines, expected <= ${maxLines}`);
+  }
+}
+
 function gitLines(args) {
   try {
     return execFileSync('git', args, { cwd: root, encoding: 'utf8' })
@@ -197,6 +206,15 @@ function checkStaticContracts() {
   assertIncludes(gitignore, '/config.json', 'local config ignore rule');
 }
 
+function checkModuleSizeGuard() {
+  readText('scripts/module-size-report.mjs');
+  assertFileLineCountAtMost('sidepanel/sidepanel.js', 26000, 'sidepanel composition root growth guard');
+  assertFileLineCountAtMost('background.js', 20000, 'background service worker growth guard');
+  assertFileLineCountAtMost('content/signup-page.js', 10000, 'signup content script growth guard');
+  assertFileLineCountAtMost('background/upi-credential-membership-checker.js', 7000, 'membership checker growth guard');
+  assertFileLineCountAtMost('sidepanel/account-records-manager.js', 5600, 'account records manager growth guard');
+}
+
 function checkSensitiveTrackedFiles() {
   const trackedSensitive = gitLines([
     'ls-files',
@@ -227,6 +245,7 @@ checkManifest();
 checkCoreFiles();
 checkSyntax();
 checkStaticContracts();
+checkModuleSizeGuard();
 checkSensitiveTrackedFiles();
 checkDocumentationDrift();
 
