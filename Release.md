@@ -1,5 +1,20 @@
 # Release Notes
 
+## CDK Redeem Only V1.0.1
+
+本版本在 V1.0 基础上补入侧边栏“自动”按钮的邮箱服务判断修复，建议已安装 V1.0 的用户升级。
+
+### 修复
+
+- 修复点击邮箱服务“自动”时报 `isCustomMailProvider is not defined` 的问题。
+- 补回侧边栏前端缺失的 `isCustomMailProvider()`、`isLuckmailProvider()` 和统一 provider 读取 helper。
+- 避免切换自定义邮箱池或 Luckmail 相关 UI 时，因为前端 helper 缺失导致侧边栏红框报错。
+
+### 验证
+
+- 已通过侧边栏语法检查和 smoke 审计。
+- 更新后需要在浏览器扩展管理页重新加载扩展，确保侧边栏加载 V1.0.1 新代码。
+
 ## CDK Redeem Only V1.0
 
 本版本作为 1.0 正式版，汇总近期对主流程、邮箱池、UPI/IDEAL 卡密兑换、配置导入导出和模块清理的完整修复，建议从旧版本直接升级到本版本。
