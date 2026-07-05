@@ -72,6 +72,12 @@ const PLUS_UPI_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   plusModeEnabled: true,
   plusPaymentMethod: 'upi',
 }) || NORMAL_STEP_DEFINITIONS;
+const NO_2FA_FREE_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
+  activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
+  plusModeEnabled: true,
+  plusPaymentMethod: 'upi',
+  registrationFreeRoute: 'no-2fa-free',
+}) || PLUS_UPI_STEP_DEFINITIONS;
 const PLUS_UPI_REDEEM_ONLY_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
   plusModeEnabled: true,
@@ -13881,6 +13887,7 @@ async function acquireTopLevelAuthChainExecution(step, state = {}) {
 
 const normalStepRegistry = buildStepRegistry(NORMAL_STEP_DEFINITIONS);
 const plusUpiStepRegistry = buildStepRegistry(PLUS_UPI_STEP_DEFINITIONS);
+const no2faFreeStepRegistry = buildStepRegistry(NO_2FA_FREE_STEP_DEFINITIONS);
 const localCpaJsonNoRtStepRegistry = buildStepRegistry(LOCAL_CPA_JSON_NO_RT_STEP_DEFINITIONS);
 
 function getStepRegistryForState(state = {}) {
@@ -13893,6 +13900,9 @@ function getStepRegistryForState(state = {}) {
   }
   if (!isPlusModeState(state)) {
     return normalStepRegistry;
+  }
+  if (normalizeRegistrationFreeRoute(state?.registrationFreeRoute) === 'no-2fa-free') {
+    return no2faFreeStepRegistry;
   }
   return plusUpiStepRegistry;
 }

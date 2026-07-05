@@ -1947,16 +1947,26 @@
     function resolveInputCredentials(input = {}) {
       const textCredentials = parseCredentialBackupText(input.text || input.fileContent || '');
       const directCredentials = Array.isArray(input.credentials)
-        ? input.credentials.map((item) => ({
-            email: normalizeEmail(item.email),
-            password: normalizeString(item.password),
-            totpMfaSecret: normalizeTotpSecret(item.totpMfaSecret || item.totpSecret),
-            accessToken: normalizeString(item.accessToken || item.token || item.access_token || item.upiRedeemAccessToken),
-            accessTokenUpdatedAt: normalizeString(item.accessTokenUpdatedAt || item.checkedAt || item.trialEligibilityCheckedAt),
-            checkedAt: normalizeString(item.checkedAt || item.trialEligibilityCheckedAt || item.accessTokenUpdatedAt),
-            status: normalizeString(item.status),
-            planType: normalizePlanType(item.planType),
-          })).filter((item) => item.email)
+        ? input.credentials.map((item) => {
+            const source = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+            const no2faFreeRoute = source.no2faFreeRoute === true;
+            const recordedAt = Math.max(0, Math.floor(Number(source.recordedAt || source.no2faFreeRecordedAt) || 0));
+            return {
+              email: normalizeEmail(source.email),
+              password: no2faFreeRoute ? '' : normalizeString(source.password),
+              gptPassword: no2faFreeRoute ? '' : normalizeString(source.gptPassword || source.password),
+              totpMfaSecret: no2faFreeRoute ? '' : normalizeTotpSecret(source.totpMfaSecret || source.totpSecret),
+              verificationUrl: normalizeString(source.verificationUrl || source.emailVerificationUrl || source.url),
+              recordedAt,
+              no2faFreeRoute,
+              twoFactorEnabled: no2faFreeRoute ? false : (source.twoFactorEnabled === true || Boolean(normalizeTotpSecret(source.totpMfaSecret || source.totpSecret))),
+              accessToken: normalizeString(source.accessToken || source.token || source.access_token || source.upiRedeemAccessToken),
+              accessTokenUpdatedAt: normalizeString(source.accessTokenUpdatedAt || source.checkedAt || source.trialEligibilityCheckedAt),
+              checkedAt: normalizeString(source.checkedAt || source.trialEligibilityCheckedAt || source.accessTokenUpdatedAt),
+              status: normalizeString(source.status),
+              planType: normalizePlanType(source.planType),
+            };
+          }).filter((item) => item.email)
         : [];
       const all = [...directCredentials, ...textCredentials];
       const seen = new Set();

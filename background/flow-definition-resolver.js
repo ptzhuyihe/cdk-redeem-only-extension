@@ -42,6 +42,7 @@
           upiRedeemStopAfterRedeem: Boolean(state?.upiRedeemStopAfterRedeem ?? state?.pixRedeemStopAfterRedeem),
           upiRedeemContinueAfterRedeem: Boolean(state?.upiRedeemContinueAfterRedeem ?? state?.pixRedeemContinueAfterRedeem),
           totpMfaAfterProfileEnabled: state?.totpMfaAfterProfileEnabled !== false,
+          registrationFreeRoute: state?.registrationFreeRoute,
         });
         if (Array.isArray(definitions)) {
           return definitions;
