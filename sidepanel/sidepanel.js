@@ -882,6 +882,21 @@ const DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL = 'http://127.0.0.1:17373';
 const CONTRIBUTION_UPLOAD_URL = '';
 const DEFAULT_AUTH_VERIFICATION_ENABLED = false;
 
+function getMailProviderValue(stateOrProvider = (typeof selectMailProvider !== 'undefined' ? selectMailProvider?.value : undefined)) {
+  const provider = typeof stateOrProvider === 'string'
+    ? stateOrProvider
+    : stateOrProvider?.mailProvider;
+  return String(provider || '').trim().toLowerCase();
+}
+
+function isCustomMailProvider(stateOrProvider = (typeof selectMailProvider !== 'undefined' ? selectMailProvider?.value : undefined)) {
+  return getMailProviderValue(stateOrProvider) === 'custom';
+}
+
+function isLuckmailProvider(stateOrProvider = (typeof selectMailProvider !== 'undefined' ? selectMailProvider?.value : undefined)) {
+  return getMailProviderValue(stateOrProvider) === LUCKMAIL_PROVIDER;
+}
+
 function getManagedAliasUtils() {
   return window.MultiPageManagedAliasUtils || null;
 }
