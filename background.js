@@ -39,6 +39,7 @@ importScripts(
   'background/steps/wait-registration-success.js',
   'background/steps/set-gpt-password.js',
   'background/steps/enable-totp-mfa.js',
+  'background/steps/enable-passkey.js',
   'background/steps/upi-redeem.js',
   'background/steps/no-2fa-free-route.js',
   'data/names.js',
@@ -77,6 +78,12 @@ const NO_2FA_FREE_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   plusModeEnabled: true,
   plusPaymentMethod: 'upi',
   registrationFreeRoute: 'no-2fa-free',
+}) || PLUS_UPI_STEP_DEFINITIONS;
+const PASSKEY_FREE_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
+  activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
+  plusModeEnabled: true,
+  plusPaymentMethod: 'upi',
+  registrationFreeRoute: 'passkey-free',
 }) || PLUS_UPI_STEP_DEFINITIONS;
 const PLUS_UPI_REDEEM_ONLY_STEP_DEFINITIONS = self.MultiPageStepDefinitions?.getSteps?.({
   activeFlowId: DEFAULT_ACTIVE_FLOW_ID,
@@ -1394,7 +1401,13 @@ function normalizePlusPaymentMethod(value = '') {
 
 function normalizeRegistrationFreeRoute(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  return normalized === 'no-2fa-free' ? 'no-2fa-free' : 'full-2fa';
+  if (normalized === 'no-2fa-free') {
+    return 'no-2fa-free';
+  }
+  if (normalized === 'passkey-free') {
+    return 'passkey-free';
+  }
+  return 'full-2fa';
 }
 
 function resolveLegacyAutoStepDelaySeconds(input = {}) {
@@ -3734,6 +3747,10 @@ function normalizeUpiAccountCredentialBackups(value = {}) {
     }
     const password = normalizeCredentialBackupText(record.password || record.gptPassword);
     const totpMfaSecret = normalizeCredentialBackupText(record.totpMfaSecret || record.totpSecret).replace(/\s+/g, '').toUpperCase();
+    const passkeyCredentialId = normalizeCredentialBackupText(record.passkeyCredentialId || record.credentialId || record.credential_id);
+    const passkeyPrivateJwk = record.passkeyPrivateJwk && typeof record.passkeyPrivateJwk === 'object' && !Array.isArray(record.passkeyPrivateJwk)
+      ? record.passkeyPrivateJwk
+      : null;
     normalized[email] = {
       ...record,
       email,
@@ -3744,6 +3761,15 @@ function normalizeUpiAccountCredentialBackups(value = {}) {
       totpMfaSecret,
       totpMfaSecretMasked: normalizeCredentialBackupText(record.totpMfaSecretMasked) || maskCredentialTotpSecret(totpMfaSecret),
       totpMfaEnabledAt: normalizeCredentialBackupText(record.totpMfaEnabledAt),
+      passkeyEnabled: record.passkeyEnabled === true || Boolean(passkeyCredentialId),
+      passkeyEnabledAt: normalizeCredentialBackupText(record.passkeyEnabledAt),
+      passkeyCredentialId,
+      passkeyFactorId: normalizeCredentialBackupText(record.passkeyFactorId || record.factorId || record.factor_id),
+      passkeyRpId: normalizeCredentialBackupText(record.passkeyRpId || record.rpId || record.rp_id),
+      passkeyUserHandle: normalizeCredentialBackupText(record.passkeyUserHandle || record.userHandle || record.user_handle),
+      passkeyPrivateJwk,
+      passkeyPublicKeyCose: normalizeCredentialBackupText(record.passkeyPublicKeyCose || record.publicKeyCose || record.public_key_cose),
+      passkeyApiPersisted: record.passkeyApiPersisted === true || record.persisted === true,
       updatedAt: normalizeCredentialBackupText(record.updatedAt),
     };
   });
@@ -3778,6 +3804,10 @@ async function upsertUpiAccountCredentialBackup(input = {}) {
   const totpMfaSecret = normalizeCredentialBackupText(input.totpMfaSecret ?? input.totpSecret ?? current.totpMfaSecret)
     .replace(/\s+/g, '')
     .toUpperCase();
+  const passkeyCredentialId = normalizeCredentialBackupText(input.passkeyCredentialId ?? input.credentialId ?? current.passkeyCredentialId);
+  const passkeyPrivateJwk = input.passkeyPrivateJwk !== undefined
+    ? input.passkeyPrivateJwk
+    : (current.passkeyPrivateJwk || null);
   const nextRecord = {
     ...current,
     email,
@@ -3789,6 +3819,17 @@ async function upsertUpiAccountCredentialBackup(input = {}) {
     totpMfaSecretMasked: normalizeCredentialBackupText(input.totpMfaSecretMasked || current.totpMfaSecretMasked)
       || maskCredentialTotpSecret(totpMfaSecret),
     totpMfaEnabledAt: normalizeCredentialBackupText(input.totpMfaEnabledAt || current.totpMfaEnabledAt),
+    passkeyEnabled: input.passkeyEnabled === true || current.passkeyEnabled === true || Boolean(passkeyCredentialId),
+    passkeyEnabledAt: normalizeCredentialBackupText(input.passkeyEnabledAt || current.passkeyEnabledAt),
+    passkeyCredentialId,
+    passkeyFactorId: normalizeCredentialBackupText(input.passkeyFactorId ?? input.factorId ?? current.passkeyFactorId),
+    passkeyRpId: normalizeCredentialBackupText(input.passkeyRpId ?? input.rpId ?? current.passkeyRpId),
+    passkeyUserHandle: normalizeCredentialBackupText(input.passkeyUserHandle ?? input.userHandle ?? current.passkeyUserHandle),
+    passkeyPrivateJwk: passkeyPrivateJwk && typeof passkeyPrivateJwk === 'object' && !Array.isArray(passkeyPrivateJwk)
+      ? passkeyPrivateJwk
+      : null,
+    passkeyPublicKeyCose: normalizeCredentialBackupText(input.passkeyPublicKeyCose ?? input.publicKeyCose ?? current.passkeyPublicKeyCose),
+    passkeyApiPersisted: input.passkeyApiPersisted === true || current.passkeyApiPersisted === true,
     sourceStep: normalizeCredentialBackupText(input.sourceStep || current.sourceStep),
     updatedAt,
   };
@@ -13596,6 +13637,23 @@ const totpMfaExecutor = self.MultiPageBackgroundEnableTotpMfa?.createEnableTotpM
   upsertUpiAccountCredentialBackup,
   waitForTabCompleteUntilStopped,
 });
+const passkeyExecutor = self.MultiPageBackgroundEnablePasskey?.createEnablePasskeyExecutor({
+  addLog,
+  appendAccountRunRecord: (...args) => appendAndBroadcastAccountRunRecord(...args),
+  chrome,
+  completeNodeFromBackground,
+  getState,
+  getTabId,
+  isTabAlive,
+  markCurrentRegistrationAccountUsed,
+  registerTab,
+  setState,
+  sleepWithStop,
+  throwIfStopped,
+  checkRegistrationUpiTrialEligibility: (...args) => upiRedeemExecutor.checkRegistrationUpiTrialEligibility(...args),
+  upsertUpiAccountCredentialBackup,
+  waitForTabCompleteUntilStopped,
+});
 let upiCredentialMembershipChecker = null;
 let messageRouter = null;
 const upiRedeemExecutor = self.MultiPageBackgroundUpiRedeem?.createUpiRedeemExecutor({
@@ -13641,6 +13699,7 @@ upiCredentialMembershipChecker = self.MultiPageBackgroundUpiCredentialMembership
   chrome,
   ensureContentScriptReadyOnTabUntilStopped,
   fetchImpl: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+  fetchVerificationCodeOnly: (...args) => verificationFlowHelpers.fetchVerificationCodeOnly(...args),
   getState,
   isTabAlive,
   registerTab,
@@ -13695,6 +13754,7 @@ const stepExecutorsByKey = {
   'local-cpa-json-export': (state) => step6Executor.executeLocalCpaJsonNoRtExport(state),
   'set-gpt-password': (state) => setGptPasswordExecutor.executeSetGptPassword(state),
   'enable-totp-mfa': (state) => totpMfaExecutor.executeEnableTotpMfa(state),
+  'enable-passkey': (state) => passkeyExecutor.executeEnablePasskey(state),
   'persist-no-2fa-free': (state) => no2faFreeRouteExecutor.executeNo2faFreeRoute(state),
   'upi-redeem': (state) => upiRedeemExecutor.executeUpiRedeem(state),
 };
@@ -13889,6 +13949,7 @@ async function acquireTopLevelAuthChainExecution(step, state = {}) {
 const normalStepRegistry = buildStepRegistry(NORMAL_STEP_DEFINITIONS);
 const plusUpiStepRegistry = buildStepRegistry(PLUS_UPI_STEP_DEFINITIONS);
 const no2faFreeStepRegistry = buildStepRegistry(NO_2FA_FREE_STEP_DEFINITIONS);
+const passkeyFreeStepRegistry = buildStepRegistry(PASSKEY_FREE_STEP_DEFINITIONS);
 const localCpaJsonNoRtStepRegistry = buildStepRegistry(LOCAL_CPA_JSON_NO_RT_STEP_DEFINITIONS);
 
 function getStepRegistryForState(state = {}) {
@@ -13902,8 +13963,12 @@ function getStepRegistryForState(state = {}) {
   if (!isPlusModeState(state)) {
     return normalStepRegistry;
   }
-  if (normalizeRegistrationFreeRoute(state?.registrationFreeRoute) === 'no-2fa-free') {
+  const registrationFreeRoute = normalizeRegistrationFreeRoute(state?.registrationFreeRoute);
+  if (registrationFreeRoute === 'no-2fa-free') {
     return no2faFreeStepRegistry;
+  }
+  if (registrationFreeRoute === 'passkey-free') {
+    return passkeyFreeStepRegistry;
   }
   return plusUpiStepRegistry;
 }

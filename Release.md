@@ -1,5 +1,36 @@
 # Release Notes
 
+## CDK Redeem Only V1.0.4
+
+本版本补齐 Passkey Free 路线、登录邮箱验证码补 AT，以及 Free/Plus 兑换显示体验，建议已安装 V1.0.3 的用户升级。
+
+### 新增
+
+- 新增 `Passkey Free 路线`：第 5 步后继续设置 GPT 密码，第 7 步通过 Nerver Passkey API 开通 Passkey，再检测 UPI 试用资格并进入 Free。
+- Free 导入/导出支持 Passkey 文本格式：`邮箱---密码---PASSKEY:credentialId---AT---时间`；Plus Passkey 导出支持 `邮箱----密码---PASSKEY:credentialId---时间`。
+- Free/Plus 列表的 `兑换` 列改为进度条，待兑换、处理中、成功、失败、封存和缺 AT 状态更直观；处理中点击进度条仍可取消远端兑换任务。
+
+### 修复
+
+- 修复 Passkey 路线导入 Free 后，Passkey 字段没有稳定保留，导致导出或补 AT 判断异常的问题。
+- 修复 Passkey Free 账号缺 AT 时，一键补 AT 被错误要求必须有 2FA/Passkey 验证的问题；现在有 GPT 密码即可尝试邮箱+密码登录补 AT。
+- 修复补 AT 登录时遇到 OpenAI 邮箱一次性验证码页面会直接失败的问题；现在会复用自定义邮箱池/Assurivo 第 8 步取码并提交验证码后继续读取 AT。
+- 修复 Free/Plus 账号行下面显示冗长日志说明的问题，详情仍保留在行悬停提示中。
+- 修复侧边栏静态标题仍显示旧版本的问题。
+
+### 验证
+
+- 已通过 `node --check background.js`。
+- 已通过 `node --check background/steps/enable-passkey.js`。
+- 已通过 `node --check background/steps/upi-redeem.js`。
+- 已通过 `node --check background/upi-credential-membership-checker.js`。
+- 已通过 `node --check background/message-router.js`。
+- 已通过 `node --check data/step-definitions.js`。
+- 已通过 `node --check sidepanel/account-records-manager.js`。
+- 已通过 `node --check sidepanel/sidepanel.js`。
+- 已通过补 AT 邮箱验证码 smoke 测试，确认会取邮箱验证码、提交并保存 AT。
+- 更新后需要在浏览器扩展管理页重新加载扩展，确保侧边栏和后台 service worker 加载 V1.0.4 新代码。
+
 ## CDK Redeem Only V1.0.3
 
 本版本修复免 2FA Free 路线、配置导入导出入口和 Free 文本导出细节，建议已安装 V1.0.2 的用户升级。

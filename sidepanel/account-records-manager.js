@@ -217,10 +217,7 @@
     }
 
     function hasUpiCredentialMembershipLoginMaterial(row = {}) {
-      return Boolean(
-        normalizeUpiCredentialMembershipText(row.password)
-        && normalizeUpiCredentialMembershipTotpSecret(row.totpMfaSecret)
-      );
+      return Boolean(normalizeUpiCredentialMembershipText(row.password));
     }
 
     function isManualLoginRetryableUpiCredentialMembershipRow(row = {}) {
@@ -1393,6 +1390,17 @@
       return /^https?:\/\//i.test(normalizeUpiCredentialMembershipText(value));
     }
 
+    function isUpiCredentialMembershipPasskeyMarker(value = '') {
+      return /^PASSKEY(?::|$)/i.test(normalizeUpiCredentialMembershipText(value));
+    }
+
+    function getUpiCredentialMembershipPasskeyCredentialId(value = '') {
+      const marker = normalizeUpiCredentialMembershipText(value);
+      return isUpiCredentialMembershipPasskeyMarker(marker)
+        ? marker.replace(/^PASSKEY:?/i, '').trim()
+        : '';
+    }
+
     function parseUpiCredentialMembershipParts(parts = []) {
       if (parts.length === 4 && isLikelyUpiCredentialMembershipVerificationUrl(parts[1])) {
         const recordedAt = Math.max(0, Math.floor(Number(parts[3]) || Date.parse(normalizeUpiCredentialMembershipText(parts[3])) || Date.now()));
@@ -1408,6 +1416,46 @@
           recordedAt,
           no2faFreeRoute: true,
           twoFactorEnabled: false,
+          source: 'txt',
+        };
+      }
+      if (parts.length >= 3 && isUpiCredentialMembershipPasskeyMarker(parts[2])) {
+        const accessTokenOrTimestamp = parts[3] || '';
+        const explicitTimestamp = parts[4] || '';
+        const fourthPartIsTimestamp = !explicitTimestamp && isLikelyUpiCredentialMembershipTimestamp(accessTokenOrTimestamp);
+        const timestamp = explicitTimestamp || (fourthPartIsTimestamp ? accessTokenOrTimestamp : '');
+        const recordedAt = Math.max(0, Math.floor(Number(timestamp) || Date.parse(normalizeUpiCredentialMembershipText(timestamp)) || Date.now()));
+        return {
+          email: parts[0] || '',
+          password: parts[1] || '',
+          gptPassword: parts[1] || '',
+          totpMfaSecret: '',
+          passkeyEnabled: true,
+          passkeyCredentialId: getUpiCredentialMembershipPasskeyCredentialId(parts[2]),
+          accessToken: fourthPartIsTimestamp ? '' : accessTokenOrTimestamp,
+          accessTokenUpdatedAt: timestamp,
+          checkedAt: timestamp,
+          recordedAt,
+          no2faFreeRoute: false,
+          twoFactorEnabled: true,
+          source: 'txt',
+        };
+      }
+      if (parts.length >= 5 && isLikelyUpiCredentialMembershipVerificationUrl(parts[3])) {
+        const timestamp = parts[5] || '';
+        const recordedAt = Math.max(0, Math.floor(Number(timestamp) || Date.parse(normalizeUpiCredentialMembershipText(timestamp)) || Date.now()));
+        return {
+          email: parts[0] || '',
+          password: parts[1] || '',
+          gptPassword: parts[1] || '',
+          totpMfaSecret: parts[2] || '',
+          verificationUrl: parts[3] || '',
+          accessToken: parts[4] || '',
+          accessTokenUpdatedAt: timestamp,
+          checkedAt: timestamp,
+          recordedAt,
+          no2faFreeRoute: false,
+          twoFactorEnabled: true,
           source: 'txt',
         };
       }
@@ -1445,6 +1493,10 @@
       const accessToken = accessTokenIsTimestamp ? '' : rawAccessToken;
       const accessTokenUpdatedAt = rawAccessTokenUpdatedAt || (accessTokenIsTimestamp ? rawAccessToken : '');
       const no2faFreeRoute = source.no2faFreeRoute === true;
+      const passkeyCredentialId = normalizeUpiCredentialMembershipText(source.passkeyCredentialId || source.credentialId || source.credential_id || '');
+      const passkeyEnabled = no2faFreeRoute ? false : (
+        source.passkeyEnabled === true || Boolean(passkeyCredentialId)
+      );
       return {
         ...source,
         email,
@@ -1464,7 +1516,22 @@
         verificationUrl: normalizeUpiCredentialMembershipText(source.verificationUrl || source.emailVerificationUrl || source.url || ''),
         recordedAt: Math.max(0, Math.floor(Number(source.recordedAt || source.no2faFreeRecordedAt) || 0)),
         no2faFreeRoute,
-        twoFactorEnabled: no2faFreeRoute ? false : (source.twoFactorEnabled === true || Boolean(normalizeUpiCredentialMembershipTotpSecret(source.totpMfaSecret || source.totpSecret || source.twoFactorSecret || ''))),
+        passkeyEnabled,
+        passkeyCredentialId,
+        passkeyEnabledAt: normalizeUpiCredentialMembershipText(source.passkeyEnabledAt || ''),
+        passkeyFactorId: normalizeUpiCredentialMembershipText(source.passkeyFactorId || source.factorId || source.factor_id || ''),
+        passkeyRpId: normalizeUpiCredentialMembershipText(source.passkeyRpId || source.rpId || source.rp_id || ''),
+        passkeyUserHandle: normalizeUpiCredentialMembershipText(source.passkeyUserHandle || source.userHandle || source.user_handle || ''),
+        passkeyPrivateJwk: source.passkeyPrivateJwk && typeof source.passkeyPrivateJwk === 'object' && !Array.isArray(source.passkeyPrivateJwk)
+          ? source.passkeyPrivateJwk
+          : null,
+        passkeyPublicKeyCose: normalizeUpiCredentialMembershipText(source.passkeyPublicKeyCose || source.publicKeyCose || source.public_key_cose || ''),
+        passkeyApiPersisted: source.passkeyApiPersisted === true || source.persisted === true,
+        twoFactorEnabled: no2faFreeRoute
+          ? false
+          : (source.twoFactorEnabled === true
+            || Boolean(normalizeUpiCredentialMembershipTotpSecret(source.totpMfaSecret || source.totpSecret || source.twoFactorSecret || ''))
+            || passkeyEnabled),
         accessToken,
         accessTokenMasked: accessToken ? normalizeUpiCredentialMembershipText(source.accessTokenMasked || '') : '',
         accessTokenUpdatedAt,
@@ -1485,6 +1552,44 @@
         accessToken: '',
         accessTokenMasked: '',
         accessTokenUpdatedAt: accessToken,
+      };
+    }
+
+    function mergeUpiCredentialMembershipDisplayCredentialResult(credential = {}, result = {}) {
+      const sourceCredential = credential && typeof credential === 'object' && !Array.isArray(credential) ? credential : {};
+      const sourceResult = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+      const credentialPasskeyCredentialId = normalizeUpiCredentialMembershipText(
+        sourceCredential.passkeyCredentialId || sourceCredential.credentialId || sourceCredential.credential_id
+      );
+      const resultPasskeyCredentialId = normalizeUpiCredentialMembershipText(
+        sourceResult.passkeyCredentialId || sourceResult.credentialId || sourceResult.credential_id
+      );
+      const credentialHasPasskey = sourceCredential.passkeyEnabled === true || Boolean(credentialPasskeyCredentialId);
+      const resultHasPasskey = sourceResult.passkeyEnabled === true || Boolean(resultPasskeyCredentialId);
+      const passkeyPatch = credentialHasPasskey && !resultHasPasskey
+        ? {
+          passkeyEnabled: true,
+          passkeyEnabledAt: normalizeUpiCredentialMembershipText(sourceCredential.passkeyEnabledAt),
+          passkeyCredentialId: credentialPasskeyCredentialId,
+          passkeyFactorId: normalizeUpiCredentialMembershipText(sourceCredential.passkeyFactorId || sourceCredential.factorId || sourceCredential.factor_id),
+          passkeyRpId: normalizeUpiCredentialMembershipText(sourceCredential.passkeyRpId || sourceCredential.rpId || sourceCredential.rp_id),
+          passkeyUserHandle: normalizeUpiCredentialMembershipText(sourceCredential.passkeyUserHandle || sourceCredential.userHandle || sourceCredential.user_handle),
+          passkeyPrivateJwk: sourceCredential.passkeyPrivateJwk && typeof sourceCredential.passkeyPrivateJwk === 'object' && !Array.isArray(sourceCredential.passkeyPrivateJwk)
+            ? sourceCredential.passkeyPrivateJwk
+            : null,
+          passkeyPublicKeyCose: normalizeUpiCredentialMembershipText(sourceCredential.passkeyPublicKeyCose || sourceCredential.publicKeyCose || sourceCredential.public_key_cose),
+          passkeyApiPersisted: sourceCredential.passkeyApiPersisted === true || sourceCredential.persisted === true,
+          twoFactorEnabled: true,
+        }
+        : {};
+      return {
+        ...sourceCredential,
+        ...sourceResult,
+        ...(normalizeUpiCredentialMembershipText(sourceResult.password) ? {} : {
+          password: normalizeUpiCredentialMembershipText(sourceCredential.password),
+          gptPassword: normalizeUpiCredentialMembershipText(sourceCredential.gptPassword || sourceCredential.password),
+        }),
+        ...passkeyPatch,
       };
     }
 
@@ -1565,9 +1670,10 @@
           reason: 'Free 分组账号，有试用资格',
         };
         const row = applyUpiRedeemSuccessMembershipPatch(sanitizeUpiCredentialMembershipDisplayRow({
-          ...credential,
-          ...fallbackFreeResult,
-          ...storedResult,
+          ...mergeUpiCredentialMembershipDisplayCredentialResult(credential, {
+            ...fallbackFreeResult,
+            ...storedResult,
+          }),
           email,
           source: credential.source || upiCredentialMembershipPoolSource || results.source || '',
           enabled: !disabledUpiCredentialMembershipEmails.has(email),
@@ -1775,6 +1881,126 @@
         label: row.enabled === false ? '停用' : '待核验',
         detail: row.source === 'txt' ? 'TXT 导入' : '本地备份',
       };
+    }
+
+    function clampRedeemProgressPercent(value = 0) {
+      const percent = Math.floor(Number(value) || 0);
+      return Math.max(0, Math.min(100, percent));
+    }
+
+    function getUpiCredentialMembershipRedeemProgressMeta(row = {}, results = getUpiCredentialMembershipCheckResults()) {
+      const rowEmail = normalizeUpiCredentialMembershipEmail(row.email);
+      const currentEmail = normalizeUpiCredentialMembershipEmail(results.flowStageEmail);
+      const status = String(row.status || '').trim().toLowerCase();
+      const redeemStatus = normalizeUpiRedeemRemoteStatus(row.redeemStatus || '');
+      const reason = normalizeUpiCredentialMembershipText(row.redeemReason || row.reason);
+      const isCurrentRedeemRow = Boolean(results.redeeming && rowEmail && currentEmail && rowEmail === currentEmail);
+      const activeRedeemStatus = isActiveUpiRedeemRemoteStatus(redeemStatus) || isCurrentRedeemRow;
+      const channel = normalizeRedeemChannel(row.redeemChannel || row.channel || row.paymentChannel || 'upi');
+      const channelLabel = getRedeemChannelLabel(channel);
+
+      if (row.enabled === false) {
+        return {
+          percent: 0,
+          label: '停用',
+          className: 'is-muted',
+          title: '当前账号已停用，不参与兑换。',
+        };
+      }
+      if (status === 'paid') {
+        return {
+          percent: 100,
+          label: '100%',
+          className: 'is-success',
+          title: `${channelLabel} 兑换已完成。`,
+        };
+      }
+      if (isUpiCredentialMembershipRedeemLocked(row)) {
+        return {
+          percent: 100,
+          label: '封存',
+          className: 'is-failed',
+          title: getUpiCredentialMembershipRedeemLockReason(row),
+        };
+      }
+      if (redeemStatus === 'failed' || status === 'failed') {
+        return {
+          percent: 100,
+          label: '失败',
+          className: 'is-failed',
+          title: reason || '兑换失败。',
+        };
+      }
+      if (redeemStatus === 'canceled' || redeemStatus === 'cancelled') {
+        return {
+          percent: 0,
+          label: '取消',
+          className: 'is-muted',
+          title: reason || '兑换已取消。',
+        };
+      }
+      if (activeRedeemStatus) {
+        const statusProgress = {
+          queued: 18,
+          pending: 24,
+          pending_token: 32,
+          pending_dispatch: 44,
+          dispatching: 52,
+          dispatched: 62,
+          submitted: 68,
+          accepted: 70,
+          running: 76,
+          redeeming: 78,
+          processing: 82,
+          in_progress: 82,
+        };
+        const percent = clampRedeemProgressPercent(statusProgress[redeemStatus] || (isCurrentRedeemRow ? 36 : 50));
+        return {
+          percent,
+          label: `${percent}%`,
+          className: 'is-running',
+          running: true,
+          title: reason || `${channelLabel} 兑换处理中。`,
+        };
+      }
+      if (!normalizeUpiCredentialMembershipText(row.accessToken)) {
+        return {
+          percent: 0,
+          label: '缺AT',
+          className: 'is-muted',
+          title: '缺少 AT，无法兑换。',
+        };
+      }
+      return {
+        percent: 0,
+        label: '0%',
+        className: 'is-idle',
+        title: reason || `${channelLabel} 待兑换。`,
+      };
+    }
+
+    function renderUpiCredentialMembershipRedeemProgress(row = {}, progress = {}, cancelRedeemControl = {}) {
+      const email = normalizeUpiCredentialMembershipEmail(row.email);
+      const percent = clampRedeemProgressPercent(progress.percent);
+      const className = [
+        'upi-membership-redeem-progress',
+        progress.className || 'is-idle',
+        progress.running ? 'is-running' : '',
+      ].filter(Boolean).join(' ');
+      const title = cancelRedeemControl.visible
+        ? cancelRedeemControl.title
+        : (progress.title || '兑换进度');
+      const content = `
+        <span class="upi-membership-redeem-progress-track" aria-hidden="true">
+          <span class="upi-membership-redeem-progress-bar"></span>
+        </span>
+        <span class="upi-membership-redeem-progress-label">${escapeHtml(progress.label || `${percent}%`)}</span>
+      `;
+      const commonAttrs = `class="${escapeHtml(className)}" style="--redeem-progress:${escapeHtml(String(percent))}%;" title="${escapeHtml(title)}"`;
+      if (cancelRedeemControl.visible) {
+        return `<button ${commonAttrs} type="button" data-upi-membership-cancel-redeem="${escapeHtml(email)}" data-upi-membership-cancel-cdkey="${escapeHtml(cancelRedeemControl.cdkey)}" data-upi-membership-cancel-channel="${escapeHtml(cancelRedeemControl.channel || 'upi')}" ${cancelRedeemControl.disabled ? 'disabled' : ''} aria-label="${escapeHtml(title)}">${content}</button>`;
+      }
+      return `<span ${commonAttrs} role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeHtml(String(percent))}">${content}</span>`;
     }
 
     function normalizeTrialEligibilityStatus(value = '') {
@@ -2326,6 +2552,7 @@
               ? '正在兑换或等待远端结果，不能删除；请先取消对应 CDK 任务。'
               : '删除';
             const cancelRedeemControl = getUpiCredentialMembershipRedeemCancelControl(row, results);
+            const redeemProgress = getUpiCredentialMembershipRedeemProgressMeta(row, results);
             const singleActionTitle = isFreeGroup
               ? '点击重新核验该账号资格'
               : '点击检测该账号是否已开通 Plus/Pro/Team';
@@ -2348,12 +2575,9 @@
                 <button class="icloud-tag upi-membership-check-status-action ${escapeHtml(meta.className)}" type="button" data-upi-membership-check-one="${escapeHtml(email)}" ${disableSingleCheck ? 'disabled' : ''} aria-label="${escapeHtml(singleActionAria)}" title="${escapeHtml(singleActionTitle)}">${escapeHtml(meta.label)}</button>
                 <button class="icloud-tag upi-membership-check-login-action" type="button" data-upi-membership-login="${escapeHtml(email)}" ${disableLogin ? 'disabled' : ''} title="登录">登录</button>
                 <button class="icloud-tag upi-membership-check-move-action" type="button" data-upi-membership-move-group="${escapeHtml(email)}" data-upi-membership-move-target="${escapeHtml(targetMoveStatus)}" ${mutatingBusy ? 'disabled' : ''}>${escapeHtml(moveLabel)}</button>
-                ${cancelRedeemControl.visible
-                  ? `<button class="icloud-tag warn upi-membership-check-cancel-redeem-action" type="button" data-upi-membership-cancel-redeem="${escapeHtml(email)}" data-upi-membership-cancel-cdkey="${escapeHtml(cancelRedeemControl.cdkey)}" data-upi-membership-cancel-channel="${escapeHtml(cancelRedeemControl.channel || 'upi')}" ${cancelRedeemControl.disabled ? 'disabled' : ''} title="${escapeHtml(cancelRedeemControl.title)}">取消</button>`
-                  : '<span class="upi-membership-check-action-placeholder"></span>'}
+                ${renderUpiCredentialMembershipRedeemProgress(row, redeemProgress, cancelRedeemControl)}
                 <button class="icloud-tag danger upi-membership-check-delete-action" type="button" data-upi-membership-delete="${escapeHtml(email)}" data-upi-membership-delete-channel="${escapeHtml(deleteChannel)}" ${disableDelete ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">删除</button>
               </div>
-              ${meta.detail ? `<div class="upi-membership-check-detail">${escapeHtml(meta.detail)}</div>` : ''}
             `;
           }).join('') : `<div class="upi-membership-check-empty">${escapeHtml(`${group === 'free' ? 'Free' : getRedeemChannelLabel(group === 'paid-ideal' ? 'ideal' : 'upi') + ' Plus'} 分组暂无账号`)}</div>`}
         </div>
@@ -3182,10 +3406,24 @@
     }
 
     function buildUpiCredentialMembershipRedeemCredential(row = {}) {
+      const passkeyCredentialId = normalizeUpiCredentialMembershipText(row.passkeyCredentialId || row.credentialId || row.credential_id);
+      const passkeyEnabled = row.passkeyEnabled === true || Boolean(passkeyCredentialId);
       return {
         email: normalizeUpiCredentialMembershipEmail(row.email),
         password: normalizeUpiCredentialMembershipText(row.password),
+        gptPassword: normalizeUpiCredentialMembershipText(row.gptPassword || row.password),
         totpMfaSecret: normalizeUpiCredentialMembershipTotpSecret(row.totpMfaSecret),
+        passkeyEnabled,
+        passkeyEnabledAt: normalizeUpiCredentialMembershipText(row.passkeyEnabledAt),
+        passkeyCredentialId,
+        passkeyFactorId: normalizeUpiCredentialMembershipText(row.passkeyFactorId || row.factorId || row.factor_id),
+        passkeyRpId: normalizeUpiCredentialMembershipText(row.passkeyRpId || row.rpId || row.rp_id),
+        passkeyUserHandle: normalizeUpiCredentialMembershipText(row.passkeyUserHandle || row.userHandle || row.user_handle),
+        passkeyPrivateJwk: row.passkeyPrivateJwk && typeof row.passkeyPrivateJwk === 'object' && !Array.isArray(row.passkeyPrivateJwk)
+          ? row.passkeyPrivateJwk
+          : null,
+        passkeyPublicKeyCose: normalizeUpiCredentialMembershipText(row.passkeyPublicKeyCose || row.publicKeyCose || row.public_key_cose),
+        passkeyApiPersisted: row.passkeyApiPersisted === true || row.persisted === true,
         accessToken: normalizeUpiCredentialMembershipText(row.accessToken),
         accessTokenUpdatedAt: normalizeUpiCredentialMembershipText(row.accessTokenUpdatedAt || row.checkedAt),
         checkedAt: normalizeUpiCredentialMembershipText(row.checkedAt || row.accessTokenUpdatedAt),
@@ -3205,11 +3443,25 @@
     }
 
     function buildUpiCredentialMembershipActionCredential(row = {}) {
+      const passkeyCredentialId = normalizeUpiCredentialMembershipText(row.passkeyCredentialId || row.credentialId || row.credential_id);
+      const passkeyEnabled = row.passkeyEnabled === true || Boolean(passkeyCredentialId);
       return {
         ...row,
         email: normalizeUpiCredentialMembershipEmail(row.email),
         password: normalizeUpiCredentialMembershipText(row.password),
+        gptPassword: normalizeUpiCredentialMembershipText(row.gptPassword || row.password),
         totpMfaSecret: normalizeUpiCredentialMembershipTotpSecret(row.totpMfaSecret),
+        passkeyEnabled,
+        passkeyEnabledAt: normalizeUpiCredentialMembershipText(row.passkeyEnabledAt),
+        passkeyCredentialId,
+        passkeyFactorId: normalizeUpiCredentialMembershipText(row.passkeyFactorId || row.factorId || row.factor_id),
+        passkeyRpId: normalizeUpiCredentialMembershipText(row.passkeyRpId || row.rpId || row.rp_id),
+        passkeyUserHandle: normalizeUpiCredentialMembershipText(row.passkeyUserHandle || row.userHandle || row.user_handle),
+        passkeyPrivateJwk: row.passkeyPrivateJwk && typeof row.passkeyPrivateJwk === 'object' && !Array.isArray(row.passkeyPrivateJwk)
+          ? row.passkeyPrivateJwk
+          : null,
+        passkeyPublicKeyCose: normalizeUpiCredentialMembershipText(row.passkeyPublicKeyCose || row.publicKeyCose || row.public_key_cose),
+        passkeyApiPersisted: row.passkeyApiPersisted === true || row.persisted === true,
         accessToken: normalizeUpiCredentialMembershipText(row.accessToken),
         accessTokenUpdatedAt: normalizeUpiCredentialMembershipText(row.accessTokenUpdatedAt || row.checkedAt),
         checkedAt: normalizeUpiCredentialMembershipText(row.checkedAt || row.accessTokenUpdatedAt),
@@ -3843,10 +4095,20 @@
             upiCredentialMembershipCheckResults: mergeManualFreeMembershipOverridesIntoResults(response.results),
           });
         }
+        const skippedReason = Array.isArray(response?.skipped) && response.skipped.length
+          ? normalizeUpiCredentialMembershipText(response.skipped[0]?.reason || '')
+          : '';
+        const failedReason = Array.isArray(response?.failed) && response.failed.length
+          ? normalizeUpiCredentialMembershipText(response.failed[0]?.reason || '')
+          : '';
+        const detailText = [
+          skippedReason ? `跳过原因：${skippedReason}` : '',
+          failedReason ? `失败原因：${failedReason}` : '',
+        ].filter(Boolean).join('；');
         helpers.showToast?.(
-          `补充 AT 完成：成功 ${response?.filled?.length || 0}，跳过 ${response?.skipped?.length || 0}，失败 ${response?.failed?.length || 0}。`,
+          `补充 AT 完成：成功 ${response?.filled?.length || 0}，跳过 ${response?.skipped?.length || 0}，失败 ${response?.failed?.length || 0}${detailText ? `。${detailText}` : '。'}`,
           'success',
-          2600
+          4200
         );
       } catch (error) {
         helpers.showToast?.(`补充 AT 失败：${error.message}`, 'error');

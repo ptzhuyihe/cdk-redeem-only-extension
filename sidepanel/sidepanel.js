@@ -559,6 +559,7 @@ const DEFAULT_ACTIVE_FLOW_ID = 'openai';
 const DEFAULT_TOTP_MFA_AFTER_PROFILE_ENABLED = true;
 const REGISTRATION_FREE_ROUTE_FULL_2FA = 'full-2fa';
 const REGISTRATION_FREE_ROUTE_NO_2FA = 'no-2fa-free';
+const REGISTRATION_FREE_ROUTE_PASSKEY = 'passkey-free';
 const DEFAULT_REGISTRATION_FREE_ROUTE = REGISTRATION_FREE_ROUTE_FULL_2FA;
 const DEFAULT_SET_GPT_PASSWORD_VERIFICATION_WAIT_SECONDS = 10;
 const SET_GPT_PASSWORD_VERIFICATION_WAIT_MAX_SECONDS = 300;
@@ -603,7 +604,7 @@ let SKIPPABLE_STEPS = new Set(STEP_IDS);
 let NODE_IDS = workflowNodes.map((node) => String(node.nodeId || '').trim()).filter(Boolean);
 let NODE_DEFAULT_STATUSES = Object.fromEntries(NODE_IDS.map((nodeId) => [nodeId, 'pending']));
 let SKIPPABLE_NODES = new Set(NODE_IDS);
-const INDEPENDENT_EXECUTE_NODES = new Set(['enable-totp-mfa']);
+const INDEPENDENT_EXECUTE_NODES = new Set(['enable-totp-mfa', 'enable-passkey']);
 const AUTO_DELAY_MIN_MINUTES = 1;
 const AUTO_DELAY_MAX_MINUTES = 1440;
 const AUTO_DELAY_DEFAULT_MINUTES = 30;
@@ -4893,9 +4894,13 @@ function getSelectedTotpMfaAfterProfileEnabled(state = latestState) {
 
 function normalizeRegistrationFreeRoute(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  return normalized === REGISTRATION_FREE_ROUTE_NO_2FA
-    ? REGISTRATION_FREE_ROUTE_NO_2FA
-    : REGISTRATION_FREE_ROUTE_FULL_2FA;
+  if (normalized === REGISTRATION_FREE_ROUTE_NO_2FA) {
+    return REGISTRATION_FREE_ROUTE_NO_2FA;
+  }
+  if (normalized === REGISTRATION_FREE_ROUTE_PASSKEY) {
+    return REGISTRATION_FREE_ROUTE_PASSKEY;
+  }
+  return REGISTRATION_FREE_ROUTE_FULL_2FA;
 }
 
 function getSelectedRegistrationFreeRoute(state = latestState) {

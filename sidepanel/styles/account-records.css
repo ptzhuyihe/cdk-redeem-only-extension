@@ -726,7 +726,7 @@
 
 .upi-membership-check-status-header {
   display: grid;
-  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 64px 64px);
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 92px 64px);
   gap: 8px;
   align-items: center;
   color: var(--text-muted);
@@ -763,7 +763,7 @@
 
 .upi-membership-check-item {
   display: grid;
-  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 64px 64px);
+  grid-template-columns: var(--upi-membership-check-columns, 46px minmax(128px, 1fr) 116px 58px 86px 92px 64px);
   gap: 8px;
   align-items: center;
   border: 1px solid var(--border);
@@ -837,6 +837,106 @@
 .upi-membership-check-action-placeholder {
   min-height: 1px;
   cursor: default;
+}
+
+.upi-membership-redeem-progress {
+  --redeem-progress: 0%;
+  --redeem-progress-color: var(--blue);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  width: 88px;
+  height: 22px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--redeem-progress-color) 36%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-base) 76%, var(--redeem-progress-color));
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+button.upi-membership-redeem-progress {
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+button.upi-membership-redeem-progress:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.upi-membership-redeem-progress-track {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-base) 88%, var(--redeem-progress-color));
+}
+
+.upi-membership-redeem-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--redeem-progress);
+  min-width: 0;
+  background: color-mix(in srgb, var(--redeem-progress-color) 72%, white);
+  transition: width 0.25s ease;
+}
+
+.upi-membership-redeem-progress-label {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 1px color-mix(in srgb, var(--bg-base) 70%, transparent);
+}
+
+.upi-membership-redeem-progress.is-idle {
+  --redeem-progress-color: var(--blue);
+  color: var(--text-secondary);
+}
+
+.upi-membership-redeem-progress.is-running {
+  --redeem-progress-color: var(--orange);
+}
+
+.upi-membership-redeem-progress.is-running .upi-membership-redeem-progress-bar {
+  min-width: 18%;
+}
+
+.upi-membership-redeem-progress.is-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.26) 45%, transparent 72%);
+  animation: upi-membership-redeem-progress-sweep 1.25s linear infinite;
+}
+
+.upi-membership-redeem-progress.is-success {
+  --redeem-progress-color: var(--green);
+}
+
+.upi-membership-redeem-progress.is-failed {
+  --redeem-progress-color: var(--red);
+}
+
+.upi-membership-redeem-progress.is-muted {
+  --redeem-progress-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+@keyframes upi-membership-redeem-progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .upi-membership-check-status-action:hover:not(:disabled) {

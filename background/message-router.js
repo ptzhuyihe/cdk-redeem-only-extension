@@ -3170,8 +3170,12 @@
             await setState({ emailPrefix: message.payload.emailPrefix });
           }
           const manualEnableTotpUseCurrentSession = message.source === 'sidepanel' && nodeId === 'enable-totp-mfa';
-          if (manualEnableTotpUseCurrentSession) {
-            await setState({ manualEnableTotpUseCurrentSession: true });
+          const manualEnablePasskeyUseCurrentSession = message.source === 'sidepanel' && nodeId === 'enable-passkey';
+          if (manualEnableTotpUseCurrentSession || manualEnablePasskeyUseCurrentSession) {
+            await setState({
+              manualEnableTotpUseCurrentSession: manualEnableTotpUseCurrentSession ? true : null,
+              manualEnablePasskeyUseCurrentSession: manualEnablePasskeyUseCurrentSession ? true : null,
+            });
           }
           try {
             await executeNodeForManualChain(nodeId);
@@ -3189,8 +3193,11 @@
               }
             }
           } finally {
-            if (manualEnableTotpUseCurrentSession) {
-              await setState({ manualEnableTotpUseCurrentSession: null });
+            if (manualEnableTotpUseCurrentSession || manualEnablePasskeyUseCurrentSession) {
+              await setState({
+                manualEnableTotpUseCurrentSession: null,
+                manualEnablePasskeyUseCurrentSession: null,
+              });
             }
           }
           return { ok: true };

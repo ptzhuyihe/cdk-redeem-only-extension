@@ -210,6 +210,89 @@
     ].join(':');
   }
 
+  function isPasskeyExportMarker(value = '') {
+    return /^PASSKEY(?::|$)/i.test(normalizeString(value));
+  }
+
+  function getPasskeyCredentialIdFromExportMarker(value = '') {
+    const marker = normalizeString(value);
+    return isPasskeyExportMarker(marker)
+      ? marker.replace(/^PASSKEY:?/i, '').trim()
+      : '';
+  }
+
+  function buildPasskeyExportMarker(item = {}) {
+    const credentialId = normalizeString(item.passkeyCredentialId || item.credentialId || item.credential_id);
+    return credentialId ? `PASSKEY:${credentialId}` : 'PASSKEY';
+  }
+
+  function hasPasskeyCredential(item = {}) {
+    return item.passkeyEnabled === true
+      || Boolean(normalizeString(item.passkeyCredentialId || item.credentialId || item.credential_id));
+  }
+
+  function mergeCredentialAuthMaterial(primary = {}, fallback = {}) {
+    const target = primary && typeof primary === 'object' && !Array.isArray(primary) ? { ...primary } : {};
+    const source = fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {};
+    const sourcePassword = normalizeString(source.password || source.gptPassword);
+    if (!normalizeString(target.password || target.gptPassword) && sourcePassword) {
+      target.password = sourcePassword;
+      target.gptPassword = normalizeString(source.gptPassword || source.password) || sourcePassword;
+    } else if (!normalizeString(target.gptPassword) && normalizeString(target.password)) {
+      target.gptPassword = normalizeString(target.password);
+    }
+
+    const sourceTotp = normalizeTotpSecret(source.totpMfaSecret || source.totpSecret);
+    if (!normalizeTotpSecret(target.totpMfaSecret || target.totpSecret) && sourceTotp) {
+      target.totpMfaSecret = sourceTotp;
+      target.twoFactorEnabled = true;
+      target.no2faFreeRoute = false;
+    }
+
+    const sourcePasskeyCredentialId = normalizeString(source.passkeyCredentialId || source.credentialId || source.credential_id);
+    const sourceHasPasskey = source.passkeyEnabled === true || Boolean(sourcePasskeyCredentialId);
+    if (sourceHasPasskey) {
+      const targetPasskeyCredentialId = normalizeString(target.passkeyCredentialId || target.credentialId || target.credential_id);
+      target.passkeyEnabled = true;
+      target.passkeyCredentialId = targetPasskeyCredentialId || sourcePasskeyCredentialId;
+      target.passkeyEnabledAt = normalizeString(target.passkeyEnabledAt || source.passkeyEnabledAt);
+      target.passkeyFactorId = normalizeString(target.passkeyFactorId || source.passkeyFactorId || source.factorId || source.factor_id);
+      target.passkeyRpId = normalizeString(target.passkeyRpId || source.passkeyRpId || source.rpId || source.rp_id);
+      target.passkeyUserHandle = normalizeString(target.passkeyUserHandle || source.passkeyUserHandle || source.userHandle || source.user_handle);
+      if (!target.passkeyPrivateJwk && source.passkeyPrivateJwk && typeof source.passkeyPrivateJwk === 'object' && !Array.isArray(source.passkeyPrivateJwk)) {
+        target.passkeyPrivateJwk = source.passkeyPrivateJwk;
+      }
+      target.passkeyPublicKeyCose = normalizeString(target.passkeyPublicKeyCose || source.passkeyPublicKeyCose || source.publicKeyCose || source.public_key_cose);
+      target.passkeyApiPersisted = target.passkeyApiPersisted === true || source.passkeyApiPersisted === true || source.persisted === true;
+      target.twoFactorEnabled = true;
+      target.no2faFreeRoute = false;
+    }
+
+    if (!normalizeString(target.accessToken || target.token || target.access_token) && normalizeString(source.accessToken || source.token || source.access_token || source.upiRedeemAccessToken)) {
+      target.accessToken = normalizeString(source.accessToken || source.token || source.access_token || source.upiRedeemAccessToken);
+      target.accessTokenUpdatedAt = normalizeString(source.accessTokenUpdatedAt || source.checkedAt || target.accessTokenUpdatedAt);
+      target.checkedAt = normalizeString(target.checkedAt || source.checkedAt || source.accessTokenUpdatedAt);
+    }
+    if (!normalizeString(target.verificationUrl || target.emailVerificationUrl || target.url) && normalizeString(source.verificationUrl || source.emailVerificationUrl || source.url)) {
+      target.verificationUrl = normalizeString(source.verificationUrl || source.emailVerificationUrl || source.url);
+    }
+    if (!Math.floor(Number(target.recordedAt || target.no2faFreeRecordedAt) || 0) && Math.floor(Number(source.recordedAt || source.no2faFreeRecordedAt) || 0)) {
+      target.recordedAt = Math.floor(Number(source.recordedAt || source.no2faFreeRecordedAt) || 0);
+    }
+    return target;
+  }
+
+  function isResultItemPasskeyExportableForStatus(item = {}, status = '') {
+    const normalizedStatus = normalizeString(status);
+    if (normalizedStatus !== 'free' && normalizedStatus !== 'paid') {
+      return false;
+    }
+    if (!hasPasskeyCredential(item) || !item.email || !item.password) {
+      return false;
+    }
+    return normalizedStatus === 'paid' || Boolean(item.accessToken);
+  }
+
   function getResultItemUpdatedAt(item = {}) {
     return Math.max(
       0,
@@ -949,7 +1032,7 @@
 
   function parseCredentialBackupParts(parts = []) {
     if (parts.length === 4 && isLikelyVerificationUrl(parts[1])) {
-      const recordedAt = Math.max(0, Math.floor(Number(parts[3]) || Date.parse(normalizeString(parts[3])) || Date.now()));
+      const recordedAt = normalizeNo2faFreeExportTimestamp(parts[3]);
       return {
         email: normalizeEmail(parts[0] || ''),
         password: '',
@@ -962,6 +1045,41 @@
         recordedAt,
         no2faFreeRoute: true,
         twoFactorEnabled: false,
+      };
+    }
+    if (parts.length >= 3 && isPasskeyExportMarker(parts[2])) {
+      const accessTokenOrTimestamp = parts[3] || '';
+      const explicitTimestamp = parts[4] || '';
+      const fourthPartIsTimestamp = !explicitTimestamp && isLikelyCredentialTimestamp(accessTokenOrTimestamp);
+      const timestamp = explicitTimestamp || (fourthPartIsTimestamp ? accessTokenOrTimestamp : '');
+      return {
+        email: normalizeEmail(parts[0] || ''),
+        password: normalizeString(parts[1] || ''),
+        totpMfaSecret: '',
+        gptPassword: normalizeString(parts[1] || ''),
+        passkeyEnabled: true,
+        passkeyCredentialId: getPasskeyCredentialIdFromExportMarker(parts[2]),
+        accessToken: fourthPartIsTimestamp ? '' : normalizeString(accessTokenOrTimestamp),
+        accessTokenUpdatedAt: normalizeString(timestamp),
+        checkedAt: normalizeString(timestamp),
+        recordedAt: normalizeNo2faFreeExportTimestamp(timestamp),
+        no2faFreeRoute: false,
+        twoFactorEnabled: true,
+      };
+    }
+    if (parts.length >= 5 && isLikelyVerificationUrl(parts[3])) {
+      const timestamp = parts[5] || '';
+      return {
+        email: normalizeEmail(parts[0] || ''),
+        password: normalizeString(parts[1] || ''),
+        totpMfaSecret: normalizeTotpSecret(parts[2] || ''),
+        verificationUrl: normalizeNo2faFreeVerificationUrlForExport(parts[3] || ''),
+        accessToken: normalizeString(parts[4] || ''),
+        accessTokenUpdatedAt: normalizeString(timestamp),
+        checkedAt: normalizeString(timestamp),
+        recordedAt: normalizeNo2faFreeExportTimestamp(timestamp),
+        no2faFreeRoute: false,
+        twoFactorEnabled: true,
       };
     }
     const accessTokenOrTimestamp = parts[3] || '';
@@ -998,6 +1116,8 @@
           recordedAt,
           no2faFreeRoute,
           twoFactorEnabled,
+          passkeyEnabled,
+          passkeyCredentialId,
         } = parseCredentialBackupParts(parts);
         if (!email) {
           return {
@@ -1009,6 +1129,8 @@
             recordedAt,
             no2faFreeRoute,
             twoFactorEnabled,
+            passkeyEnabled,
+            passkeyCredentialId,
             status: 'failed',
             reason: `第 ${index + 1} 行缺少邮箱`,
           };
@@ -1025,6 +1147,8 @@
           recordedAt,
           no2faFreeRoute,
           twoFactorEnabled,
+          passkeyEnabled,
+          passkeyCredentialId,
           accessTokenUpdatedAt,
           checkedAt: checkedAt || accessTokenUpdatedAt,
         };
@@ -1046,6 +1170,17 @@
         email,
         password: normalizeString(record.password || record.gptPassword || ''),
         totpMfaSecret: normalizeTotpSecret(record.totpMfaSecret || record.totpSecret || ''),
+        passkeyEnabled: record.passkeyEnabled === true || Boolean(normalizeString(record.passkeyCredentialId || record.credentialId || record.credential_id)),
+        passkeyEnabledAt: normalizeString(record.passkeyEnabledAt || ''),
+        passkeyCredentialId: normalizeString(record.passkeyCredentialId || record.credentialId || record.credential_id),
+        passkeyFactorId: normalizeString(record.passkeyFactorId || record.factorId || record.factor_id),
+        passkeyRpId: normalizeString(record.passkeyRpId || record.rpId || record.rp_id),
+        passkeyUserHandle: normalizeString(record.passkeyUserHandle || record.userHandle || record.user_handle),
+        passkeyPrivateJwk: record.passkeyPrivateJwk && typeof record.passkeyPrivateJwk === 'object' && !Array.isArray(record.passkeyPrivateJwk)
+          ? record.passkeyPrivateJwk
+          : null,
+        passkeyPublicKeyCose: normalizeString(record.passkeyPublicKeyCose || record.publicKeyCose || record.public_key_cose),
+        passkeyApiPersisted: record.passkeyApiPersisted === true || record.persisted === true,
         updatedAt: normalizeString(record.updatedAt || ''),
       };
     });
@@ -1064,6 +1199,17 @@
           email,
           password: normalizeString(record.password),
           totpMfaSecret: normalizeTotpSecret(record.totpMfaSecret),
+          passkeyEnabled: record.passkeyEnabled === true,
+          passkeyEnabledAt: normalizeString(record.passkeyEnabledAt),
+          passkeyCredentialId: normalizeString(record.passkeyCredentialId),
+          passkeyFactorId: normalizeString(record.passkeyFactorId),
+          passkeyRpId: normalizeString(record.passkeyRpId),
+          passkeyUserHandle: normalizeString(record.passkeyUserHandle),
+          passkeyPrivateJwk: record.passkeyPrivateJwk && typeof record.passkeyPrivateJwk === 'object' && !Array.isArray(record.passkeyPrivateJwk)
+            ? record.passkeyPrivateJwk
+            : null,
+          passkeyPublicKeyCose: normalizeString(record.passkeyPublicKeyCose),
+          passkeyApiPersisted: record.passkeyApiPersisted === true,
           accessToken: normalizeString(record.accessToken || record.token || record.access_token),
           accessTokenUpdatedAt: normalizeString(record.accessTokenUpdatedAt || record.updatedAt),
         };
@@ -1101,7 +1247,21 @@
       verificationUrl: normalizeString(item.verificationUrl || item.emailVerificationUrl || item.url),
       recordedAt: Math.max(0, Math.floor(Number(item.recordedAt || item.no2faFreeRecordedAt) || 0)),
       no2faFreeRoute: item.no2faFreeRoute === true,
-      twoFactorEnabled: item.twoFactorEnabled === true || Boolean(normalizeTotpSecret(item.totpMfaSecret)),
+      passkeyEnabled: item.passkeyEnabled === true || Boolean(normalizeString(item.passkeyCredentialId || item.credentialId || item.credential_id)),
+      passkeyEnabledAt: normalizeString(item.passkeyEnabledAt),
+      passkeyCredentialId: normalizeString(item.passkeyCredentialId || item.credentialId || item.credential_id),
+      passkeyFactorId: normalizeString(item.passkeyFactorId || item.factorId || item.factor_id),
+      passkeyRpId: normalizeString(item.passkeyRpId || item.rpId || item.rp_id),
+      passkeyUserHandle: normalizeString(item.passkeyUserHandle || item.userHandle || item.user_handle),
+      passkeyPrivateJwk: item.passkeyPrivateJwk && typeof item.passkeyPrivateJwk === 'object' && !Array.isArray(item.passkeyPrivateJwk)
+        ? item.passkeyPrivateJwk
+        : null,
+      passkeyPublicKeyCose: normalizeString(item.passkeyPublicKeyCose || item.publicKeyCose || item.public_key_cose),
+      passkeyApiPersisted: item.passkeyApiPersisted === true || item.persisted === true,
+      twoFactorEnabled: item.twoFactorEnabled === true
+        || Boolean(normalizeTotpSecret(item.totpMfaSecret))
+        || item.passkeyEnabled === true
+        || Boolean(normalizeString(item.passkeyCredentialId || item.credentialId || item.credential_id)),
       status,
       planType: normalizePlanType(item.planType),
       checkedAt: normalizeString(item.checkedAt),
@@ -1296,8 +1456,9 @@
             && item.email
             && item.verificationUrl
             && item.accessToken;
+          const passkeyExportable = isResultItemPasskeyExportableForStatus(item, normalizedStatus);
           const password2faExportable = Boolean(item.email && item.password && item.totpMfaSecret);
-          if (!no2faExportable && !password2faExportable) return false;
+          if (!no2faExportable && !passkeyExportable && !password2faExportable) return false;
         }
         const key = normalizedStatus === 'paid'
           ? `${getResultItemRedeemChannel(item)}:${email}`
@@ -1316,10 +1477,16 @@
             const verificationUrl = normalizeNo2faFreeVerificationUrlForExport(item.verificationUrl);
             return `${item.email}---${verificationUrl}---${item.accessToken || ''}---${timestamp}`;
           }
-          const timestamp = item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '';
+          const timestamp = formatNo2faFreeExportTime(getNo2faFreeExportTimestamp(item));
+          if (item.passkeyEnabled === true && item.password && item.accessToken && !item.totpMfaSecret) {
+            return `${item.email}---${item.password}---${buildPasskeyExportMarker(item)}---${item.accessToken || ''}---${timestamp}`;
+          }
           return `${item.email}---${item.password}---${item.totpMfaSecret}---${item.accessToken || ''}---${timestamp}`;
         }
         const timestamp = item.redeemSuccessAt || item.upiRedeemSubscriptionCheckedAt || item.checkedAt || '';
+        if (item.passkeyEnabled === true && item.password && !item.totpMfaSecret) {
+          return `${item.email}----${item.password}---${buildPasskeyExportMarker(item)}---${timestamp}`;
+        }
         return `${item.email}----${item.password}---${item.totpMfaSecret}---${timestamp}`;
       })
       .filter(Boolean);
@@ -1410,6 +1577,7 @@
       checkUpiRedeemAccessTokenEligibility = null,
       chrome: chromeApi = globalThis.chrome,
       ensureContentScriptReadyOnTabUntilStopped = null,
+      fetchVerificationCodeOnly = null,
       fetchImpl = typeof fetch === 'function' ? fetch.bind(globalThis) : null,
       getState = async () => ({}),
       isTabAlive = async () => true,
@@ -1676,9 +1844,6 @@
       if (!normalizeString(credential.password)) {
         missing.push('GPT 密码');
       }
-      if (!normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret)) {
-        missing.push('2FA');
-      }
       return missing.length ? `缺少 ${missing.join('、')}` : '';
     }
 
@@ -1727,6 +1892,17 @@
           email: normalizeEmail(record.email),
           password: normalizeString(record.password),
           totpMfaSecret: normalizeTotpSecret(record.totpMfaSecret),
+          passkeyEnabled: record.passkeyEnabled === true,
+          passkeyEnabledAt: normalizeString(record.passkeyEnabledAt),
+          passkeyCredentialId: normalizeString(record.passkeyCredentialId),
+          passkeyFactorId: normalizeString(record.passkeyFactorId),
+          passkeyRpId: normalizeString(record.passkeyRpId),
+          passkeyUserHandle: normalizeString(record.passkeyUserHandle),
+          passkeyPrivateJwk: record.passkeyPrivateJwk && typeof record.passkeyPrivateJwk === 'object' && !Array.isArray(record.passkeyPrivateJwk)
+            ? record.passkeyPrivateJwk
+            : null,
+          passkeyPublicKeyCose: normalizeString(record.passkeyPublicKeyCose),
+          passkeyApiPersisted: record.passkeyApiPersisted === true,
           updatedAt: normalizeString(record.updatedAt),
           source: 'local',
         }))
@@ -2041,10 +2217,26 @@
               password: no2faFreeRoute ? '' : normalizeString(source.password),
               gptPassword: no2faFreeRoute ? '' : normalizeString(source.gptPassword || source.password),
               totpMfaSecret: no2faFreeRoute ? '' : normalizeTotpSecret(source.totpMfaSecret || source.totpSecret),
+              passkeyEnabled: no2faFreeRoute ? false : (source.passkeyEnabled === true || Boolean(normalizeString(source.passkeyCredentialId || source.credentialId || source.credential_id))),
+              passkeyEnabledAt: normalizeString(source.passkeyEnabledAt),
+              passkeyCredentialId: normalizeString(source.passkeyCredentialId || source.credentialId || source.credential_id),
+              passkeyFactorId: normalizeString(source.passkeyFactorId || source.factorId || source.factor_id),
+              passkeyRpId: normalizeString(source.passkeyRpId || source.rpId || source.rp_id),
+              passkeyUserHandle: normalizeString(source.passkeyUserHandle || source.userHandle || source.user_handle),
+              passkeyPrivateJwk: source.passkeyPrivateJwk && typeof source.passkeyPrivateJwk === 'object' && !Array.isArray(source.passkeyPrivateJwk)
+                ? source.passkeyPrivateJwk
+                : null,
+              passkeyPublicKeyCose: normalizeString(source.passkeyPublicKeyCose || source.publicKeyCose || source.public_key_cose),
+              passkeyApiPersisted: source.passkeyApiPersisted === true || source.persisted === true,
               verificationUrl: normalizeString(source.verificationUrl || source.emailVerificationUrl || source.url),
               recordedAt,
               no2faFreeRoute,
-              twoFactorEnabled: no2faFreeRoute ? false : (source.twoFactorEnabled === true || Boolean(normalizeTotpSecret(source.totpMfaSecret || source.totpSecret))),
+              twoFactorEnabled: no2faFreeRoute
+                ? false
+                : (source.twoFactorEnabled === true
+                  || Boolean(normalizeTotpSecret(source.totpMfaSecret || source.totpSecret))
+                  || source.passkeyEnabled === true
+                  || Boolean(normalizeString(source.passkeyCredentialId || source.credentialId || source.credential_id))),
               accessToken: normalizeString(source.accessToken || source.token || source.access_token || source.upiRedeemAccessToken),
               accessTokenUpdatedAt: normalizeString(source.accessTokenUpdatedAt || source.checkedAt || source.trialEligibilityCheckedAt),
               checkedAt: normalizeString(source.checkedAt || source.trialEligibilityCheckedAt || source.accessTokenUpdatedAt),
@@ -2156,12 +2348,32 @@
       const nextTotpMfaSecret = no2faFreeRoute
         ? ''
         : normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret || input.totpMfaSecret || input.totpSecret || backupCredential.totpMfaSecret || existingItem.totpMfaSecret);
-      const gptPassword = no2faFreeRoute
-        ? ''
-        : normalizeString(credential.gptPassword || input.gptPassword || credential.password || input.password || backupCredential.password || existingItem.gptPassword || existingItem.password);
-      const hasRedeemField = (key) => (
-        Object.prototype.hasOwnProperty.call(input, key)
-        || Object.prototype.hasOwnProperty.call(credential, key)
+	      const gptPassword = no2faFreeRoute
+	        ? ''
+	        : normalizeString(credential.gptPassword || input.gptPassword || credential.password || input.password || backupCredential.password || existingItem.gptPassword || existingItem.password);
+	      const passkeyCredentialId = normalizeString(
+	        input.passkeyCredentialId
+	        || credential.passkeyCredentialId
+	        || backupCredential.passkeyCredentialId
+	        || existingItem.passkeyCredentialId
+	      );
+	      const passkeyEnabled = no2faFreeRoute ? false : (
+	        input.passkeyEnabled === true
+	        || credential.passkeyEnabled === true
+	        || backupCredential.passkeyEnabled === true
+	        || existingItem.passkeyEnabled === true
+	        || Boolean(passkeyCredentialId)
+	      );
+	      const passkeyPrivateJwk = input.passkeyPrivateJwk !== undefined
+	        ? input.passkeyPrivateJwk
+	        : (
+	          credential.passkeyPrivateJwk !== undefined
+	            ? credential.passkeyPrivateJwk
+	            : (backupCredential.passkeyPrivateJwk || existingItem.passkeyPrivateJwk || null)
+	        );
+	      const hasRedeemField = (key) => (
+	        Object.prototype.hasOwnProperty.call(input, key)
+	        || Object.prototype.hasOwnProperty.call(credential, key)
       );
       const getRedeemField = (key) => (
         Object.prototype.hasOwnProperty.call(input, key) ? input[key] : credential[key]
@@ -2205,11 +2417,22 @@
         password: nextPassword,
         gptPassword,
         totpMfaSecret: nextTotpMfaSecret,
-        verificationUrl,
-        recordedAt,
-        no2faFreeRoute,
-        twoFactorEnabled,
-        status: 'free',
+	        verificationUrl,
+	        recordedAt,
+	        no2faFreeRoute,
+	        twoFactorEnabled,
+	        passkeyEnabled,
+	        passkeyEnabledAt: normalizeString(input.passkeyEnabledAt || credential.passkeyEnabledAt || backupCredential.passkeyEnabledAt || existingItem.passkeyEnabledAt),
+	        passkeyCredentialId,
+	        passkeyFactorId: normalizeString(input.passkeyFactorId || credential.passkeyFactorId || backupCredential.passkeyFactorId || existingItem.passkeyFactorId),
+	        passkeyRpId: normalizeString(input.passkeyRpId || credential.passkeyRpId || backupCredential.passkeyRpId || existingItem.passkeyRpId),
+	        passkeyUserHandle: normalizeString(input.passkeyUserHandle || credential.passkeyUserHandle || backupCredential.passkeyUserHandle || existingItem.passkeyUserHandle),
+	        passkeyPrivateJwk: passkeyPrivateJwk && typeof passkeyPrivateJwk === 'object' && !Array.isArray(passkeyPrivateJwk)
+	          ? passkeyPrivateJwk
+	          : null,
+	        passkeyPublicKeyCose: normalizeString(input.passkeyPublicKeyCose || credential.passkeyPublicKeyCose || backupCredential.passkeyPublicKeyCose || existingItem.passkeyPublicKeyCose),
+	        passkeyApiPersisted: input.passkeyApiPersisted === true || credential.passkeyApiPersisted === true || backupCredential.passkeyApiPersisted === true || existingItem.passkeyApiPersisted === true,
+	        status: 'free',
         planType: 'free',
         checkedAt,
         reason,
@@ -2290,7 +2513,12 @@
       let nextItems = Array.isArray(items) ? [...items] : [];
       credentials.forEach((credential) => {
         const email = normalizeEmail(credential.email);
-        if (!email || nextItems.some((item) => normalizeEmail(item?.email) === email)) {
+        if (!email) {
+          return;
+        }
+        const existingIndex = nextItems.findIndex((item) => normalizeEmail(item?.email) === email);
+        if (existingIndex >= 0) {
+          nextItems[existingIndex] = normalizeResultItem(mergeCredentialAuthMaterial(nextItems[existingIndex], credential));
           return;
         }
         nextItems.push(normalizeResultItem({
@@ -2629,6 +2857,48 @@
         attempts.push(`/totp/lookup: ${getErrorMessage(error)}`);
       }
       throw new Error(`TOTP 取码失败：${attempts.join('；')}`);
+    }
+
+    async function getLoginEmailCodeForCredential({ state, credential, challenge = {}, throwIfStopRequested = null }) {
+      if (typeof fetchVerificationCodeOnly !== 'function') {
+        throw new Error('登录需要邮箱一次性验证码，但邮箱取码能力尚未接入。');
+      }
+      const targetEmail = normalizeEmail(
+        credential.email
+        || state?.step8VerificationTargetEmail
+        || state?.email
+        || challenge.displayedEmail
+      );
+      if (!targetEmail) {
+        throw new Error('登录需要邮箱一次性验证码，但未识别当前登录邮箱。');
+      }
+      if (typeof throwIfStopRequested === 'function') throwIfStopRequested();
+      await addLog(`UPI 备份核验：${targetEmail} 登录需要邮箱一次性验证码，正在通过邮箱取码链接获取验证码。`, 'info');
+      const requestedAt = Math.max(0, Date.now() - (2 * 60 * 1000));
+      const result = await fetchVerificationCodeOnly(8, {
+        ...(state || {}),
+        email: targetEmail,
+        step8VerificationTargetEmail: targetEmail,
+        loginVerificationRequestedAt: state?.loginVerificationRequestedAt || requestedAt,
+      }, null, {
+        targetEmail,
+        completionStep: 8,
+        filterAfterTimestamp: requestedAt,
+        allowExcludedAfterTimestamp: true,
+      });
+      if (typeof throwIfStopRequested === 'function') throwIfStopRequested();
+      if (!result?.handled) {
+        throw new Error(`登录需要邮箱一次性验证码，但未在自定义邮箱池找到 ${targetEmail} 的取码链接。`);
+      }
+      const code = normalizeString(result.code).replace(/[^\d]/g, '');
+      if (!code) {
+        throw new Error(`登录需要邮箱一次性验证码，但邮箱取码暂未返回 ${targetEmail} 的有效验证码。`);
+      }
+      return {
+        ...result,
+        code,
+        source: 'email',
+      };
     }
 
     async function openFreshLoginTab(email) {
@@ -3049,18 +3319,21 @@
       throw new Error(buildLoginFailureReason(snapshot, getErrorMessage(lastError) || '未读取到 ChatGPT session'));
     }
 
-    async function submitLoginTotpOrYieldToSessionRead(tabId, totpCode, credential, options = {}) {
+    async function submitLoginVerificationCodeOrYieldToSessionRead(tabId, verificationCode, credential, options = {}) {
       const throwIfStopRequested = resolveStopChecker(options, 'check');
       const membershipLogLabel = normalizeString(options.membershipLogLabel || '获取/确认 AT') || '获取/确认 AT';
+      const codeLabel = normalizeString(options.codeLabel || '2FA 动态码') || '2FA 动态码';
+      const verificationKind = normalizeVerificationKind(options.verificationKind || 'totp');
       try {
         const codeResult = await sendAuthMessage(tabId, {
           type: 'FILL_CODE',
           step: 8,
           payload: {
-            code: totpCode,
+            code: verificationCode,
             visibleStep: 8,
             purpose: 'login',
             loginIdentifierType: 'email',
+            verificationKind,
             membershipCheck: true,
             membershipLogLabel,
           },
@@ -3071,7 +3344,7 @@
         });
         throwIfStopRequested();
         if (codeResult?.invalidCode) {
-          throw new Error(`2FA 动态码被页面拒绝：${codeResult.errorText || 'Incorrect code'}`);
+          throw new Error(`${codeLabel}被页面拒绝：${codeResult.errorText || 'Incorrect code'}`);
         }
         return null;
       } catch (error) {
@@ -3085,6 +3358,14 @@
         );
         return null;
       }
+    }
+
+    async function submitLoginTotpOrYieldToSessionRead(tabId, totpCode, credential, options = {}) {
+      return submitLoginVerificationCodeOrYieldToSessionRead(tabId, totpCode, credential, {
+        ...options,
+        codeLabel: '2FA 动态码',
+        verificationKind: 'totp',
+      });
     }
 
     async function loginAndReadAccessToken(credential, state, options = {}) {
@@ -3173,37 +3454,63 @@
           return currentSession;
         }
         if (isEmailVerificationChallenge(loginChallenge)) {
-          throw new Error('登录需要邮箱一次性验证码，不能使用 2FA 动态码；请先在网页完成登录验证或换用不触发邮箱验证码的环境后重试。');
-        }
-        if (!isTotpVerificationChallenge(loginChallenge)) {
-          await addLog(
-            `UPI 备份核验：${credential.email} 的登录验证码页类型未明确识别，尝试按 2FA/TOTP 动态码处理。`,
-            'warn'
-          );
-        }
-        await reportStage('totp');
-        const totp = await getTotpCodeForCredential({ state, credential, throwIfStopRequested });
-        await addLog(
-          `UPI 备份核验：已通过${totp.source === 'lookup' ? 'TOTP lookup 兜底接口' : '本地 TOTP'}获取 ${credential.email} 的 6 位码。`,
-          'ok'
-        );
-        throwIfStopRequested();
-        const latestAuthState = await getLoginAuthState(tabId, { throwIfStopRequested });
-        throwIfStopRequested();
-        const latestChallenge = mergeLoginChallengeState(loginChallenge, latestAuthState);
-        if (!hasLoginVerificationChallenge(latestChallenge)) {
-          await addLog(
-            `UPI 备份核验：${credential.email} 的认证页已离开 2FA 输入页，尝试直接读取 ChatGPT 登录态。`,
-            'warn'
-          );
-        } else {
-          if (isEmailVerificationChallenge(latestChallenge)) {
-            throw new Error('登录需要邮箱一次性验证码，不能使用 2FA 动态码；请先在网页完成登录验证或换用不触发邮箱验证码的环境后重试。');
-          }
-          await submitLoginTotpOrYieldToSessionRead(tabId, totp.code, credential, {
+          await reportStage('email-code');
+          const emailCode = await getLoginEmailCodeForCredential({
+            state,
+            credential,
+            challenge: loginChallenge,
+            throwIfStopRequested,
+          });
+          await addLog(`UPI 备份核验：已通过邮箱取码获取 ${credential.email} 的登录一次性验证码。`, 'ok');
+          await submitLoginVerificationCodeOrYieldToSessionRead(tabId, emailCode.code, credential, {
             throwIfStopRequested,
             membershipLogLabel,
+            codeLabel: '邮箱一次性验证码',
+            verificationKind: 'email',
           });
+        } else {
+          if (!isTotpVerificationChallenge(loginChallenge)) {
+            await addLog(
+              `UPI 备份核验：${credential.email} 的登录验证码页类型未明确识别，尝试按 2FA/TOTP 动态码处理。`,
+              'warn'
+            );
+          }
+          await reportStage('totp');
+          const totp = await getTotpCodeForCredential({ state, credential, throwIfStopRequested });
+          await addLog(
+            `UPI 备份核验：已通过${totp.source === 'lookup' ? 'TOTP lookup 兜底接口' : '本地 TOTP'}获取 ${credential.email} 的 6 位码。`,
+            'ok'
+          );
+          throwIfStopRequested();
+          const latestAuthState = await getLoginAuthState(tabId, { throwIfStopRequested });
+          throwIfStopRequested();
+          const latestChallenge = mergeLoginChallengeState(loginChallenge, latestAuthState);
+          if (!hasLoginVerificationChallenge(latestChallenge)) {
+            await addLog(
+              `UPI 备份核验：${credential.email} 的认证页已离开 2FA 输入页，尝试直接读取 ChatGPT 登录态。`,
+              'warn'
+            );
+          } else if (isEmailVerificationChallenge(latestChallenge)) {
+            await reportStage('email-code');
+            const emailCode = await getLoginEmailCodeForCredential({
+              state,
+              credential,
+              challenge: latestChallenge,
+              throwIfStopRequested,
+            });
+            await addLog(`UPI 备份核验：已通过邮箱取码获取 ${credential.email} 的登录一次性验证码。`, 'ok');
+            await submitLoginVerificationCodeOrYieldToSessionRead(tabId, emailCode.code, credential, {
+              throwIfStopRequested,
+              membershipLogLabel,
+              codeLabel: '邮箱一次性验证码',
+              verificationKind: 'email',
+            });
+          } else {
+            await submitLoginTotpOrYieldToSessionRead(tabId, totp.code, credential, {
+              throwIfStopRequested,
+              membershipLogLabel,
+            });
+          }
         }
       }
 
@@ -4527,15 +4834,19 @@
           throwIfMembershipStopRequested('check');
           const email = normalizeEmail(credential.email);
           const existingItem = items.find((item) => normalizeEmail(item?.email) === email) || {};
-          const activeCredential = normalizeResultItem({
+          let activeCredential = normalizeResultItem({
             ...existingItem,
             ...credential,
             email,
             status: 'free',
             planType: 'free',
           });
-          if (!activeCredential.password || !activeCredential.totpMfaSecret) {
-            const reason = !activeCredential.password ? '缺少 GPT 密码，无法补充 AT' : '缺少 2FA 密钥，无法补充 AT';
+          const backupCredential = await findBackupCredentialByEmail(email);
+          if (backupCredential?.email) {
+            activeCredential = normalizeResultItem(mergeCredentialAuthMaterial(activeCredential, backupCredential));
+          }
+          if (!activeCredential.password) {
+            const reason = '缺少 GPT 密码，无法补充 AT';
             skipped.push({ email, reason });
             items = upsertResultItem(items, {
               ...activeCredential,
@@ -4544,6 +4855,9 @@
             await saveProgress('token', email);
             await addLog(`UPI Free 分组补充 AT：${email} -> 跳过：${reason}`, 'warn');
             continue;
+          }
+          if (!normalizeTotpSecret(activeCredential.totpMfaSecret || activeCredential.totpSecret) && !hasPasskeyCredential(activeCredential)) {
+            await addLog(`UPI Free 分组补充 AT：${email} -> 未保存 2FA/Passkey，先按邮箱+密码登录；如页面要求验证码会按实际错误返回。`, 'info');
           }
 
           try {
@@ -6484,8 +6798,9 @@
               && item.email
               && item.verificationUrl
               && item.accessToken;
+            const passkeyExportable = isResultItemPasskeyExportableForStatus(item, status);
             const password2faExportable = Boolean(item.email && item.password && item.totpMfaSecret);
-            if (!no2faExportable && !password2faExportable) return false;
+            if (!no2faExportable && !passkeyExportable && !password2faExportable) return false;
           }
           const key = status === 'paid'
             ? `${getResultItemRedeemChannel(item)}:${email}`
@@ -6501,11 +6816,25 @@
           const parts = String(row || '').split(/---+/).map((part) => part.trim());
           return parts.length === 4 && isLikelyVerificationUrl(parts[1]);
         });
+      const allFreeRowsArePasskey = status === 'free'
+        && rows.length > 0
+        && rows.every((row) => {
+          const parts = String(row || '').split(/---+/).map((part) => part.trim());
+          return parts.length >= 4 && isPasskeyExportMarker(parts[2]);
+        });
+      const allPaidRowsArePasskey = status === 'paid'
+        && rows.length > 0
+        && rows.every((row) => {
+          const parts = String(row || '').split(/---+/).map((part) => part.trim());
+          return parts.length >= 4 && isPasskeyExportMarker(parts[2]);
+        });
       const nameMap = {
-        paid: 'upi-membership-paid-password-2fa',
-        'paid-upi': 'upi-membership-paid-password-2fa',
-        'paid-ideal': 'ideal-membership-paid-password-2fa',
-        free: allFreeRowsAreNo2fa ? 'upi-membership-free-email-url-at' : 'upi-membership-free-password-2fa',
+        paid: allPaidRowsArePasskey ? 'upi-membership-paid-password-passkey' : 'upi-membership-paid-password-2fa',
+        'paid-upi': allPaidRowsArePasskey ? 'upi-membership-paid-password-passkey' : 'upi-membership-paid-password-2fa',
+        'paid-ideal': allPaidRowsArePasskey ? 'ideal-membership-paid-password-passkey' : 'ideal-membership-paid-password-2fa',
+        free: allFreeRowsAreNo2fa
+          ? 'upi-membership-free-email-url-at'
+          : (allFreeRowsArePasskey ? 'upi-membership-free-password-passkey' : 'upi-membership-free-password-2fa'),
         failed: 'upi-membership-check-failed',
       };
       const deleteResult = rows.length && removeAfterExport

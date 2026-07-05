@@ -620,6 +620,83 @@
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
     }
 
+    function normalizeVerificationUrlForFreeRecord(value = '') {
+      const raw = normalizeString(value);
+      if (!/^https?:\/\//i.test(raw)) {
+        return '';
+      }
+      try {
+        const parsed = new URL(raw);
+        if (
+          parsed.hostname.toLowerCase() === 'assurivo.com'
+          && ['/console/feed.php', '/console/open.php'].includes(parsed.pathname)
+        ) {
+          parsed.pathname = '/console/open.php';
+        }
+        return parsed.toString();
+      } catch {
+        return '';
+      }
+    }
+
+    function getEmailFromVerificationUrl(value = '') {
+      const url = normalizeVerificationUrlForFreeRecord(value);
+      if (!url) return '';
+      try {
+        const parsed = new URL(url);
+        return parsePoolEntryEmail(parsed.searchParams.get('mail') || parsed.searchParams.get('email') || '');
+      } catch {
+        return '';
+      }
+    }
+
+    function getVerificationUrlFromPoolEntry(rawEntry = {}) {
+      const entry = rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry)
+        ? rawEntry
+        : { credential: rawEntry, email: rawEntry };
+      const directUrl = normalizeVerificationUrlForFreeRecord(
+        entry.verificationUrl
+        || entry.emailVerificationUrl
+        || entry.url
+        || entry.fetchUrl
+        || entry.codeUrl
+        || entry.queryUrl
+        || ''
+      );
+      if (directUrl) return directUrl;
+      const parts = normalizeString(entry.credential || entry.email || '').split(/-{3,}/).map((part) => part.trim());
+      return parts.map((part) => normalizeVerificationUrlForFreeRecord(part)).find(Boolean) || '';
+    }
+
+    function getEmailFromPoolEntry(rawEntry = {}) {
+      const entry = rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry)
+        ? rawEntry
+        : { credential: rawEntry, email: rawEntry };
+      const directEmail = parsePoolEntryEmail(entry.email || entry.mail || entry.address || '');
+      if (directEmail) return directEmail;
+      const verificationUrl = getVerificationUrlFromPoolEntry(entry);
+      const urlEmail = getEmailFromVerificationUrl(verificationUrl);
+      if (urlEmail) return urlEmail;
+      return parsePoolEntryEmail(entry.credential || '');
+    }
+
+    function resolveVerificationUrlFromEmailPool(state = {}, email = '') {
+      const normalizedEmail = parsePoolEntryEmail(email);
+      if (!normalizedEmail) return '';
+      const entries = [
+        ...(Array.isArray(state.customEmailPoolEntries) ? state.customEmailPoolEntries : []),
+        ...splitPoolEntrySource(state.customEmailPool),
+      ];
+      for (const entry of entries) {
+        if (getEmailFromPoolEntry(entry) !== normalizedEmail) {
+          continue;
+        }
+        const verificationUrl = getVerificationUrlFromPoolEntry(entry);
+        if (verificationUrl) return verificationUrl;
+      }
+      return '';
+    }
+
     function resolveCurrentRedeemEmail(state = {}, sessionState = {}) {
       const candidates = [
         sessionState.email,
@@ -723,8 +800,9 @@
 
     function buildCurrentUpiCredentialForMembership(state = {}, email = '') {
       const no2faFreeRoute = state.no2faFreeRoute === true;
+      const resolvedEmail = parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(state, {});
       return {
-        email: parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(state, {}),
+        email: resolvedEmail,
         password: no2faFreeRoute ? '' : normalizeString(
           state.password
           || state.gptPassword
@@ -747,7 +825,7 @@
           || state.currentVerificationUrl
           || state.currentEmailVerificationUrl
           || ''
-        ),
+        ) || resolveVerificationUrlFromEmailPool(state, resolvedEmail),
         recordedAt: Math.max(0, Math.floor(Number(state.recordedAt || state.no2faFreeRecordedAt) || 0)),
         twoFactorEnabled: no2faFreeRoute ? false : (state.twoFactorEnabled === true || Boolean(state.totpMfaSecret || state.totpSecret)),
         no2faFreeRoute,
@@ -3115,12 +3193,21 @@
           verificationUrl: normalizeString(patch.verificationUrl || runtimeState.verificationUrl || runtimeState.emailVerificationUrl || ''),
           recordedAt: Math.max(0, Math.floor(Number(patch.recordedAt || runtimeState.recordedAt || runtimeState.no2faFreeRecordedAt) || Date.now())),
           twoFactorEnabled: patch.twoFactorEnabled === true || runtimeState.twoFactorEnabled === true,
-          no2faFreeRoute: patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true,
-          gptPassword: (patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true)
-            ? ''
-            : normalizeString(patch.gptPassword || runtimeState.gptPassword || runtimeState.password || ''),
-          resetRedeemState: true,
-        });
+	          no2faFreeRoute: patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true,
+	          gptPassword: (patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true)
+	            ? ''
+	            : normalizeString(patch.gptPassword || runtimeState.gptPassword || runtimeState.password || ''),
+	          passkeyEnabled: patch.passkeyEnabled === true || runtimeState.passkeyEnabled === true,
+	          passkeyEnabledAt: normalizeString(patch.passkeyEnabledAt || runtimeState.passkeyEnabledAt),
+	          passkeyCredentialId: normalizeString(patch.passkeyCredentialId || runtimeState.passkeyCredentialId),
+	          passkeyFactorId: normalizeString(patch.passkeyFactorId || runtimeState.passkeyFactorId),
+	          passkeyRpId: normalizeString(patch.passkeyRpId || runtimeState.passkeyRpId),
+	          passkeyUserHandle: normalizeString(patch.passkeyUserHandle || runtimeState.passkeyUserHandle),
+	          passkeyPrivateJwk: patch.passkeyPrivateJwk || runtimeState.passkeyPrivateJwk || null,
+	          passkeyPublicKeyCose: normalizeString(patch.passkeyPublicKeyCose || runtimeState.passkeyPublicKeyCose),
+	          passkeyApiPersisted: patch.passkeyApiPersisted === true || runtimeState.passkeyApiPersisted === true,
+	          resetRedeemState: true,
+	        });
         const persistedFreeResults = await ensureTrialEligibleFreeCredentialPersisted(freeResults, email, visibleStep);
         await addStepLog(
           visibleStep,
