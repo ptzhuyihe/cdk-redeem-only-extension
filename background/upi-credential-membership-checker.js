@@ -126,6 +126,90 @@
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
+  function normalizeNo2faFreeVerificationUrlForExport(value = '') {
+    const raw = normalizeString(value);
+    if (!/^https?:\/\//i.test(raw)) {
+      return raw;
+    }
+    try {
+      const url = new URL(raw);
+      if (
+        url.hostname.toLowerCase() === 'assurivo.com'
+        && ['/console/feed.php', '/console/open.php'].includes(url.pathname)
+      ) {
+        url.pathname = '/console/open.php';
+        return url.toString();
+      }
+      return url.toString();
+    } catch {
+      return raw;
+    }
+  }
+
+  function normalizeNo2faFreeExportTimestamp(value = '', fallback = 0) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return Math.floor(numeric > 1000000000000 ? numeric / 1000 : numeric);
+    }
+    const parsed = Date.parse(normalizeString(value));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed / 1000);
+    }
+    const fallbackNumber = Number(fallback);
+    if (Number.isFinite(fallbackNumber) && fallbackNumber > 0) {
+      return Math.floor(fallbackNumber > 1000000000000 ? fallbackNumber / 1000 : fallbackNumber);
+    }
+    return Math.floor(Date.now() / 1000);
+  }
+
+  function decodeJwtPayload(token = '') {
+    const rawPayload = normalizeString(token).split('.')[1] || '';
+    if (!rawPayload) {
+      return null;
+    }
+    try {
+      const padded = rawPayload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(rawPayload.length / 4) * 4, '=');
+      const json = typeof atob === 'function'
+        ? atob(padded)
+        : Buffer.from(padded, 'base64').toString('utf8');
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  }
+
+  function getAccessTokenIssuedAtSeconds(token = '') {
+    const payload = decodeJwtPayload(token);
+    const issuedAt = Number(payload?.iat);
+    return Number.isFinite(issuedAt) && issuedAt > 0 ? normalizeNo2faFreeExportTimestamp(issuedAt, 0) : 0;
+  }
+
+  function getNo2faFreeExportTimestamp(item = {}) {
+    const accessTokenIssuedAt = getAccessTokenIssuedAtSeconds(item.accessToken);
+    if (accessTokenIssuedAt > 0) {
+      return accessTokenIssuedAt;
+    }
+    return normalizeNo2faFreeExportTimestamp(
+      item.recordedAt,
+      Date.parse(item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '')
+    );
+  }
+
+  function formatNo2faFreeExportTime(timestampSeconds = 0) {
+    const seconds = normalizeNo2faFreeExportTimestamp(timestampSeconds);
+    const date = new Date((seconds * 1000) + (8 * 60 * 60 * 1000));
+    const pad = (value) => String(value).padStart(2, '0');
+    return [
+      date.getUTCFullYear(),
+      pad(date.getUTCMonth() + 1),
+      pad(date.getUTCDate()),
+    ].join('-') + ' ' + [
+      pad(date.getUTCHours()),
+      pad(date.getUTCMinutes()),
+      pad(date.getUTCSeconds()),
+    ].join(':');
+  }
+
   function getResultItemUpdatedAt(item = {}) {
     return Math.max(
       0,
@@ -1228,8 +1312,9 @@
         }
         if (normalizedStatus === 'free') {
           if (item.no2faFreeRoute === true && item.verificationUrl && item.accessToken) {
-            const timestamp = Math.max(0, Math.floor(Number(item.recordedAt) || Date.parse(item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '') || Date.now()));
-            return `${item.email}---${item.verificationUrl}---${item.accessToken || ''}---${timestamp}`;
+            const timestamp = formatNo2faFreeExportTime(getNo2faFreeExportTimestamp(item));
+            const verificationUrl = normalizeNo2faFreeVerificationUrlForExport(item.verificationUrl);
+            return `${item.email}---${verificationUrl}---${item.accessToken || ''}---${timestamp}`;
           }
           const timestamp = item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '';
           return `${item.email}---${item.password}---${item.totpMfaSecret}---${item.accessToken || ''}---${timestamp}`;

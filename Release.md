@@ -1,5 +1,30 @@
 # Release Notes
 
+## CDK Redeem Only V1.0.3
+
+本版本修复免 2FA Free 路线、配置导入导出入口和 Free 文本导出细节，建议已安装 V1.0.2 的用户升级。
+
+### 修复
+
+- 修复免 2FA Free 路线完成后，自定义邮箱池当前邮箱没有标记为已用的问题；资格通过并写入 Free 后会复用统一账号来源收尾逻辑。
+- 修复侧边栏顶部 `配置` 按钮无法点击的问题；配置菜单、导出配置、导入配置重新绑定到现有配置迁移逻辑。
+- 修复配置入口被自动保存状态误锁的问题；自动运行中仍会锁定导入配置，但导出配置可以等待保存完成后继续。
+- 修复免 2FA Free 导出时，Assurivo `feed.php` 链接未统一为网页 `open.php` 链接的问题。
+- 修复免 2FA Free 导出最后一列使用数字时间戳的问题；现在导出为 `YYYY-MM-DD HH:mm:ss` 具体时间。
+- 修复自定义邮箱池解析对 `邮箱---取码链接---AT---时间`、Assurivo URL 单行格式的兼容问题。
+
+### 验证
+
+- 已通过 `node --check background.js`。
+- 已通过 `node --check background/steps/no-2fa-free-route.js`。
+- 已通过 `node --check background/upi-credential-membership-checker.js`。
+- 已通过 `node --check background/verification-flow.js`。
+- 已通过 `node --check mail-provider-utils.js`。
+- 已通过 `node --check sidepanel/sidepanel.js`。
+- 已通过 `node --check sidepanel/custom-email-pool-manager.js`。
+- 已通过免 2FA Free 路线 smoke 测试，确认成功后会触发邮箱池标记已用。
+- 更新后需要在浏览器扩展管理页重新加载扩展，确保侧边栏和后台 service worker 加载 V1.0.3 新代码。
+
 ## CDK Redeem Only V1.0.2
 
 本版本补入“免 2FA Free 路线”：当官网 2FA 开通不可用时，可以在第 5 步资料页完成后，直接读取邮箱、邮箱取码链接、AT 和时间戳，确认 UPI 试用资格后进入 Free 组。

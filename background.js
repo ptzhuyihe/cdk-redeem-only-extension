@@ -13628,6 +13628,7 @@ const no2faFreeRouteExecutor = self.MultiPageBackgroundNo2faFreeRoute?.createNo2
   completeNodeFromBackground,
   getCustomEmailPoolEntries,
   getState,
+  markCurrentRegistrationAccountUsed,
   readCurrentChatGptSessionForExport,
   setState,
   throwIfStopped,

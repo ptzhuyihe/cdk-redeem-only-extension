@@ -73,15 +73,49 @@
     }
   }
 
+  function getEmailFromVerificationUrl(value = '') {
+    const normalizedUrl = normalizeCustomEmailVerificationUrl(value);
+    if (!normalizedUrl) {
+      return '';
+    }
+    try {
+      const parsed = new URL(normalizedUrl);
+      return String(parsed.searchParams.get('mail') || parsed.searchParams.get('email') || '')
+        .trim()
+        .toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  function getFirstVerificationUrlFromParts(parts = []) {
+    for (const part of parts) {
+      const verificationUrl = normalizeCustomEmailVerificationUrl(part);
+      if (verificationUrl) {
+        return verificationUrl;
+      }
+    }
+    return '';
+  }
+
+  function normalizeEmailAddress(value = '') {
+    const email = String(value || '').trim().toLowerCase();
+    return /^[^\s@:/?#]+@[^\s@:/?#]+\.[^\s@:/?#]+$/.test(email) ? email : '';
+  }
+
   function parseCustomEmailPoolEntryValue(value = '') {
     const raw = String(value || '').trim();
-    const separatorIndex = raw.indexOf('----');
-    const emailSource = separatorIndex >= 0 ? raw.slice(0, separatorIndex) : raw;
-    const suffix = separatorIndex >= 0 ? raw.slice(separatorIndex + 4).trim() : '';
-    const verificationUrl = normalizeCustomEmailVerificationUrl(suffix);
+    const parts = raw.split(/-{3,}/).map((part) => part.trim());
+    const hasSeparator = parts.length > 1;
+    const emailSource = hasSeparator ? parts[0] : raw;
+    const verificationUrl = hasSeparator
+      ? getFirstVerificationUrlFromParts(parts.slice(1))
+      : normalizeCustomEmailVerificationUrl(raw);
+    const urlEmail = getEmailFromVerificationUrl(verificationUrl);
+    const email = normalizeEmailAddress(emailSource) || normalizeEmailAddress(urlEmail);
     return {
-      email: emailSource.trim().toLowerCase(),
-      credential: separatorIndex >= 0 && !verificationUrl ? raw : '',
+      email,
+      credential: hasSeparator && !verificationUrl ? raw : '',
       verificationUrl,
     };
   }

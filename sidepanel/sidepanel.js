@@ -1240,6 +1240,7 @@ let currentReleaseSnapshot = null;
 let currentContributionContentSnapshot = null;
 let contributionContentSnapshotRequestInFlight = null;
 let accountRecordsManager = null;
+let settingsTransferManager = null;
 
 function normalizeAutomationWindowId(value) {
   if (value === null || value === undefined || value === '') {
@@ -1584,13 +1585,23 @@ const normalizeCustomEmailVerificationUrlValue = window.MailProviderUtils?.norma
 const parseCustomEmailPoolEntryValueForSidepanel = window.MailProviderUtils?.parseCustomEmailPoolEntryValue
   || ((value = '') => {
     const raw = String(value || '').trim();
-    const separatorIndex = raw.indexOf('----');
-    const emailSource = separatorIndex >= 0 ? raw.slice(0, separatorIndex) : raw;
-    const suffix = separatorIndex >= 0 ? raw.slice(separatorIndex + 4).trim() : '';
-    const verificationUrl = normalizeCustomEmailVerificationUrlValue(suffix);
+    const parts = raw.split(/-{3,}/).map((part) => part.trim());
+    const hasSeparator = parts.length > 1;
+    const emailSource = hasSeparator ? parts[0] : raw;
+    const verificationUrl = (hasSeparator ? parts.slice(1) : [raw])
+      .map((part) => normalizeCustomEmailVerificationUrlValue(part))
+      .find(Boolean) || '';
+    let urlEmail = '';
+    if (verificationUrl) {
+      try {
+        const parsed = new URL(verificationUrl);
+        urlEmail = String(parsed.searchParams.get('mail') || parsed.searchParams.get('email') || '').trim().toLowerCase();
+      } catch { }
+    }
+    const normalizedEmail = String(emailSource || '').trim().toLowerCase();
     return {
-      email: emailSource.trim().toLowerCase(),
-      credential: separatorIndex >= 0 && !verificationUrl ? raw : '',
+      email: /^[^\s@:/?#]+@[^\s@:/?#]+\.[^\s@:/?#]+$/.test(normalizedEmail) ? normalizedEmail : urlEmail,
+      credential: hasSeparator && !verificationUrl ? raw : '',
       verificationUrl,
     };
   });
@@ -1978,27 +1989,40 @@ async function openAutoRunFallbackRiskConfirmModal(totalRuns) {
 }
 
 function updateConfigMenuControls() {
-  const disabled = configActionInFlight || settingsSaveInFlight;
+  const actionLocked = configActionInFlight;
   const contributionModeEnabled = Boolean(latestState?.contributionMode);
   if (contributionModeEnabled && configMenuOpen) {
     configMenuOpen = false;
   }
-  const importLocked = disabled
+  const importLocked = actionLocked
+    || settingsSaveInFlight
     || contributionModeEnabled
     || currentAutoRun.autoRunning
     || Object.values(getStepStatuses()).some((status) => status === 'running');
   if (btnConfigMenu) {
-    btnConfigMenu.disabled = disabled || contributionModeEnabled;
+    btnConfigMenu.disabled = contributionModeEnabled;
     btnConfigMenu.setAttribute('aria-expanded', String(configMenuOpen));
+    btnConfigMenu.title = contributionModeEnabled ? '贡献模式下暂不可导入导出配置' : '导入或导出配置';
   }
   if (configMenu) {
     configMenu.hidden = contributionModeEnabled || !configMenuOpen;
   }
   if (btnExportSettings) {
-    btnExportSettings.disabled = disabled || contributionModeEnabled;
+    btnExportSettings.disabled = actionLocked || contributionModeEnabled;
   }
   if (btnImportSettings) {
     btnImportSettings.disabled = importLocked;
+  }
+}
+
+function setConfigActionInFlight(value) {
+  configActionInFlight = Boolean(value);
+  updateConfigMenuControls();
+}
+
+function resetImportSettingsFile() {
+  if (inputImportSettingsFile) {
+    inputImportSettingsFile.value = '';
   }
 }
 
@@ -2079,6 +2103,88 @@ async function requestTextFileSaveTarget(fileName, mimeType = 'application/json;
 
 async function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8', options = {}) {
   return getDownloadService().downloadTextFile(content, fileName, mimeType, options);
+}
+
+async function reloadUpiCredentialMembershipAfterRuntimeImport() {
+  await getAccountRecordsManager()?.reloadUpiCredentialMembershipAfterRuntimeImport?.({ silent: true });
+}
+
+function getSettingsTransferManager() {
+  if (settingsTransferManager) {
+    return settingsTransferManager;
+  }
+
+  settingsTransferManager = window.SidepanelSettingsTransferManager?.createSettingsTransferManager?.({
+    controls: {
+      setConfigActionInFlight,
+      updateConfigMenuControls,
+      resetImportSettingsFile,
+    },
+    helpers: {
+      requestTextFileSaveTarget,
+      buildDownloadFileTimestamp,
+      downloadTextFile,
+      closeConfigMenu,
+      flushPendingSettingsBeforeExport,
+      settlePendingSettingsBeforeImport,
+      openConfirmModal,
+      showToast,
+      applySettingsState,
+      reloadUpiCredentialMembershipAfterRuntimeImport,
+      updateStatusDisplay,
+    },
+    runtime: {
+      sendMessage: (message) => chrome.runtime.sendMessage(message),
+    },
+  }) || null;
+
+  return settingsTransferManager;
+}
+
+function bindConfigMenuEvents() {
+  if (btnConfigMenu && btnConfigMenu.dataset.configMenuBound !== 'true') {
+    btnConfigMenu.dataset.configMenuBound = 'true';
+    btnConfigMenu.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (btnConfigMenu.disabled) {
+        return;
+      }
+      toggleConfigMenu();
+    });
+  }
+
+  if (btnExportSettings && btnExportSettings.dataset.configExportBound !== 'true') {
+    btnExportSettings.dataset.configExportBound = 'true';
+    btnExportSettings.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (btnExportSettings.disabled) {
+        return;
+      }
+      void getSettingsTransferManager()?.exportSettingsFile?.();
+    });
+  }
+
+  if (btnImportSettings && btnImportSettings.dataset.configImportBound !== 'true') {
+    btnImportSettings.dataset.configImportBound = 'true';
+    btnImportSettings.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (btnImportSettings.disabled) {
+        return;
+      }
+      inputImportSettingsFile?.click();
+    });
+  }
+
+  if (inputImportSettingsFile && inputImportSettingsFile.dataset.configImportFileBound !== 'true') {
+    inputImportSettingsFile.dataset.configImportFileBound = 'true';
+    inputImportSettingsFile.addEventListener('change', () => {
+      const file = inputImportSettingsFile.files?.[0] || null;
+      void getSettingsTransferManager()?.importSettingsFromFile?.(file);
+    });
+  }
 }
 
 function setCurrentSessionExportButtonsDisabled(disabled) {
@@ -2872,6 +2978,7 @@ function applySettingsState(state = {}) {
   updateAllUpiRedeemCdkeyPoolSummaries(normalizedState);
   renderStepStatuses(latestState);
   updatePanelModeUI();
+  updatePlusModeUI();
   updateMailProviderUI();
   updateButtonStates();
   updateStatusDisplay(latestState);
@@ -10649,6 +10756,7 @@ document.addEventListener('scroll', () => {
 // ============================================================
 
 initializeManualStepActions();
+bindConfigMenuEvents();
 bindAccountRecordEvents();
 bindCustomEmailPoolEvents();
 bindPasswordVisibilityToggles();
@@ -10660,6 +10768,7 @@ setLocalCpaStep9Mode(DEFAULT_LOCAL_CPA_STEP9_MODE);
 setMail2925Mode(DEFAULT_MAIL_2925_MODE);
 setCloudflareTempEmailLookupMode(DEFAULT_CLOUDFLARE_TEMP_EMAIL_LOOKUP_MODE);
 updatePanelModeUI();
+updatePlusModeUI();
 updateMailProviderUI();
 updateButtonStates();
 initializeReleaseInfo().catch((err) => {
@@ -10671,6 +10780,7 @@ void restoreState().then(async () => {
   syncVpsPasswordToggleLabel();
   syncPasswordVisibilityToggles();
   updatePanelModeUI();
+  updatePlusModeUI();
   updateButtonStates();
   updateStatusDisplay(latestState);
   return refreshContributionContentHint()

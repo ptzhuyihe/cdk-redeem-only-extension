@@ -44,19 +44,29 @@
         return utilsParser(value);
       }
       const raw = String(value || '').trim();
-      const separatorIndex = raw.indexOf('----');
-      const emailSource = separatorIndex >= 0 ? raw.slice(0, separatorIndex) : raw;
-      const suffix = separatorIndex >= 0 ? raw.slice(separatorIndex + 4).trim() : '';
-      const verificationUrl = normalizeVerificationUrl(suffix);
+      const parts = raw.split(/-{3,}/).map((part) => part.trim());
+      const hasSeparator = parts.length > 1;
+      const emailSource = hasSeparator ? parts[0] : raw;
+      const verificationUrl = (hasSeparator ? parts.slice(1) : [raw])
+        .map((part) => normalizeVerificationUrl(part))
+        .find(Boolean) || '';
+      let urlEmail = '';
+      if (verificationUrl) {
+        try {
+          const parsed = new URL(verificationUrl);
+          urlEmail = String(parsed.searchParams.get('mail') || parsed.searchParams.get('email') || '').trim().toLowerCase();
+        } catch { }
+      }
+      const normalizedEmail = normalizeEmail(emailSource);
       return {
-        email: normalizeEmail(emailSource),
-        credential: separatorIndex >= 0 && !verificationUrl ? raw : '',
+        email: isValidEmail(normalizedEmail) ? normalizedEmail : urlEmail,
+        credential: hasSeparator && !verificationUrl ? raw : '',
         verificationUrl,
       };
     }
 
     function isValidEmail(value = '') {
-      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+      return /^[^\s@:/?#]+@[^\s@:/?#]+\.[^\s@:/?#]+$/.test(normalizeEmail(value));
     }
 
     function createEntryId() {
