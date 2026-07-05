@@ -922,6 +922,30 @@ function isManagedAliasEmail(value, baseEmail = '', provider = selectMailProvide
   return false;
 }
 
+function getSelectedEmailGenerator() {
+  const generator = String(selectEmailGenerator?.value || '').trim().toLowerCase();
+  if (generator === 'custom' || generator === 'manual') {
+    return 'custom';
+  }
+  if (generator === GMAIL_ALIAS_GENERATOR) {
+    return GMAIL_ALIAS_GENERATOR;
+  }
+  if (generator === CUSTOM_EMAIL_POOL_GENERATOR) {
+    return CUSTOM_EMAIL_POOL_GENERATOR;
+  }
+  if (generator === 'icloud') {
+    return 'icloud';
+  }
+  if (generator === 'cloudflare') return 'cloudflare';
+  if (generator === CLOUDFLARE_TEMP_EMAIL_PROVIDER) return CLOUDFLARE_TEMP_EMAIL_PROVIDER;
+  if (generator === CLOUD_MAIL_PROVIDER) return CLOUD_MAIL_PROVIDER;
+  if (generator === FREEMAIL_PROVIDER) return FREEMAIL_PROVIDER;
+  if (generator === MOEMAIL_GENERATOR) return MOEMAIL_GENERATOR;
+  if (generator === YYDSMAIL_GENERATOR) return YYDSMAIL_GENERATOR;
+  if (generator === OUTLOOK_EMAIL_PLUS_GENERATOR) return OUTLOOK_EMAIL_PLUS_GENERATOR;
+  return 'duck';
+}
+
 function getManagedAliasProviderUiCopy(provider = selectMailProvider.value, mail2925Mode = getSelectedMail2925Mode()) {
   if (!isManagedAliasProvider(provider, mail2925Mode)) {
     return null;
@@ -2640,6 +2664,116 @@ function applySettingsState(state = {}) {
   if (selectAccountAccessStrategy) {
     selectAccountAccessStrategy.value = getAccountAccessStrategyUiValueForState(normalizedState);
   }
+  const restoredMailProvider = (
+    typeof normalizeSupportedMailProvider === 'function'
+      ? normalizeSupportedMailProvider
+      : ((value = '') => String(value || '').trim().toLowerCase())
+  )(normalizedState?.mailProvider);
+  if (selectMailProvider) {
+    selectMailProvider.value = restoredMailProvider;
+  }
+  setMail2925Mode(normalizedState?.mail2925Mode);
+  if (selectEmailGenerator) {
+    const cloudflareTempEmailProvider = typeof CLOUDFLARE_TEMP_EMAIL_PROVIDER === 'string'
+      ? CLOUDFLARE_TEMP_EMAIL_PROVIDER
+      : 'cloudflare-temp-email';
+    const freemailProvider = typeof FREEMAIL_PROVIDER === 'string'
+      ? FREEMAIL_PROVIDER
+      : 'freemail';
+    const moemailProvider = typeof MOEMAIL_PROVIDER === 'string'
+      ? MOEMAIL_PROVIDER
+      : 'moemail';
+    const yydsmailProvider = typeof YYDSMAIL_PROVIDER === 'string'
+      ? YYDSMAIL_PROVIDER
+      : 'yydsmail';
+    const outlookEmailPlusProvider = typeof OUTLOOK_EMAIL_PLUS_PROVIDER === 'string'
+      ? OUTLOOK_EMAIL_PLUS_PROVIDER
+      : 'outlook-email-plus';
+    const outlookEmailPlusGenerator = typeof OUTLOOK_EMAIL_PLUS_GENERATOR === 'string'
+      ? OUTLOOK_EMAIL_PLUS_GENERATOR
+      : 'outlook-email-plus';
+    const gmailProvider = typeof GMAIL_PROVIDER === 'string'
+      ? GMAIL_PROVIDER
+      : 'gmail';
+    const customEmailPoolGenerator = typeof CUSTOM_EMAIL_POOL_GENERATOR === 'string'
+      ? CUSTOM_EMAIL_POOL_GENERATOR
+      : 'custom-pool';
+    const gmailAliasGenerator = typeof GMAIL_ALIAS_GENERATOR === 'string'
+      ? GMAIL_ALIAS_GENERATOR
+      : 'gmail-alias';
+    const restoredEmailGenerator = String(normalizedState?.emailGenerator || '').trim().toLowerCase();
+    if (restoredMailProvider === cloudflareTempEmailProvider) {
+      selectEmailGenerator.value = cloudflareTempEmailProvider;
+    } else if (restoredMailProvider === freemailProvider) {
+      selectEmailGenerator.value = freemailProvider;
+    } else if (restoredMailProvider === moemailProvider) {
+      selectEmailGenerator.value = moemailProvider;
+    } else if (restoredMailProvider === yydsmailProvider) {
+      selectEmailGenerator.value = yydsmailProvider;
+    } else if (restoredMailProvider === outlookEmailPlusProvider) {
+      selectEmailGenerator.value = outlookEmailPlusGenerator;
+    } else if (restoredMailProvider === 'hotmail-api') {
+      selectEmailGenerator.value = 'duck';
+    } else if (restoredMailProvider === gmailProvider) {
+      selectEmailGenerator.value = restoredEmailGenerator === customEmailPoolGenerator
+        ? customEmailPoolGenerator
+        : gmailAliasGenerator;
+    } else if (restoredEmailGenerator === customEmailPoolGenerator) {
+      selectEmailGenerator.value = customEmailPoolGenerator;
+    } else if (restoredEmailGenerator === 'icloud') {
+      selectEmailGenerator.value = 'icloud';
+    } else if (restoredEmailGenerator === 'cloudflare') {
+      selectEmailGenerator.value = 'cloudflare';
+    } else if (restoredEmailGenerator === cloudflareTempEmailProvider) {
+      selectEmailGenerator.value = cloudflareTempEmailProvider;
+    } else if (restoredEmailGenerator === CLOUD_MAIL_PROVIDER) {
+      selectEmailGenerator.value = CLOUD_MAIL_PROVIDER;
+    } else if (restoredEmailGenerator === freemailProvider) {
+      selectEmailGenerator.value = freemailProvider;
+    } else if (restoredEmailGenerator === moemailProvider) {
+      selectEmailGenerator.value = moemailProvider;
+    } else if (restoredEmailGenerator === yydsmailProvider) {
+      selectEmailGenerator.value = yydsmailProvider;
+    } else if (restoredEmailGenerator === outlookEmailPlusGenerator) {
+      selectEmailGenerator.value = outlookEmailPlusGenerator;
+    } else {
+      selectEmailGenerator.value = 'duck';
+    }
+  }
+  if (selectIcloudHostPreference) {
+    const hostPreference = String(normalizedState?.icloudHostPreference || '').trim().toLowerCase();
+    selectIcloudHostPreference.value = hostPreference === 'icloud.com' || hostPreference === 'icloud.com.cn'
+      ? hostPreference
+      : 'auto';
+  }
+  if (selectIcloudFetchMode) {
+    selectIcloudFetchMode.value = normalizeIcloudFetchMode(normalizedState?.icloudFetchMode);
+  }
+  if (selectIcloudTargetMailboxType) {
+    selectIcloudTargetMailboxType.value = normalizeIcloudTargetMailboxType(normalizedState?.icloudTargetMailboxType);
+  }
+  if (selectIcloudForwardMailProvider) {
+    selectIcloudForwardMailProvider.value = normalizeIcloudForwardMailProvider(normalizedState?.icloudForwardMailProvider);
+  }
+  if (inputIcloudApiBaseUrl) {
+    inputIcloudApiBaseUrl.value = normalizeIcloudApiBaseUrlValue(normalizedState?.icloudApiBaseUrl);
+  }
+  if (inputIcloudApiAdminKey) {
+    inputIcloudApiAdminKey.value = normalizedState?.icloudApiAdminKey || '';
+  }
+  if (checkboxAutoDeleteIcloud) {
+    checkboxAutoDeleteIcloud.checked = Boolean(normalizedState?.autoDeleteUsedIcloudAlias);
+  }
+  if (inputMail2925UseAccountPool) {
+    inputMail2925UseAccountPool.checked = Boolean(normalizedState?.mail2925UseAccountPool);
+  }
+  setManagedAliasBaseEmailInputForProvider(restoredMailProvider, normalizedState);
+  if (inputInbucketHost) inputInbucketHost.value = normalizedState?.inbucketHost || '';
+  if (inputInbucketMailbox) inputInbucketMailbox.value = normalizedState?.inbucketMailbox || '';
+  if (inputCustomMailProviderPool) {
+    inputCustomMailProviderPool.value = normalizeCustomEmailPoolEntryValues(normalizedState?.customMailProviderPool).join('\n');
+  }
+  setCustomEmailPoolEntriesState(restoreCustomEmailPoolEntriesFromState(normalizedState));
   if (inputSub2ApiUrl) inputSub2ApiUrl.value = normalizedState.sub2apiUrl || '';
   if (inputSub2ApiEmail) inputSub2ApiEmail.value = normalizedState.sub2apiEmail || '';
   if (inputSub2ApiPassword) inputSub2ApiPassword.value = normalizedState.sub2apiPassword || '';
@@ -2855,12 +2989,20 @@ function updateMailProviderUI() {
   setElementVisible(rowMail2925Mode, use2925);
   setElementVisible(rowMail2925PoolSettings, use2925);
   setElementVisible(rowCustomEmailPool, useCustomPool);
+  if (useCustomPool) {
+    queueCustomEmailPoolRefresh();
+  } else {
+    resetCustomEmailPoolManager();
+  }
   setElementVisible(icloudSection, useIcloud);
   setElementVisible(luckmailSection, useLuckmail);
   setElementVisible(cloudflareTempEmailSection, useCloudflareTempEmail);
   setElementVisible(cloudMailSection, useCloudMail);
   setElementVisible(freemailSection, useFreemail);
   setElementVisible(rowEmailGenerator, !useCustomProvider);
+  if (selectEmailGenerator) {
+    selectEmailGenerator.disabled = useCustomProvider || useLuckmail || provider === 'hotmail-api';
+  }
 
   if (inputIcloudApiBaseUrl) {
     inputIcloudApiBaseUrl.disabled = provider !== ICLOUD_API_PROVIDER;
@@ -2956,15 +3098,112 @@ function renderContributionMode() {
 
 function resetIcloudManager() { }
 function resetLuckmailManager() { }
-function resetCustomEmailPoolManager() { }
 function renderHotmailAccounts() { }
 function renderMail2925Accounts() { }
 function initHotmailListExpandedState() { }
 function initMail2925ListExpandedState() { }
 function queueLuckmailPurchaseRefresh() { }
-function queueCustomEmailPoolRefresh() { }
 function queueIcloudAliasRefresh() { }
 function positionContributionUpdateHint() { }
+
+async function copyTextToClipboard(text) {
+  if (sidepanelUiHelpers?.copyTextToClipboard) {
+    return sidepanelUiHelpers.copyTextToClipboard(text);
+  }
+  const value = String(text || '').trim();
+  if (!value) {
+    throw new Error('没有可复制的内容。');
+  }
+  if (!navigator.clipboard?.writeText) {
+    throw new Error('当前环境不支持剪贴板复制。');
+  }
+  await navigator.clipboard.writeText(value);
+}
+
+let customEmailPoolManager = null;
+
+function getCustomEmailPoolManager() {
+  if (customEmailPoolManager) {
+    return customEmailPoolManager;
+  }
+  customEmailPoolManager = window.SidepanelCustomEmailPoolManager?.createCustomEmailPoolManager?.({
+    dom: {
+      btnCustomEmailPoolRefresh,
+      btnCustomEmailPoolClearUsed,
+      btnCustomEmailPoolDeleteAll,
+      inputCustomEmailPoolImport,
+      btnCustomEmailPoolImport,
+      customEmailPoolSummary,
+      inputCustomEmailPoolSearch,
+      selectCustomEmailPoolFilter,
+      checkboxCustomEmailPoolSelectAll,
+      customEmailPoolSelectionSummary,
+      btnCustomEmailPoolBulkUsed,
+      btnCustomEmailPoolBulkUnused,
+      btnCustomEmailPoolBulkEnable,
+      btnCustomEmailPoolBulkDisable,
+      btnCustomEmailPoolBulkDelete,
+      customEmailPoolList,
+    },
+    helpers: {
+      copyTextToClipboard,
+      escapeHtml,
+      openConfirmModal,
+      showToast,
+    },
+    state: {
+      getEntries: () => getNormalizedCustomEmailPoolEntriesState(),
+      setEntries: (entries) => {
+        setCustomEmailPoolEntriesState(entries);
+      },
+      getCurrentEmail: () => String(inputEmail?.value || latestState?.email || '').trim().toLowerCase(),
+      isVisible: () => Boolean(rowCustomEmailPool) && rowCustomEmailPool.style.display !== 'none',
+    },
+    actions: {
+      persistEntries: async () => {
+        syncRunCountFromConfiguredEmailPool();
+        updateMailProviderUI();
+        await persistCustomEmailPoolSettings();
+      },
+      setRuntimeEmail: async (email) => {
+        const selectedEmail = String(email || '').trim().toLowerCase();
+        await setRuntimeEmailState(selectedEmail);
+        syncLatestState({ email: selectedEmail, selectedCustomEmailPoolEmail: selectedEmail });
+        if (inputEmail) {
+          inputEmail.value = selectedEmail || '';
+        }
+        await persistCustomEmailPoolSettings({
+          email: selectedEmail,
+          selectedCustomEmailPoolEmail: selectedEmail,
+        });
+      },
+    },
+    constants: {
+      copyIcon: COPY_ICON,
+    },
+  }) || null;
+  return customEmailPoolManager;
+}
+
+function queueCustomEmailPoolRefresh() {
+  getCustomEmailPoolManager()?.queueCustomEmailPoolRefresh?.();
+}
+
+async function refreshCustomEmailPoolEntries(options = {}) {
+  await getCustomEmailPoolManager()?.refreshCustomEmailPoolEntries?.(options);
+}
+
+function renderCustomEmailPoolEntries(entries = getNormalizedCustomEmailPoolEntriesState()) {
+  getCustomEmailPoolManager()?.renderCustomEmailPoolEntries?.(entries);
+}
+
+function resetCustomEmailPoolManager() {
+  getCustomEmailPoolManager()?.reset?.();
+}
+
+function bindCustomEmailPoolEvents() {
+  getCustomEmailPoolManager()?.bindEvents?.();
+}
 
 function validateRemovedContactContactConfig() {
   return { valid: true, message: '' };
@@ -10305,6 +10544,7 @@ document.addEventListener('scroll', () => {
 
 initializeManualStepActions();
 bindAccountRecordEvents();
+bindCustomEmailPoolEvents();
 bindPasswordVisibilityToggles();
 initHotmailListExpandedState();
 initMail2925ListExpandedState();
