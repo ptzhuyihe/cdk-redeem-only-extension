@@ -188,6 +188,8 @@ const rowUpiRedeemFailedAccountRetryLimit = document.getElementById('row-upi-red
 const inputUpiRedeemFailedAccountRetryLimit = document.getElementById('input-upi-redeem-failed-account-retry-limit');
 const rowTotpMfaAfterProfileEnabled = document.getElementById('row-totp-mfa-after-profile-enabled');
 const inputTotpMfaAfterProfileEnabled = document.getElementById('input-totp-mfa-after-profile-enabled');
+const rowRegistrationFreeRoute = document.getElementById('row-registration-free-route');
+const selectRegistrationFreeRoute = document.getElementById('select-registration-free-route');
 const rowSetGptPasswordVerificationWaitSeconds = document.getElementById('row-set-gpt-password-verification-wait-seconds');
 const inputSetGptPasswordVerificationWaitSeconds = document.getElementById('input-set-gpt-password-verification-wait-seconds');
 const rowUpiCredentialMembershipTotpApiBaseUrl = document.getElementById('row-upi-credential-membership-totp-api-base-url');
@@ -555,6 +557,9 @@ const SIGNUP_METHOD_EMAIL = 'email';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
 const DEFAULT_ACTIVE_FLOW_ID = 'openai';
 const DEFAULT_TOTP_MFA_AFTER_PROFILE_ENABLED = true;
+const REGISTRATION_FREE_ROUTE_FULL_2FA = 'full-2fa';
+const REGISTRATION_FREE_ROUTE_NO_2FA = 'no-2fa-free';
+const DEFAULT_REGISTRATION_FREE_ROUTE = REGISTRATION_FREE_ROUTE_FULL_2FA;
 const DEFAULT_SET_GPT_PASSWORD_VERIFICATION_WAIT_SECONDS = 10;
 const SET_GPT_PASSWORD_VERIFICATION_WAIT_MAX_SECONDS = 300;
 const DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT = 3;
@@ -573,6 +578,7 @@ let currentPlusAccountAccessStrategy = PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
 let currentSignupMethod = DEFAULT_SIGNUP_METHOD;
 let currentUpiRedeemStopAfterRedeem = true;
 let currentTotpMfaAfterProfileEnabled = DEFAULT_TOTP_MFA_AFTER_PROFILE_ENABLED;
+let currentRegistrationFreeRoute = DEFAULT_REGISTRATION_FREE_ROUTE;
 let localCpaJsonAuthDirExpanded = false;
 let lastConfirmedOperationDelayEnabled = false;
 let stepDefinitions = getStepDefinitionsForMode(false, {
@@ -581,6 +587,7 @@ let stepDefinitions = getStepDefinitionsForMode(false, {
   signupMethod: currentSignupMethod,
   upiRedeemStopAfterRedeem: currentUpiRedeemStopAfterRedeem,
   totpMfaAfterProfileEnabled: currentTotpMfaAfterProfileEnabled,
+  registrationFreeRoute: currentRegistrationFreeRoute,
 });
 let workflowNodes = getWorkflowNodesForMode(false, {
   plusPaymentMethod: currentPlusPaymentMethod,
@@ -588,6 +595,7 @@ let workflowNodes = getWorkflowNodesForMode(false, {
   signupMethod: currentSignupMethod,
   upiRedeemStopAfterRedeem: currentUpiRedeemStopAfterRedeem,
   totpMfaAfterProfileEnabled: currentTotpMfaAfterProfileEnabled,
+  registrationFreeRoute: currentRegistrationFreeRoute,
 });
 let STEP_IDS = stepDefinitions.map((step) => Number(step.id)).filter(Number.isFinite);
 let STEP_DEFAULT_STATUSES = Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending']));
@@ -649,6 +657,9 @@ function getStepDefinitionsForMode(plusModeEnabled = false, options = {}) {
   const totpMfaAfterProfileEnabled = typeof options === 'string'
     ? currentTotpMfaAfterProfileEnabled
     : Boolean(options.totpMfaAfterProfileEnabled ?? currentTotpMfaAfterProfileEnabled);
+  const registrationFreeRoute = typeof options === 'string'
+    ? currentRegistrationFreeRoute
+    : normalizeRegistrationFreeRoute(options.registrationFreeRoute ?? currentRegistrationFreeRoute);
   const activeFlowId = typeof options === 'string'
     ? ((typeof latestState !== 'undefined' ? latestState?.activeFlowId : '') || defaultFlowId)
     : (options.activeFlowId || (typeof latestState !== 'undefined' ? latestState?.activeFlowId : '') || defaultFlowId);
@@ -660,6 +671,7 @@ function getStepDefinitionsForMode(plusModeEnabled = false, options = {}) {
     upiRedeemStopAfterRedeem,
     upiRedeemContinueAfterRedeem,
     totpMfaAfterProfileEnabled,
+    registrationFreeRoute,
   };
   const normalizedAccountAccessStrategy = typeof normalizePlusAccountAccessStrategy === 'function'
     ? normalizePlusAccountAccessStrategy(rawAccountAccessStrategy)
@@ -703,6 +715,9 @@ function getWorkflowNodesForMode(plusModeEnabled = false, options = {}) {
   const totpMfaAfterProfileEnabled = typeof options === 'string'
     ? currentTotpMfaAfterProfileEnabled
     : Boolean(options.totpMfaAfterProfileEnabled ?? currentTotpMfaAfterProfileEnabled);
+  const registrationFreeRoute = typeof options === 'string'
+    ? currentRegistrationFreeRoute
+    : normalizeRegistrationFreeRoute(options.registrationFreeRoute ?? currentRegistrationFreeRoute);
   const activeFlowId = typeof options === 'string'
     ? ((typeof latestState !== 'undefined' ? latestState?.activeFlowId : '') || defaultFlowId)
     : (options.activeFlowId || (typeof latestState !== 'undefined' ? latestState?.activeFlowId : '') || defaultFlowId);
@@ -714,6 +729,7 @@ function getWorkflowNodesForMode(plusModeEnabled = false, options = {}) {
     upiRedeemStopAfterRedeem,
     upiRedeemContinueAfterRedeem,
     totpMfaAfterProfileEnabled,
+    registrationFreeRoute,
   };
   const normalizedAccountAccessStrategy = typeof normalizePlusAccountAccessStrategy === 'function'
     ? normalizePlusAccountAccessStrategy(rawAccountAccessStrategy)
@@ -801,6 +817,9 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
   const totpMfaAfterProfileEnabled = typeof options === 'string'
     ? currentTotpMfaAfterProfileEnabled
     : Boolean(options.totpMfaAfterProfileEnabled ?? currentTotpMfaAfterProfileEnabled);
+  const registrationFreeRoute = typeof options === 'string'
+    ? currentRegistrationFreeRoute
+    : normalizeRegistrationFreeRoute(options.registrationFreeRoute ?? currentRegistrationFreeRoute);
   const normalizeAccountAccessStrategySafe = typeof normalizePlusAccountAccessStrategy === 'function'
     ? normalizePlusAccountAccessStrategy
     : (() => 'oauth');
@@ -809,6 +828,7 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
   currentSignupMethod = normalizeSignupMethod(rawSignupMethod);
   currentUpiRedeemStopAfterRedeem = upiRedeemStopAfterRedeem;
   currentTotpMfaAfterProfileEnabled = totpMfaAfterProfileEnabled;
+  currentRegistrationFreeRoute = registrationFreeRoute;
   stepDefinitions = getStepDefinitionsForMode(currentPlusModeEnabled, {
     activeFlowId: options?.activeFlowId,
     panelMode: options?.panelMode,
@@ -818,6 +838,7 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
     upiRedeemStopAfterRedeem: currentUpiRedeemStopAfterRedeem,
     upiRedeemContinueAfterRedeem,
     totpMfaAfterProfileEnabled: currentTotpMfaAfterProfileEnabled,
+    registrationFreeRoute: currentRegistrationFreeRoute,
     removedPaymentWorkerEnabled: currentRemovedPaymentWorkerEnabled,
   });
   const nextWorkflowNodes = typeof getWorkflowNodesForMode === 'function'
@@ -830,6 +851,7 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
       upiRedeemStopAfterRedeem: currentUpiRedeemStopAfterRedeem,
       upiRedeemContinueAfterRedeem,
       totpMfaAfterProfileEnabled: currentTotpMfaAfterProfileEnabled,
+      registrationFreeRoute: currentRegistrationFreeRoute,
       removedPaymentWorkerEnabled: currentRemovedPaymentWorkerEnabled,
     })
     : stepDefinitions.map((step) => ({
@@ -2327,11 +2349,13 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
       plusPaymentMethod: rawPaymentMethod,
       plusAccountAccessStrategy: options.plusAccountAccessStrategy || latestState?.plusAccountAccessStrategy,
       signupMethod: options.signupMethod || currentSignupMethod,
+      registrationFreeRoute: options.registrationFreeRoute || latestState?.registrationFreeRoute,
       panelMode: options.panelMode || latestState?.panelMode,
       activeFlowId: options.activeFlowId || latestState?.activeFlowId,
     }, {
       signupMethod: options.signupMethod || currentSignupMethod,
       plusAccountAccessStrategy: options.plusAccountAccessStrategy || latestState?.plusAccountAccessStrategy,
+      registrationFreeRoute: options.registrationFreeRoute || latestState?.registrationFreeRoute,
       panelMode: options.panelMode || latestState?.panelMode,
       activeFlowId: options.activeFlowId || latestState?.activeFlowId,
     })
@@ -2350,6 +2374,7 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
     upiRedeemStopAfterRedeem: options.upiRedeemStopAfterRedeem ?? currentUpiRedeemStopAfterRedeem,
     upiRedeemContinueAfterRedeem: options.upiRedeemContinueAfterRedeem,
     totpMfaAfterProfileEnabled: options.totpMfaAfterProfileEnabled ?? currentTotpMfaAfterProfileEnabled,
+    registrationFreeRoute: options.registrationFreeRoute ?? currentRegistrationFreeRoute,
   });
 
   if (latestState) {
@@ -2647,6 +2672,7 @@ function applySettingsState(state = {}) {
     upiRedeemStopAfterRedeem: true,
     upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: normalizedState?.totpMfaAfterProfileEnabled !== false,
+    registrationFreeRoute: normalizeRegistrationFreeRoute(normalizedState?.registrationFreeRoute),
   });
   syncLatestState(normalizedState);
   syncAutoRunState(normalizedState);
@@ -2678,6 +2704,9 @@ function applySettingsState(state = {}) {
   }
   if (inputTotpMfaAfterProfileEnabled) {
     inputTotpMfaAfterProfileEnabled.checked = normalizedState.totpMfaAfterProfileEnabled !== false;
+  }
+  if (selectRegistrationFreeRoute) {
+    selectRegistrationFreeRoute.value = normalizeRegistrationFreeRoute(normalizedState.registrationFreeRoute);
   }
   if (inputUpiCredentialMembershipTotpApiBaseUrl) {
     inputUpiCredentialMembershipTotpApiBaseUrl.value = String(normalizedState.upiCredentialMembershipCheckTotpApiBaseUrl || 'https://cha.nerver.cc').trim();
@@ -4755,6 +4784,20 @@ function getSelectedTotpMfaAfterProfileEnabled(state = latestState) {
   return state?.totpMfaAfterProfileEnabled !== false;
 }
 
+function normalizeRegistrationFreeRoute(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === REGISTRATION_FREE_ROUTE_NO_2FA
+    ? REGISTRATION_FREE_ROUTE_NO_2FA
+    : REGISTRATION_FREE_ROUTE_FULL_2FA;
+}
+
+function getSelectedRegistrationFreeRoute(state = latestState) {
+  const selected = typeof selectRegistrationFreeRoute !== 'undefined' && selectRegistrationFreeRoute
+    ? selectRegistrationFreeRoute.value
+    : state?.registrationFreeRoute;
+  return normalizeRegistrationFreeRoute(selected || DEFAULT_REGISTRATION_FREE_ROUTE);
+}
+
 function normalizeSetGptPasswordVerificationWaitSeconds(value, fallback = DEFAULT_SET_GPT_PASSWORD_VERIFICATION_WAIT_SECONDS) {
   const rawValue = String(value ?? '').trim();
   const fallbackNumber = Number.parseInt(String(fallback ?? '').trim(), 10);
@@ -4858,6 +4901,7 @@ function syncUpiRedeemAfterModeStepDefinitions() {
     upiRedeemStopAfterRedeem: true,
     upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
+    registrationFreeRoute: getSelectedRegistrationFreeRoute(latestState),
   });
 }
 
@@ -4882,6 +4926,7 @@ function syncTotpMfaAfterProfileStepDefinitions() {
     upiRedeemStopAfterRedeem: true,
     upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
+    registrationFreeRoute: getSelectedRegistrationFreeRoute(latestState),
   });
 }
 
@@ -6964,6 +7009,7 @@ function collectSettingsPayload() {
     upiRedeemStopAfterRedeem: true,
     upiRedeemContinueAfterRedeem: false,
     totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
+    registrationFreeRoute: getSelectedRegistrationFreeRoute(latestState),
     upiCredentialMembershipCheckTotpApiBaseUrl: String(inputUpiCredentialMembershipTotpApiBaseUrl?.value || '').trim(),
     upiCredentialMembershipCheckTotpLookupKey: String(inputUpiCredentialMembershipTotpLookupKey?.value || '').trim(),
     setGptPasswordVerificationWaitSeconds: resolveSharedVerificationCodeWaitSeconds(latestState),
@@ -7580,6 +7626,7 @@ function updatePlusModeUI() {
     typeof rowUpiRedeemClientId !== 'undefined' ? rowUpiRedeemClientId : null,
     typeof rowUpiRedeemFailedAccountRetryLimit !== 'undefined' ? rowUpiRedeemFailedAccountRetryLimit : null,
     typeof rowTotpMfaAfterProfileEnabled !== 'undefined' ? rowTotpMfaAfterProfileEnabled : null,
+    typeof rowRegistrationFreeRoute !== 'undefined' ? rowRegistrationFreeRoute : null,
     typeof rowSetGptPasswordVerificationWaitSeconds !== 'undefined' ? rowSetGptPasswordVerificationWaitSeconds : null,
     typeof rowUpiCredentialMembershipTotpApiBaseUrl !== 'undefined' ? rowUpiCredentialMembershipTotpApiBaseUrl : null,
     typeof rowUpiCredentialMembershipTotpLookupKey !== 'undefined' ? rowUpiCredentialMembershipTotpLookupKey : null,
@@ -8445,6 +8492,7 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
   inputUpiRedeemClientId,
   inputUpiRedeemFailedAccountRetryLimit,
   inputTotpMfaAfterProfileEnabled,
+  selectRegistrationFreeRoute,
   inputSetGptPasswordVerificationWaitSeconds,
   inputUpiCredentialMembershipTotpApiBaseUrl,
   inputUpiCredentialMembershipTotpLookupKey,
@@ -8475,6 +8523,9 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
     if (input === inputTotpMfaAfterProfileEnabled) {
       syncTotpMfaAfterProfileStepDefinitions();
     }
+    if (input === selectRegistrationFreeRoute) {
+      syncTotpMfaAfterProfileStepDefinitions();
+    }
     if (input === inputSetGptPasswordVerificationWaitSeconds) {
       mirrorSharedVerificationCodeWaitInput(input);
     }
@@ -8486,6 +8537,9 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
       syncUpiRedeemAfterModeStepDefinitions();
     }
     if (input === inputTotpMfaAfterProfileEnabled) {
+      syncTotpMfaAfterProfileStepDefinitions();
+    }
+    if (input === selectRegistrationFreeRoute) {
       syncTotpMfaAfterProfileStepDefinitions();
     }
     if (input === selectUpiInfoHelperOtpChannel) {
@@ -10080,6 +10134,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.totpMfaAfterProfileEnabled !== undefined && inputTotpMfaAfterProfileEnabled) {
         inputTotpMfaAfterProfileEnabled.checked = message.payload.totpMfaAfterProfileEnabled !== false;
       }
+      if (message.payload.registrationFreeRoute !== undefined && selectRegistrationFreeRoute) {
+        selectRegistrationFreeRoute.value = normalizeRegistrationFreeRoute(message.payload.registrationFreeRoute);
+      }
       if (message.payload.upiCredentialMembershipCheckTotpApiBaseUrl !== undefined && inputUpiCredentialMembershipTotpApiBaseUrl) {
         inputUpiCredentialMembershipTotpApiBaseUrl.value = String(message.payload.upiCredentialMembershipCheckTotpApiBaseUrl || 'https://cha.nerver.cc').trim();
       }
@@ -10115,6 +10172,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         || message.payload.upiRedeemStopAfterRedeem !== undefined
         || message.payload.upiRedeemContinueAfterRedeem !== undefined
         || message.payload.totpMfaAfterProfileEnabled !== undefined
+        || message.payload.registrationFreeRoute !== undefined
         || message.payload.pixRedeemStopAfterRedeem !== undefined
         || message.payload.pixRedeemContinueAfterRedeem !== undefined
         || message.payload.legacyPayHelperAutoModeEnabled !== undefined
@@ -10138,6 +10196,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             upiRedeemStopAfterRedeem: getSelectedUpiRedeemStopAfterRedeem(latestState),
             upiRedeemContinueAfterRedeem: Boolean(latestState?.upiRedeemContinueAfterRedeem ?? latestState?.pixRedeemContinueAfterRedeem),
             totpMfaAfterProfileEnabled: getSelectedTotpMfaAfterProfileEnabled(latestState),
+            registrationFreeRoute: getSelectedRegistrationFreeRoute(latestState),
           }
         );
         updatePlusModeUI();

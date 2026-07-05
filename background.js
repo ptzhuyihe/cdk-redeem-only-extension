@@ -832,6 +832,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   upiRedeemStopAfterRedeem: true,
   upiRedeemContinueAfterRedeem: false,
   totpMfaAfterProfileEnabled: true,
+  registrationFreeRoute: 'full-2fa',
   upiCredentialMembershipCheckTotpApiBaseUrl: 'https://cha.nerver.cc',
   upiCredentialMembershipCheckTotpLookupKey: '',
   setGptPasswordVerificationWaitSeconds: 10,
@@ -1382,6 +1383,11 @@ function normalizePlusPaymentMethod(value = '') {
     return PLUS_PAYMENT_METHOD_UPI;
   }
   return PLUS_PAYMENT_METHOD_UPI;
+}
+
+function normalizeRegistrationFreeRoute(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'no-2fa-free' ? 'no-2fa-free' : 'full-2fa';
 }
 
 function resolveLegacyAutoStepDelaySeconds(input = {}) {
@@ -2641,6 +2647,8 @@ function normalizePersistentSettingValue(key, value) {
     case 'totpMfaAfterProfileEnabled':
     case 'autoRunSkipFailures':
       return true;
+    case 'registrationFreeRoute':
+      return normalizeRegistrationFreeRoute(value);
     case 'autoRunRetryNonFreeTrial':
     case 'oauthFlowTimeoutEnabled':
     case 'autoRunDelayEnabled':

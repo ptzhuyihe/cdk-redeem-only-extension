@@ -5,6 +5,8 @@
   const PLUS_PAYMENT_METHOD_UPI = 'upi';
   const PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH = 'oauth';
   const SIGNUP_METHOD_EMAIL = 'email';
+  const REGISTRATION_FREE_ROUTE_FULL_2FA = 'full-2fa';
+  const REGISTRATION_FREE_ROUTE_NO_2FA = 'no-2fa-free';
 
   const UPI_STEP_DEFINITIONS = Object.freeze([
     { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网', sourceId: 'chatgpt', driverId: null, command: 'open-chatgpt' },
@@ -14,6 +16,11 @@
     { id: 5, order: 50, key: 'fill-profile', title: '填写姓名和生日', sourceId: 'openai-auth', driverId: 'content/signup-page', command: 'fill-profile' },
     { id: 6, order: 60, key: 'set-gpt-password', title: '设置 GPT 密码', sourceId: 'openai-auth', driverId: null, command: 'set-gpt-password' },
     { id: 7, order: 70, key: 'enable-totp-mfa', title: '开通 2FA 并检测资格', sourceId: 'chatgpt', driverId: null, command: 'enable-totp-mfa' },
+  ]);
+
+  const NO_2FA_FREE_STEP_DEFINITIONS = Object.freeze([
+    ...UPI_STEP_DEFINITIONS.filter((step) => Number(step.id) <= 5),
+    { id: 6, order: 60, key: 'persist-no-2fa-free', title: '免 2FA 检测资格并进入 Free', sourceId: 'chatgpt', driverId: null, command: 'persist-no-2fa-free' },
   ]);
 
   function normalizeActiveFlowId(value = '', fallback = DEFAULT_ACTIVE_FLOW_ID) {
@@ -35,6 +42,13 @@
 
   function normalizePlusAccountAccessStrategy() {
     return PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH;
+  }
+
+  function normalizeRegistrationFreeRoute(value = '') {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === REGISTRATION_FREE_ROUTE_NO_2FA
+      ? REGISTRATION_FREE_ROUTE_NO_2FA
+      : REGISTRATION_FREE_ROUTE_FULL_2FA;
   }
 
   function isPlusModeEnabled() {
@@ -70,12 +84,20 @@
 
   function getSteps(options = {}) {
     const flowId = normalizeActiveFlowId(options?.activeFlowId, DEFAULT_ACTIVE_FLOW_ID);
-    return cloneSteps(UPI_STEP_DEFINITIONS, options, flowId);
+    const route = normalizeRegistrationFreeRoute(options?.registrationFreeRoute);
+    const steps = route === REGISTRATION_FREE_ROUTE_NO_2FA
+      ? NO_2FA_FREE_STEP_DEFINITIONS
+      : UPI_STEP_DEFINITIONS;
+    return cloneSteps(steps, options, flowId);
   }
 
   function getNodes(options = {}) {
     const flowId = normalizeActiveFlowId(options?.activeFlowId, DEFAULT_ACTIVE_FLOW_ID);
-    return cloneNodes(UPI_STEP_DEFINITIONS, options, flowId);
+    const route = normalizeRegistrationFreeRoute(options?.registrationFreeRoute);
+    const steps = route === REGISTRATION_FREE_ROUTE_NO_2FA
+      ? NO_2FA_FREE_STEP_DEFINITIONS
+      : UPI_STEP_DEFINITIONS;
+    return cloneNodes(steps, options, flowId);
   }
 
   function getAllSteps(options = {}) {
@@ -145,6 +167,8 @@
     PLUS_PAYMENT_METHOD_UPI,
     PLUS_ACCOUNT_ACCESS_STRATEGY_OAUTH,
     PLUS_UPI_STEP_DEFINITIONS: UPI_STEP_DEFINITIONS,
+    REGISTRATION_FREE_ROUTE_FULL_2FA,
+    REGISTRATION_FREE_ROUTE_NO_2FA,
     SIGNUP_METHOD_EMAIL,
     getAllSteps,
     getAllNodes,
@@ -164,6 +188,7 @@
     normalizePlusAccountAccessStrategy,
     normalizeActiveFlowId,
     normalizePlusPaymentMethod,
+    normalizeRegistrationFreeRoute,
     normalizeSignupMethod,
   };
 });

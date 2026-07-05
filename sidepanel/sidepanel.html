@@ -325,6 +325,15 @@
         </label>
         <span class="setting-caption">第 7 步开通 2FA 后检测是否有试用资格，不自动兑换 CDK</span>
       </div>
+      <div class="data-row" id="row-registration-free-route" style="display:none;">
+        <span class="data-label">主流程路线</span>
+        <select id="select-registration-free-route" class="data-input"
+          title="完整 2FA 路线会继续设置 GPT 密码并开通 2FA；免 2FA Free 路线会在第 5 步后检测资格并写入 Free">
+          <option value="full-2fa">完整 2FA 路线</option>
+          <option value="no-2fa-free">免 2FA Free 路线</option>
+        </select>
+        <span class="setting-caption">免 2FA Free 路线：第 5 步后读取邮箱、取码链接和 AT，有试用资格才进入 Free</span>
+      </div>
       <div class="data-row" id="row-set-gpt-password-verification-wait-seconds">
         <span class="data-label">第4/6步取码等待</span>
         <input type="number" id="input-set-gpt-password-verification-wait-seconds" class="data-input"
