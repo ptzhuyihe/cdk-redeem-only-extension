@@ -1,5 +1,29 @@
 # Release Notes
 
+## CDK Redeem Only V1.0
+
+本版本作为 1.0 正式版，整理近期主流程、邮箱池、导出和兑换队列修复，生成新的 GitHub 发布包。
+
+### 主要变化
+
+- 侧边栏主流程恢复为 7 步注册、取码、资料、设置 GPT 密码、开通 2FA 并检测资格的完整流程。
+- 恢复 iCloud 自定义邮箱池、Hotmail、2925、Luckmail 等邮箱池 helper 和侧边栏管理桥接，避免拆分后按钮或流程引用缺失。
+- 主流程第 7 步资格通过后，UPI 有可用 CDK 时可接力处理 Free 队列里的 UPI 候选。
+- 导出 Free/Plus/TXT/JSON 文件时优先通过 Chrome downloads API 指定文件名，减少指纹浏览器下载成 blob/UUID 的情况。
+- 保留删除 IP 代理池、手机接码后的审计检查，聚焦邮箱注册、资格检测、UPI/IDEAL 卡密兑换主链路。
+
+### 修复
+
+- 修复第一步运行时报 `getHotmailAccounts is not defined`、`normalizeLuckmailBaseUrl is not defined` 等侧边栏 helper 缺失问题。
+- 修复自定义邮箱池在侧边栏中不显示、导入后无法作为主流程邮箱来源的问题。
+- 修复 UPI 卡密池有可用卡密但自动兑换只检查当前账号、不继续处理其它候选账号的问题。
+- 修复部分指纹浏览器导出配置或 Free 文本时没有 `.json` / `.txt` 后缀的问题。
+
+### 说明
+
+- 更新后需要在 Chrome/指纹浏览器扩展管理页重新加载扩展，确保后台 service worker 与侧边栏都运行 1.0 新代码。
+- 本版本仍需要用户自行配置邮箱取码、Nerver/Assurivo 等外部服务。
+
 ## CDK Redeem Only V0.2.12
 
 本版本修复主流程自动兑换 UPI 队列接力，以及指纹浏览器下载导出文件时变成 blob/UUID 文件名的问题。
