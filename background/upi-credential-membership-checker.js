@@ -976,6 +976,11 @@
       email,
       password: normalizeString(item.password),
       totpMfaSecret: normalizeTotpSecret(item.totpMfaSecret),
+      gptPassword: normalizeString(item.gptPassword || item.password),
+      verificationUrl: normalizeString(item.verificationUrl || item.emailVerificationUrl || item.url),
+      recordedAt: Math.max(0, Math.floor(Number(item.recordedAt || item.no2faFreeRecordedAt) || 0)),
+      no2faFreeRoute: item.no2faFreeRoute === true,
+      twoFactorEnabled: item.twoFactorEnabled === true || Boolean(normalizeTotpSecret(item.totpMfaSecret)),
       status,
       planType: normalizePlanType(item.planType),
       checkedAt: normalizeString(item.checkedAt),
@@ -1975,6 +1980,41 @@
       const accessTokenUpdatedAt = accessToken
         ? normalizeString(input.accessTokenUpdatedAt || credential.accessTokenUpdatedAt || checkedAt)
         : normalizeString(existingItem.accessTokenUpdatedAt);
+      const verificationUrl = normalizeString(
+        input.verificationUrl
+        || credential.verificationUrl
+        || credential.emailVerificationUrl
+        || credential.url
+        || existingItem.verificationUrl
+        || existingItem.emailVerificationUrl
+      );
+      const recordedAt = Math.max(0, Math.floor(Number(
+        input.recordedAt
+        || credential.recordedAt
+        || existingItem.recordedAt
+        || Date.parse(trialEligibilityCheckedAt)
+        || Date.now()
+      ) || Date.now()));
+      const hasIncoming2faMaterial = Boolean(
+        normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret || input.totpMfaSecret || input.totpSecret)
+      );
+      const no2faFreeRoute = input.no2faFreeRoute === true
+        || credential.no2faFreeRoute === true
+        || (!hasIncoming2faMaterial && existingItem.no2faFreeRoute === true);
+      const twoFactorEnabled = no2faFreeRoute ? false : (
+        input.twoFactorEnabled === true
+        || credential.twoFactorEnabled === true
+        || Boolean(normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret || input.totpMfaSecret || input.totpSecret || backupCredential.totpMfaSecret || existingItem.totpMfaSecret))
+      );
+      const nextPassword = no2faFreeRoute
+        ? ''
+        : normalizeString(credential.password || input.password || backupCredential.password || existingItem.password);
+      const nextTotpMfaSecret = no2faFreeRoute
+        ? ''
+        : normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret || input.totpMfaSecret || input.totpSecret || backupCredential.totpMfaSecret || existingItem.totpMfaSecret);
+      const gptPassword = no2faFreeRoute
+        ? ''
+        : normalizeString(credential.gptPassword || input.gptPassword || credential.password || input.password || backupCredential.password || existingItem.gptPassword || existingItem.password);
       const hasRedeemField = (key) => (
         Object.prototype.hasOwnProperty.call(input, key)
         || Object.prototype.hasOwnProperty.call(credential, key)
@@ -2018,8 +2058,13 @@
         ...backupCredential,
         ...credential,
         email,
-        password: normalizeString(credential.password || input.password || backupCredential.password || existingItem.password),
-        totpMfaSecret: normalizeTotpSecret(credential.totpMfaSecret || credential.totpSecret || input.totpMfaSecret || input.totpSecret || backupCredential.totpMfaSecret || existingItem.totpMfaSecret),
+        password: nextPassword,
+        gptPassword,
+        totpMfaSecret: nextTotpMfaSecret,
+        verificationUrl,
+        recordedAt,
+        no2faFreeRoute,
+        twoFactorEnabled,
         status: 'free',
         planType: 'free',
         checkedAt,
