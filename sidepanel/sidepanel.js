@@ -1146,6 +1146,7 @@ let configActionInFlight = false;
 let currentReleaseSnapshot = null;
 let currentContributionContentSnapshot = null;
 let contributionContentSnapshotRequestInFlight = null;
+let accountRecordsManager = null;
 
 function normalizeAutomationWindowId(value) {
   if (value === null || value === undefined || value === '') {
@@ -1263,6 +1264,80 @@ function getSub2ApiGroupOptionsState(state = latestState) {
     state?.sub2apiGroupName
   );
   return options.length ? options : [...DEFAULT_SUB2API_GROUP_OPTIONS];
+}
+
+async function handleDeleteSub2ApiGroup(groupName) {
+  const target = String(groupName || '').trim();
+  if (!target) {
+    return;
+  }
+  const nextOptions = getSub2ApiGroupOptionsState(latestState)
+    .filter((name) => name.toLowerCase() !== target.toLowerCase());
+  const fallbackOptions = nextOptions.length ? nextOptions : [...DEFAULT_SUB2API_GROUP_OPTIONS];
+  const nextSelected = fallbackOptions[0] || '';
+  syncLatestState({
+    sub2apiGroupNames: fallbackOptions,
+    sub2apiGroupName: nextSelected,
+  });
+  renderSub2ApiGroupOptions(latestState, nextSelected);
+  await chrome.runtime.sendMessage({
+    type: 'SAVE_SETTING',
+    source: 'sidepanel',
+    payload: {
+      sub2apiGroupNames: fallbackOptions,
+      sub2apiGroupName: nextSelected,
+    },
+  });
+}
+
+async function handleDeleteCloudflareDomain(domain) {
+  const target = normalizeCloudflareDomainValue(domain);
+  if (!target) {
+    return;
+  }
+  const nextDomains = normalizeCloudflareDomains(latestState?.cloudflareDomains || [])
+    .filter((item) => item !== target);
+  const nextSelected = normalizeCloudflareDomainValue(latestState?.cloudflareDomain) === target
+    ? (nextDomains[0] || '')
+    : normalizeCloudflareDomainValue(latestState?.cloudflareDomain);
+  syncLatestState({
+    cloudflareDomains: nextDomains,
+    cloudflareDomain: nextSelected,
+  });
+  cfDomainPicker.render(nextDomains, nextSelected);
+  await chrome.runtime.sendMessage({
+    type: 'SAVE_SETTING',
+    source: 'sidepanel',
+    payload: {
+      cloudflareDomains: nextDomains,
+      cloudflareDomain: nextSelected,
+    },
+  });
+}
+
+async function handleDeleteCloudflareTempEmailDomain(domain) {
+  const target = normalizeCloudflareTempEmailDomainValue(domain);
+  if (!target) {
+    return;
+  }
+  const nextDomains = normalizeCloudflareTempEmailDomains(latestState?.cloudflareTempEmailDomains || [])
+    .filter((item) => item !== target);
+  const nextSelected = normalizeCloudflareTempEmailDomainValue(latestState?.cloudflareTempEmailDomain) === target
+    ? (nextDomains[0] || '')
+    : normalizeCloudflareTempEmailDomainValue(latestState?.cloudflareTempEmailDomain);
+  syncLatestState({
+    cloudflareTempEmailDomains: nextDomains,
+    cloudflareTempEmailDomain: nextSelected,
+  });
+  tempEmailDomainPicker.render(nextDomains, nextSelected);
+  await chrome.runtime.sendMessage({
+    type: 'SAVE_SETTING',
+    source: 'sidepanel',
+    payload: {
+      cloudflareTempEmailDomains: nextDomains,
+      cloudflareTempEmailDomain: nextSelected,
+    },
+  });
 }
 
 const sub2ApiGroupPicker = createEditableListPicker({
@@ -2008,8 +2083,7 @@ function escapeCssValue(value = '') {
 }
 
 function getNodeStatuses(state = latestState) {
-  const merged = { ...NODE_DEFAULT_STATUSES, ...(state?.nodeStatuses || {}) };
-  return Object.fromEntries(NODE_IDS.map((nodeId) => [nodeId, merged[nodeId] || 'pending']));
+  return normalizeNodeStatusesForCurrentWorkflow(state?.nodeStatuses || {});
 }
 
 function getStepStatuses(state = latestState) {
@@ -2072,7 +2146,10 @@ function shouldOfferAutoModeChoice(state = latestState) {
 
 function syncLatestState(nextState) {
   const mergedNodeStatuses = nextState?.nodeStatuses
-    ? { ...NODE_DEFAULT_STATUSES, ...(latestState?.nodeStatuses || {}), ...nextState.nodeStatuses }
+    ? normalizeNodeStatusesForCurrentWorkflow({
+      ...(latestState?.nodeStatuses || {}),
+      ...nextState.nodeStatuses,
+    })
     : getNodeStatuses(latestState);
 
   latestState = normalizeChatgptSessionReaderStateForUi({
@@ -2085,6 +2162,841 @@ function syncLatestState(nextState) {
   syncLocalChatgptSessionReaderDraftFromState(latestState);
 
   renderAccountRecords(latestState);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char));
+}
+
+function normalizeNodeStatusesForCurrentWorkflow(statuses = {}) {
+  const source = statuses && typeof statuses === 'object' ? statuses : {};
+  const merged = { ...NODE_DEFAULT_STATUSES, ...source };
+  return Object.fromEntries(NODE_IDS.map((nodeId) => [nodeId, merged[nodeId] || 'pending']));
+}
+
+function initializeManualStepActions() {
+  document.querySelectorAll('.step-row').forEach((row) => {
+    if (row.querySelector('.step-actions')) {
+      return;
+    }
+    const step = Number(row.dataset.step);
+    const nodeId = String(row.dataset.nodeId || getNodeIdByStepForCurrentMode(step) || '').trim();
+    const statusEl = row.querySelector('.step-status');
+    if (!statusEl) {
+      return;
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'step-actions';
+
+    const manualBtn = document.createElement('button');
+    manualBtn.type = 'button';
+    manualBtn.className = 'step-manual-btn';
+    manualBtn.dataset.step = String(step || '');
+    manualBtn.dataset.nodeId = nodeId;
+    manualBtn.title = '跳过此节点';
+    manualBtn.setAttribute('aria-label', `跳过节点 ${nodeId || step}`);
+    manualBtn.textContent = '跳过';
+    manualBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        await handleSkipNode(nodeId || getNodeIdByStepForCurrentMode(step));
+      } catch (err) {
+        showToast(err?.message || String(err || '跳过节点失败'), 'error');
+      }
+    });
+
+    statusEl.parentNode.replaceChild(actions, statusEl);
+    actions.appendChild(manualBtn);
+    actions.appendChild(statusEl);
+  });
+}
+
+function renderStepsList() {
+  if (!stepsList) {
+    return;
+  }
+
+  stepsList.innerHTML = (workflowNodes || []).map((node) => {
+    const nodeId = String(node.nodeId || '').trim();
+    const step = getStepIdByNodeIdForCurrentMode(nodeId);
+    const stepLabel = String(node.ui?.stepLabel || step || node.displayOrder || '').trim();
+    const executeKey = String(node.executeKey || nodeId).trim();
+    return `
+      <div class="step-row pending" data-step="${escapeHtml(step)}" data-node-id="${escapeHtml(nodeId)}" data-step-key="${escapeHtml(executeKey)}">
+        <div class="step-indicator" data-step="${escapeHtml(step)}" data-node-id="${escapeHtml(nodeId)}"><span class="step-num">${escapeHtml(stepLabel)}</span></div>
+        <button class="step-btn" data-step="${escapeHtml(step)}" data-node-id="${escapeHtml(nodeId)}" data-step-key="${escapeHtml(executeKey)}">${escapeHtml(node.title || executeKey || `步骤 ${stepLabel}`)}</button>
+        <span class="step-status" data-step="${escapeHtml(step)}" data-node-id="${escapeHtml(nodeId)}"></span>
+      </div>
+    `;
+  }).join('');
+
+  initializeManualStepActions();
+  renderStepStatuses(latestState);
+  updateButtonStates();
+}
+
+function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOrOptions = {}, maybeOptions = {}) {
+  const options = typeof plusPaymentMethodOrOptions === 'string'
+    ? maybeOptions
+    : (plusPaymentMethodOrOptions || {});
+  const rawPaymentMethod = typeof plusPaymentMethodOrOptions === 'string'
+    ? plusPaymentMethodOrOptions
+    : (options.plusPaymentMethod || getSelectedPlusPaymentMethod(latestState));
+  const stepDefinitionState = typeof resolveStepDefinitionCapabilityState === 'function'
+    ? resolveStepDefinitionCapabilityState({
+      ...(latestState || {}),
+      plusModeEnabled: Boolean(plusModeEnabled),
+      plusPaymentMethod: rawPaymentMethod,
+      plusAccountAccessStrategy: options.plusAccountAccessStrategy || latestState?.plusAccountAccessStrategy,
+      signupMethod: options.signupMethod || currentSignupMethod,
+      panelMode: options.panelMode || latestState?.panelMode,
+      activeFlowId: options.activeFlowId || latestState?.activeFlowId,
+    }, {
+      signupMethod: options.signupMethod || currentSignupMethod,
+      plusAccountAccessStrategy: options.plusAccountAccessStrategy || latestState?.plusAccountAccessStrategy,
+      panelMode: options.panelMode || latestState?.panelMode,
+      activeFlowId: options.activeFlowId || latestState?.activeFlowId,
+    })
+    : {
+      plusModeEnabled: Boolean(plusModeEnabled),
+      signupMethod: normalizeSignupMethod(options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD),
+      plusAccountAccessStrategy: normalizePlusAccountAccessStrategy(options.plusAccountAccessStrategy || currentPlusAccountAccessStrategy),
+    };
+
+  rebuildStepDefinitionState(Boolean(stepDefinitionState.plusModeEnabled), {
+    activeFlowId: options.activeFlowId,
+    panelMode: options.panelMode,
+    plusPaymentMethod: rawPaymentMethod,
+    plusAccountAccessStrategy: stepDefinitionState.plusAccountAccessStrategy,
+    signupMethod: stepDefinitionState.signupMethod,
+    upiRedeemStopAfterRedeem: options.upiRedeemStopAfterRedeem ?? currentUpiRedeemStopAfterRedeem,
+    upiRedeemContinueAfterRedeem: options.upiRedeemContinueAfterRedeem,
+    totpMfaAfterProfileEnabled: options.totpMfaAfterProfileEnabled ?? currentTotpMfaAfterProfileEnabled,
+  });
+
+  if (latestState) {
+    latestState = {
+      ...latestState,
+      nodeStatuses: getNodeStatuses(latestState),
+    };
+  }
+
+  renderStepsList();
+}
+
+function renderSingleNodeStatus(nodeId, status) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    return;
+  }
+  const normalizedStatus = status || 'pending';
+  const selectorNodeId = escapeCssValue(normalizedNodeId);
+  const statusEl = document.querySelector(`.step-status[data-node-id="${selectorNodeId}"]`);
+  const row = document.querySelector(`.step-row[data-node-id="${selectorNodeId}"]`);
+  if (statusEl) {
+    statusEl.textContent = STATUS_ICONS[normalizedStatus] || '';
+  }
+  if (row) {
+    row.className = `step-row ${normalizedStatus}`;
+  }
+}
+
+function renderSingleStepStatus(step, status) {
+  const nodeId = getNodeIdByStepForCurrentMode(step);
+  if (nodeId) {
+    renderSingleNodeStatus(nodeId, status);
+    return;
+  }
+  const normalizedStatus = status || 'pending';
+  const statusEl = document.querySelector(`.step-status[data-step="${escapeCssValue(step)}"]`);
+  const row = document.querySelector(`.step-row[data-step="${escapeCssValue(step)}"]`);
+  if (statusEl) {
+    statusEl.textContent = STATUS_ICONS[normalizedStatus] || '';
+  }
+  if (row) {
+    row.className = `step-row ${normalizedStatus}`;
+  }
+}
+
+function renderStepStatuses(state = latestState) {
+  const statuses = getNodeStatuses(state);
+  NODE_IDS.forEach((nodeId) => {
+    renderSingleNodeStatus(nodeId, statuses[nodeId]);
+  });
+  updateProgressCounter();
+}
+
+function updateProgressCounter() {
+  if (!stepsProgress) {
+    return;
+  }
+  const statuses = getNodeStatuses(latestState);
+  const completed = Object.values(statuses).filter(isDoneStatus).length;
+  stepsProgress.textContent = `${completed} / ${NODE_IDS.length}`;
+}
+
+function arePreviousNodesReadyForManualExecute(nodeId = '', statuses = getNodeStatuses()) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  const currentIndex = NODE_IDS.indexOf(normalizedNodeId);
+  if (currentIndex <= 0) {
+    return true;
+  }
+  return NODE_IDS.slice(0, currentIndex).every((previousNodeId) => isDoneStatus(statuses[previousNodeId]));
+}
+
+function canExecuteNodeWithoutPreviousNode(nodeId = '', statuses = getNodeStatuses()) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  return INDEPENDENT_EXECUTE_NODES.has(normalizedNodeId)
+    && arePreviousNodesReadyForManualExecute(normalizedNodeId, statuses);
+}
+
+function updateButtonStates() {
+  const statuses = getNodeStatuses(latestState);
+  const anyRunning = Object.values(statuses).some((status) => status === 'running');
+  const autoLocked = isAutoRunLockedPhase();
+  const autoScheduled = isAutoRunScheduledPhase();
+  const autoPaused = isAutoRunPausedPhase();
+
+  NODE_IDS.forEach((nodeId, index) => {
+    const selectorNodeId = escapeCssValue(nodeId);
+    const btn = document.querySelector(`.step-btn[data-node-id="${selectorNodeId}"]`);
+    if (!btn) {
+      return;
+    }
+    const currentStatus = statuses[nodeId];
+    const previousNodeId = index > 0 ? NODE_IDS[index - 1] : '';
+    const previousStatus = previousNodeId ? statuses[previousNodeId] : 'completed';
+    const previousReady = arePreviousNodesReadyForManualExecute(nodeId, statuses);
+    const canRun = index === 0
+      || canExecuteNodeWithoutPreviousNode(nodeId, statuses)
+      || (previousReady && isDoneStatus(previousStatus))
+      || (previousReady && (currentStatus === 'failed' || currentStatus === 'stopped' || isDoneStatus(currentStatus)));
+    btn.disabled = anyRunning || autoLocked || autoScheduled || !canRun;
+  });
+
+  document.querySelectorAll('.step-manual-btn').forEach((btn) => {
+    const nodeId = String(btn.dataset.nodeId || '').trim();
+    const currentStatus = statuses[nodeId];
+    const currentIndex = NODE_IDS.indexOf(nodeId);
+    const previousNodeId = currentIndex > 0 ? NODE_IDS[currentIndex - 1] : '';
+    const previousStatus = previousNodeId ? statuses[previousNodeId] : 'completed';
+    const canSkip = SKIPPABLE_NODES.has(nodeId)
+      && !anyRunning
+      && !autoLocked
+      && !autoScheduled
+      && currentStatus !== 'running'
+      && !isDoneStatus(currentStatus)
+      && (!previousNodeId || isDoneStatus(previousStatus));
+    btn.style.display = canSkip ? '' : 'none';
+    btn.disabled = !canSkip;
+    btn.title = canSkip ? `跳过节点 ${nodeId}` : '当前不可跳过';
+  });
+
+  if (btnReset) {
+    btnReset.disabled = anyRunning || autoScheduled || autoPaused || autoLocked;
+  }
+  updateStopButtonState(anyRunning || autoScheduled || autoPaused || autoLocked);
+  updateProgressCounter();
+}
+
+function updateNodeUI(nodeId, status) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    return;
+  }
+  syncLatestState({
+    nodeStatuses: {
+      ...getNodeStatuses(latestState),
+      [normalizedNodeId]: status || 'pending',
+    },
+  });
+  renderSingleNodeStatus(normalizedNodeId, status);
+  updateButtonStates();
+  updateStatusDisplay(latestState);
+}
+
+function updateStepUI(step, status) {
+  const nodeId = getNodeIdByStepForCurrentMode(step);
+  if (nodeId) {
+    updateNodeUI(nodeId, status);
+    return;
+  }
+  renderSingleStepStatus(step, status);
+  updateButtonStates();
+  updateStatusDisplay(latestState);
+}
+
+function updateStopButtonState(active) {
+  if (btnStop) {
+    btnStop.disabled = !active;
+  }
+}
+
+function updateStatusDisplay(state = latestState) {
+  if (!displayStatus || !statusBar) {
+    return;
+  }
+  statusBar.className = 'status-bar';
+  const nodeStatuses = getNodeStatuses(state);
+
+  const countdown = getActiveAutoRunCountdown();
+  if (countdown) {
+    const remainingMs = countdown.at - Date.now();
+    displayStatus.textContent = remainingMs > 0
+      ? `${countdown.title}，剩余 ${formatCountdown(remainingMs)}`
+      : `${countdown.title}，即将结束...`;
+    statusBar.classList.add(countdown.tone === 'scheduled' ? 'scheduled' : 'running');
+    return;
+  }
+
+  if (isAutoRunPausedPhase()) {
+    displayStatus.textContent = `自动已暂停${getAutoRunLabel()}，等待继续`;
+    statusBar.classList.add('paused');
+    return;
+  }
+
+  if (isAutoRunLockedPhase()) {
+    const runningNodes = getRunningNodes(state);
+    displayStatus.textContent = runningNodes.length
+      ? `节点 ${runningNodes.join(', ')} 运行中...`
+      : `${currentAutoRun.phase === 'retrying' ? '自动重试中' : '自动运行中'}${getAutoRunLabel()}`;
+    statusBar.classList.add('running');
+    return;
+  }
+
+  const running = Object.entries(nodeStatuses).find(([, status]) => status === 'running');
+  if (running) {
+    displayStatus.textContent = `节点 ${running[0]} 运行中...`;
+    statusBar.classList.add('running');
+    return;
+  }
+
+  const failed = Object.entries(nodeStatuses).find(([, status]) => status === 'failed');
+  if (failed) {
+    displayStatus.textContent = `节点 ${failed[0]} 失败`;
+    statusBar.classList.add('failed');
+    return;
+  }
+
+  const stopped = Object.entries(nodeStatuses).find(([, status]) => status === 'stopped');
+  if (stopped) {
+    displayStatus.textContent = `节点 ${stopped[0]} 已停止`;
+    statusBar.classList.add('stopped');
+    return;
+  }
+
+  const lastCompleted = Object.entries(nodeStatuses)
+    .filter(([, status]) => isDoneStatus(status))
+    .map(([nodeId]) => nodeId)
+    .sort((left, right) => NODE_IDS.indexOf(right) - NODE_IDS.indexOf(left))[0];
+  if (lastCompleted === NODE_IDS[NODE_IDS.length - 1]) {
+    displayStatus.textContent = '全部节点已完成';
+    statusBar.classList.add('completed');
+    return;
+  }
+  displayStatus.textContent = lastCompleted ? `节点 ${lastCompleted} 已完成` : '就绪';
+}
+
+function appendLog(entry = {}) {
+  if (!logArea) {
+    return;
+  }
+  const timestamp = Number(entry.timestamp) || Date.now();
+  const time = new Date(timestamp).toLocaleTimeString('zh-CN', {
+    hour12: false,
+    timeZone: DISPLAY_TIMEZONE,
+  });
+  const level = String(entry.level || 'info').trim().toLowerCase() || 'info';
+  const levelLabel = LOG_LEVEL_LABELS[level] || level;
+  const line = document.createElement('div');
+  line.className = `log-line log-${level}`;
+  const step = Math.floor(Number(entry.step) || 0);
+  line.innerHTML = [
+    `<span class="log-time">${escapeHtml(time)}</span>`,
+    `<span class="log-level log-level-${escapeHtml(level)}">${escapeHtml(levelLabel)}</span>`,
+    step > 0 ? `<span class="log-step-tag step-${escapeHtml(step)}">步${escapeHtml(step)}</span>` : '',
+    `<span class="log-msg">${escapeHtml(entry.message || '')}</span>`,
+  ].filter(Boolean).join(' ');
+  logArea.appendChild(line);
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+function syncPasswordField(state = latestState) {
+  if (inputPassword) {
+    inputPassword.value = state?.customPassword || state?.password || '';
+  }
+}
+
+function syncPasswordToggleLabel() {
+  sidepanelUiHelpers?.syncPasswordVisibilityToggle?.(btnTogglePassword);
+}
+
+function syncVpsUrlToggleLabel() {
+  sidepanelUiHelpers?.syncPasswordVisibilityToggle?.(btnToggleVpsUrl);
+}
+
+function syncVpsPasswordToggleLabel() {
+  sidepanelUiHelpers?.syncPasswordVisibilityToggle?.(btnToggleVpsPassword);
+}
+
+function syncPasswordVisibilityToggles() {
+  sidepanelUiHelpers?.syncPasswordVisibilityToggles?.(document);
+}
+
+function bindPasswordVisibilityToggles() {
+  sidepanelUiHelpers?.bindPasswordVisibilityToggles?.(document);
+}
+
+function applySettingsState(state = {}) {
+  const normalizedState = normalizeChatgptSessionReaderStateForUi(state || {});
+  const stepDefinitionState = typeof resolveStepDefinitionCapabilityState === 'function'
+    ? resolveStepDefinitionCapabilityState(normalizedState, {
+      signupMethod: normalizedState?.signupMethod,
+      panelMode: normalizedState?.panelMode,
+      activeFlowId: normalizedState?.activeFlowId,
+    })
+    : {
+      plusModeEnabled: Boolean(normalizedState?.plusModeEnabled),
+      signupMethod: normalizeSignupMethod(normalizedState?.signupMethod || DEFAULT_SIGNUP_METHOD),
+      plusAccountAccessStrategy: normalizePlusAccountAccessStrategy(normalizedState?.plusAccountAccessStrategy),
+    };
+  syncStepDefinitionsForMode(stepDefinitionState.plusModeEnabled, {
+    activeFlowId: normalizedState?.flowId || normalizedState?.activeFlowId,
+    panelMode: normalizedState?.panelMode,
+    plusPaymentMethod: normalizedState?.plusPaymentMethod,
+    plusAccountAccessStrategy: stepDefinitionState.plusAccountAccessStrategy,
+    signupMethod: stepDefinitionState.signupMethod,
+    upiRedeemStopAfterRedeem: true,
+    upiRedeemContinueAfterRedeem: false,
+    totpMfaAfterProfileEnabled: normalizedState?.totpMfaAfterProfileEnabled !== false,
+  });
+  syncLatestState(normalizedState);
+  syncAutoRunState(normalizedState);
+  if (typeof applyOperationDelayState === 'function') {
+    applyOperationDelayState(normalizedState);
+  }
+
+  if (inputEmail) {
+    inputEmail.value = normalizedState.email || '';
+  }
+  syncPasswordField(normalizedState);
+  if (inputPlusModeEnabled) {
+    inputPlusModeEnabled.checked = FIXED_PLUS_MODE_ENABLED;
+  }
+  if (selectPlusPaymentMethod) {
+    selectPlusPaymentMethod.value = normalizePlusPaymentMethod(normalizedState.plusPaymentMethod);
+  }
+  if (inputUpiRedeemExternalApiKey) {
+    inputUpiRedeemExternalApiKey.value = String(normalizedState.upiRedeemExternalApiKey ?? normalizedState.pixRedeemExternalApiKey ?? '').trim();
+  }
+  if (inputUpiRedeemClientId) {
+    inputUpiRedeemClientId.value = String(normalizedState.upiRedeemClientId ?? normalizedState.pixRedeemClientId ?? '').trim();
+  }
+  if (inputUpiRedeemFailedAccountRetryLimit) {
+    inputUpiRedeemFailedAccountRetryLimit.value = String(normalizeUpiRedeemFailedAccountRetryLimit(
+      normalizedState.upiRedeemFailedAccountRetryLimit,
+      DEFAULT_UPI_REDEEM_FAILED_ACCOUNT_RETRY_LIMIT
+    ));
+  }
+  if (inputTotpMfaAfterProfileEnabled) {
+    inputTotpMfaAfterProfileEnabled.checked = normalizedState.totpMfaAfterProfileEnabled !== false;
+  }
+  if (inputUpiCredentialMembershipTotpApiBaseUrl) {
+    inputUpiCredentialMembershipTotpApiBaseUrl.value = String(normalizedState.upiCredentialMembershipCheckTotpApiBaseUrl || 'https://cha.nerver.cc').trim();
+  }
+  if (inputUpiCredentialMembershipTotpLookupKey) {
+    inputUpiCredentialMembershipTotpLookupKey.value = String(normalizedState.upiCredentialMembershipCheckTotpLookupKey || '').trim();
+  }
+  if (inputUpiSubscriptionApiBaseUrl) {
+    inputUpiSubscriptionApiBaseUrl.value = String(normalizedState.upiSubscriptionApiBaseUrl || 'https://cha.nerver.cc').trim();
+  }
+  setSharedVerificationCodeWaitInputs(
+    normalizedState.setGptPasswordVerificationWaitSeconds ?? normalizedState.signupVerificationCodeWaitSeconds,
+    DEFAULT_SET_GPT_PASSWORD_VERIFICATION_WAIT_SECONDS
+  );
+  syncUpiRedeemAfterModeControls((normalizedState.upiRedeemContinueAfterRedeem ?? normalizedState.pixRedeemContinueAfterRedeem) === true ? false : true);
+  if (inputVpsUrl) {
+    inputVpsUrl.value = normalizedState.vpsUrl || '';
+  }
+  if (inputVpsPassword) {
+    inputVpsPassword.value = normalizedState.vpsPassword || '';
+  }
+  if (inputLocalCpaJsonPluginDir) {
+    inputLocalCpaJsonPluginDir.value = normalizedState.localCpaJsonPluginDir || '';
+  }
+  if (inputLocalCpaJsonRelativeAuthDir) {
+    inputLocalCpaJsonRelativeAuthDir.value = normalizeLocalCpaJsonRelativeAuthDirValue(normalizedState.localCpaJsonRelativeAuthDir);
+  }
+  if (selectPanelMode) {
+    selectPanelMode.value = getExportTargetForPanelMode(normalizedState.panelMode || DEFAULT_PANEL_MODE);
+  }
+  if (selectAccountAccessStrategy) {
+    selectAccountAccessStrategy.value = getAccountAccessStrategyUiValueForState(normalizedState);
+  }
+  if (inputSub2ApiUrl) inputSub2ApiUrl.value = normalizedState.sub2apiUrl || '';
+  if (inputSub2ApiEmail) inputSub2ApiEmail.value = normalizedState.sub2apiEmail || '';
+  if (inputSub2ApiPassword) inputSub2ApiPassword.value = normalizedState.sub2apiPassword || '';
+  if (inputSub2ApiAccountPriority) {
+    inputSub2ApiAccountPriority.value = String(normalizeSub2ApiAccountPriorityValue(normalizedState.sub2apiAccountPriority));
+  }
+  if (inputSub2ApiDefaultProxy) {
+    inputSub2ApiDefaultProxy.value = normalizedState.sub2apiDefaultProxyName || '';
+  }
+  renderSub2ApiGroupOptions(normalizedState, normalizedState.sub2apiGroupName || '');
+  applyChatgptSessionReaderProfileToInputs(normalizedState, {
+    mode: normalizedState.chatgptSessionReaderMode,
+  });
+  if (!shouldPreserveFocusedUpiRedeemCdkeyPoolEdit('upi') && inputUpiRedeemCdkeyPool) {
+    inputUpiRedeemCdkeyPool.value = '';
+  }
+  if (!shouldPreserveFocusedUpiRedeemCdkeyPoolEdit('ideal') && inputIdealRedeemCdkeyPool) {
+    inputIdealRedeemCdkeyPool.value = '';
+  }
+  updateAllUpiRedeemCdkeyPoolSummaries(normalizedState);
+  renderStepStatuses(latestState);
+  updatePanelModeUI();
+  updateMailProviderUI();
+  updateButtonStates();
+  updateStatusDisplay(latestState);
+  markSettingsDirty(false);
+}
+
+async function restoreState() {
+  try {
+    const state = await chrome.runtime.sendMessage({ type: 'GET_STATE', source: 'sidepanel' });
+    applySettingsState(state || {});
+    if (state?.oauthUrl) {
+      displayOauthUrl.textContent = state.oauthUrl;
+      displayOauthUrl.classList.add('has-value');
+    }
+    setOauthLoginCodeDisplay(state?.lastLoginCode || '');
+    if (state?.localhostUrl) {
+      displayLocalhostUrl.textContent = state.localhostUrl;
+      displayLocalhostUrl.classList.add('has-value');
+    }
+    if (Array.isArray(state?.logs)) {
+      logArea.innerHTML = '';
+      state.logs.forEach((entry) => appendLog(entry));
+    }
+    renderContributionMode();
+  } catch (err) {
+    console.error('Failed to restore state:', err);
+    if (typeof applyOperationDelayState === 'function') {
+      applyOperationDelayState(undefined, { restoreFailed: true });
+    }
+  }
+}
+
+function getAccountRecordsManager() {
+  if (accountRecordsManager) {
+    return accountRecordsManager;
+  }
+  accountRecordsManager = window.SidepanelAccountRecordsManager?.createAccountRecordsManager?.({
+    state: {
+      getLatestState: () => latestState,
+      syncLatestState,
+    },
+    dom: {
+      accountRecordsList,
+      accountRecordsMeta,
+      accountRecordsOverlay,
+      accountRecordsPageLabel,
+      accountRecordsStats,
+      btnAccountRecordsNext,
+      btnAccountRecordsPrev,
+      btnClearAccountRecords,
+      btnDeleteSelectedAccountRecords,
+      btnExportSuccessAccountRecords,
+      btnShowUpiCredentialBackups,
+      btnExportUpiCredentialBackups,
+      btnCheckUpiCredentialMembershipLocal,
+      btnImportUpiCredentialMembershipTxt,
+      btnImportUpiCredentialMembershipFreeTxt,
+      btnStopUpiCredentialMembershipCheck,
+      inputUpiCredentialMembershipTxt,
+      inputUpiCredentialMembershipTotpApiBaseUrl,
+      inputUpiCredentialMembershipTotpLookupKey,
+      inputUpiRedeemExternalApiKey,
+      inputUpiRedeemClientId,
+      inputUpiRedeemFailedAccountRetryLimit,
+      inputUpiRedeemCdkeyPool,
+      inputIdealRedeemCdkeyPool,
+      btnExportUpiRedeemSuccessRecords,
+      upiCredentialBackupPreviewWrap,
+      upiCredentialBackupPreview,
+      upiCredentialMembershipCheckResults,
+      btnCloseAccountRecords,
+      btnOpenAccountRecords,
+      btnToggleAccountRecordsSelection,
+    },
+    helpers: {
+      downloadTextFile,
+      escapeHtml,
+      openConfirmModal,
+      refreshUpiRedeemCdkeyStatuses,
+      showToast,
+    },
+    runtime: {
+      sendMessage: (message) => chrome.runtime.sendMessage(message),
+    },
+    constants: {
+      displayTimeZone: DISPLAY_TIMEZONE,
+      pageSize: 10,
+    },
+  }) || null;
+  return accountRecordsManager;
+}
+
+function renderAccountRecords(currentState = latestState) {
+  getAccountRecordsManager()?.render?.(currentState);
+}
+
+function bindAccountRecordEvents() {
+  getAccountRecordsManager()?.bindEvents?.();
+}
+
+function closeAccountRecordsPanel() {
+  getAccountRecordsManager()?.closePanel?.();
+}
+
+function setElementVisible(element, visible) {
+  if (element) {
+    element.style.display = visible ? '' : 'none';
+  }
+}
+
+function updateMailProviderUI() {
+  const provider = String(selectMailProvider?.value || latestState?.mailProvider || '').trim().toLowerCase();
+  const emailGenerator = String(selectEmailGenerator?.value || latestState?.emailGenerator || '').trim().toLowerCase();
+  const useCustomProvider = provider === 'custom';
+  const use2925 = provider === '2925';
+  const useLuckmail = provider === LUCKMAIL_PROVIDER;
+  const useIcloud = provider === ICLOUD_PROVIDER || provider === ICLOUD_API_PROVIDER || emailGenerator === ICLOUD_PROVIDER;
+  const useCustomPool = provider === CUSTOM_EMAIL_POOL_GENERATOR || emailGenerator === CUSTOM_EMAIL_POOL_GENERATOR;
+  const useCloudflareTempEmail = provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER || emailGenerator === CLOUDFLARE_TEMP_EMAIL_PROVIDER;
+  const useCloudMail = provider === CLOUD_MAIL_PROVIDER || emailGenerator === CLOUD_MAIL_PROVIDER;
+  const useFreemail = provider === FREEMAIL_PROVIDER || emailGenerator === FREEMAIL_PROVIDER;
+
+  setElementVisible(rowCustomMailProviderPool, useCustomProvider);
+  setElementVisible(rowMail2925Mode, use2925);
+  setElementVisible(rowMail2925PoolSettings, use2925);
+  setElementVisible(rowCustomEmailPool, useCustomPool);
+  setElementVisible(icloudSection, useIcloud);
+  setElementVisible(luckmailSection, useLuckmail);
+  setElementVisible(cloudflareTempEmailSection, useCloudflareTempEmail);
+  setElementVisible(cloudMailSection, useCloudMail);
+  setElementVisible(freemailSection, useFreemail);
+  setElementVisible(rowEmailGenerator, !useCustomProvider);
+
+  if (inputIcloudApiBaseUrl) {
+    inputIcloudApiBaseUrl.disabled = provider !== ICLOUD_API_PROVIDER;
+  }
+  if (inputIcloudApiAdminKey) {
+    inputIcloudApiAdminKey.disabled = provider !== ICLOUD_API_PROVIDER;
+  }
+}
+
+function updatePanelModeUI() {
+  const panelMode = typeof getSelectedPanelMode === 'function'
+    ? getSelectedPanelMode()
+    : normalizePanelMode(latestState?.panelMode || DEFAULT_PANEL_MODE);
+  const exportTarget = getExportTargetForPanelMode(panelMode);
+  const useLocalCpaJson = exportTarget === LOCAL_CPA_JSON_PANEL_MODE || panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
+  const useLocalCpaJsonNoRt = panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
+  const useCodex2Api = exportTarget === 'codex2api';
+  const useSub2Api = false;
+  const useCpa = false;
+
+  if (selectPanelMode) {
+    selectPanelMode.value = exportTarget;
+  }
+  if (selectAccountAccessStrategy) {
+    selectAccountAccessStrategy.value = getAccountAccessStrategyUiValueForState(latestState);
+    selectAccountAccessStrategy.disabled = useCodex2Api;
+    selectAccountAccessStrategy.title = useCodex2Api ? 'Codex2API 仅支持 OAuth' : '';
+  }
+  setElementVisible(rowAccountAccessStrategy, false);
+  setElementVisible(rowLocalCpaJsonPluginDir, useLocalCpaJson);
+  setElementVisible(rowLocalCpaJsonAdvancedToggle, useLocalCpaJson);
+  setElementVisible(rowLocalCpaJsonRelativeAuthDir, useLocalCpaJson && localCpaJsonAuthDirExpanded);
+  setElementVisible(rowVpsUrl, useCpa);
+  setElementVisible(rowVpsPassword, useCpa);
+  setElementVisible(rowLocalCpaStep9Mode, useCpa);
+  setElementVisible(rowSub2ApiUrl, useSub2Api);
+  setElementVisible(rowSub2ApiEmail, useSub2Api);
+  setElementVisible(rowSub2ApiPassword, useSub2Api);
+  setElementVisible(rowSub2ApiGroup, useSub2Api);
+  setElementVisible(rowSub2ApiAccountPriority, useSub2Api);
+  setElementVisible(rowSub2ApiDefaultProxy, useSub2Api);
+  setElementVisible(rowCodex2ApiUrl, useCodex2Api);
+  setElementVisible(rowCodex2ApiAdminKey, useCodex2Api);
+
+  const platformButton = document.querySelector('.step-btn[data-step-key="platform-verify"]');
+  if (platformButton) {
+    platformButton.textContent = useLocalCpaJson
+      ? (useLocalCpaJsonNoRt ? '本地CPA JSON 无RT 导出' : '本地CPA JSON 有RT 导出')
+      : (useCodex2Api ? 'Codex2API 回调验证' : 'CPA 回调验证');
+  }
+}
+
+async function initializeReleaseInfo() {
+  try {
+    const manifest = chrome.runtime.getManifest?.() || {};
+    const versionLabel = manifest.version_name || (manifest.version ? `CDK Redeem Only V${manifest.version}` : 'GitHub');
+    if (extensionUpdateStatus) {
+      extensionUpdateStatus.textContent = versionLabel;
+      extensionUpdateStatus.classList.add('is-version-label');
+    }
+    if (extensionVersionMeta) {
+      extensionVersionMeta.hidden = true;
+      extensionVersionMeta.textContent = '';
+    }
+    if (btnReleaseLog) {
+      btnReleaseLog.onclick = () => {
+        chrome.tabs?.create?.({ url: `${GUIDE_REPOSITORY_URL}/releases`, active: true }).catch(() => null);
+      };
+    }
+  } catch (error) {
+    console.warn('Failed to initialize release info:', error?.message || error);
+  }
+}
+
+async function refreshContributionContentHint() {
+  if (contributionUpdateLayer) {
+    contributionUpdateLayer.hidden = true;
+  }
+  if (contributionUpdateHint) {
+    contributionUpdateHint.hidden = true;
+  }
+  return null;
+}
+
+function renderContributionMode() {
+  if (contributionModePanel) {
+    contributionModePanel.hidden = !Boolean(latestState?.contributionMode);
+  }
+  if (contributionModeBadge) {
+    contributionModeBadge.hidden = !Boolean(latestState?.contributionMode);
+  }
+}
+
+function resetIcloudManager() { }
+function resetLuckmailManager() { }
+function resetCustomEmailPoolManager() { }
+function renderHotmailAccounts() { }
+function renderMail2925Accounts() { }
+function initHotmailListExpandedState() { }
+function initMail2925ListExpandedState() { }
+function queueLuckmailPurchaseRefresh() { }
+function queueCustomEmailPoolRefresh() { }
+function queueIcloudAliasRefresh() { }
+function positionContributionUpdateHint() { }
+
+function validateRemovedContactContactConfig() {
+  return { valid: true, message: '' };
+}
+
+let cdkPoolManager = null;
+
+function getCdkPoolManager() {
+  if (cdkPoolManager) {
+    return cdkPoolManager;
+  }
+  cdkPoolManager = window.SidepanelCdkPoolManager?.createCdkPoolManager?.({
+    dom: {
+      btnUpiRedeemCdkeyStatusRefresh,
+      btnImportCdkPool,
+      btnDeleteAllCdkPool,
+      btnImportIdealCdkPool,
+      btnDeleteAllIdealCdkPool,
+      inputUpiRedeemCdkeyPool,
+      inputIdealRedeemCdkeyPool,
+    },
+    helpers: {
+      showToast,
+      importCdkPoolFromTextarea,
+      deleteAllUpiRedeemCdkeys,
+      refreshAllUpiRedeemCdkeyStatuses,
+    },
+  }) || null;
+  return cdkPoolManager;
+}
+
+function bindCdkPoolEvents() {
+  getCdkPoolManager()?.bindEvents?.();
+}
+
+async function maybeTakeoverAutoRun(actionLabel) {
+  if (!isAutoRunPausedPhase()) {
+    return true;
+  }
+  const confirmed = await openConfirmModal({
+    title: '接管自动',
+    message: `当前自动流程已暂停。若继续${actionLabel}，将停止自动流程并切换为手动控制。是否继续？`,
+    confirmLabel: '确认接管',
+    confirmVariant: 'btn-primary',
+  });
+  if (!confirmed) {
+    return false;
+  }
+  const response = await chrome.runtime.sendMessage({ type: 'TAKEOVER_AUTO_RUN', source: 'sidepanel', payload: {} });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+  return true;
+}
+
+async function handleSkipNode(nodeId) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    throw new Error('缺少要跳过的节点。');
+  }
+  if (!(await maybeTakeoverAutoRun(`跳过节点 ${normalizedNodeId}`))) {
+    return;
+  }
+  await persistCurrentSettingsForAction();
+  const response = await sendSidepanelMessage({
+    type: 'SKIP_NODE',
+    source: 'sidepanel',
+    payload: {
+      nodeId: normalizedNodeId,
+      step: getStepIdByNodeIdForCurrentMode(normalizedNodeId),
+    },
+  });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+  showToast(`节点 ${normalizedNodeId} 已跳过`, 'success', 2200);
+}
+
+async function executeNodeFromSidepanel(nodeId, step) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    throw new Error('缺少要执行的节点。');
+  }
+  if (!(await maybeTakeoverAutoRun(`执行节点 ${normalizedNodeId}`))) {
+    return;
+  }
+  await persistCurrentSettingsForAction();
+  const response = await sendSidepanelMessage({
+    type: 'EXECUTE_NODE',
+    source: 'sidepanel',
+    payload: {
+      nodeId: normalizedNodeId,
+      step: Number(step) || getStepIdByNodeIdForCurrentMode(normalizedNodeId),
+      email: inputEmail?.value?.trim() || undefined,
+    },
+  });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
 }
 
 let accountRunHistoryRefreshTimer = null;
@@ -9147,6 +10059,148 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+stepsList?.addEventListener('click', async (event) => {
+  const btn = event.target.closest('.step-btn');
+  if (!btn) {
+    return;
+  }
+  try {
+    await executeNodeFromSidepanel(btn.dataset.nodeId, btn.dataset.step);
+  } catch (err) {
+    showToast(err?.message || String(err || '执行节点失败'), 'error');
+  }
+});
+
+btnAutoRun?.addEventListener('click', async () => {
+  try {
+    await persistCurrentSettingsForAction();
+    const totalRuns = getRunCountValue();
+    const payload = {
+      totalRuns,
+      mode: shouldOfferAutoModeChoice(latestState) ? 'continue' : 'restart',
+      autoRunRetryNonFreeTrial: Boolean(inputAutoRunRetryNonFreeTrial?.checked),
+      autoRunRetryLegacyWalletCallback: Boolean(inputAutoRunRetryLegacyWalletCallback?.checked),
+    };
+    const delayEnabled = Boolean(inputAutoDelayEnabled?.checked);
+    const delayMinutes = Math.max(0, Number(inputAutoDelayMinutes?.value) || 0);
+    const response = delayEnabled && delayMinutes > 0
+      ? await sendSidepanelMessage({
+        type: 'SCHEDULE_AUTO_RUN',
+        source: 'sidepanel',
+        payload: {
+          ...payload,
+          delayMinutes,
+        },
+      })
+      : await sendSidepanelMessage({ type: 'AUTO_RUN', source: 'sidepanel', payload });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    showToast(delayEnabled && delayMinutes > 0 ? '已计划自动运行。' : '自动流程已启动。', 'success', 1800);
+  } catch (err) {
+    showToast(err?.message || String(err || '启动自动流程失败'), 'error');
+  }
+});
+
+btnAutoContinue?.addEventListener('click', async () => {
+  try {
+    await persistCurrentSettingsForAction();
+    const response = await sendSidepanelMessage({
+      type: 'RESUME_AUTO_RUN',
+      source: 'sidepanel',
+      payload: {
+        email: inputEmail?.value?.trim() || undefined,
+      },
+    });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+  } catch (err) {
+    showToast(err?.message || String(err || '继续自动流程失败'), 'error');
+  }
+});
+
+btnAutoRunNow?.addEventListener('click', async () => {
+  try {
+    const response = await sendSidepanelMessage({
+      type: currentAutoRun.phase === 'waiting_interval' ? 'SKIP_AUTO_RUN_COUNTDOWN' : 'START_SCHEDULED_AUTO_RUN_NOW',
+      source: 'sidepanel',
+      payload: {},
+    });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+  } catch (err) {
+    showToast(err?.message || String(err || '立即开始失败'), 'error');
+  }
+});
+
+btnAutoCancelSchedule?.addEventListener('click', async () => {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'CANCEL_SCHEDULED_AUTO_RUN',
+      source: 'sidepanel',
+      payload: {},
+    });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+  } catch (err) {
+    showToast(err?.message || String(err || '取消计划失败'), 'error');
+  }
+});
+
+btnStop?.addEventListener('click', async () => {
+  try {
+    btnStop.disabled = true;
+    const response = await chrome.runtime.sendMessage({ type: 'STOP_FLOW', source: 'sidepanel', payload: {} });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    showToast('已请求停止当前流程。', 'info', 1800);
+  } catch (err) {
+    showToast(err?.message || String(err || '停止流程失败'), 'error');
+  } finally {
+    updateButtonStates();
+  }
+});
+
+btnReset?.addEventListener('click', async () => {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'RESET', source: 'sidepanel', payload: {} });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    syncLatestState({
+      nodeStatuses: NODE_DEFAULT_STATUSES,
+      logs: [],
+      oauthUrl: null,
+      lastLoginCode: null,
+      localhostUrl: null,
+    });
+    logArea.innerHTML = '';
+    renderStepStatuses(latestState);
+    updateStatusDisplay(latestState);
+    showToast('流程已重置。', 'success', 1800);
+  } catch (err) {
+    showToast(err?.message || String(err || '重置流程失败'), 'error');
+  }
+});
+
+btnClearLog?.addEventListener('click', async () => {
+  logArea.innerHTML = '';
+  syncLatestState({ logs: [] });
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_SETTING',
+      source: 'sidepanel',
+      payload: { logs: [] },
+    });
+  } catch {
+    // The visible log is already cleared; background log persistence is best-effort.
+  }
+});
+
 document.addEventListener('click', (event) => {
   const clickedInsideConfigMenu = Boolean(configMenuShell?.contains(event.target));
   const clickedInsideEditableListPicker = isClickInsideEditableListPicker(event.target);
@@ -9183,6 +10237,7 @@ document.addEventListener('scroll', () => {
 // ============================================================
 
 initializeManualStepActions();
+bindAccountRecordEvents();
 bindPasswordVisibilityToggles();
 initHotmailListExpandedState();
 initMail2925ListExpandedState();
