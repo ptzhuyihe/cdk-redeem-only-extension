@@ -722,9 +722,10 @@
     }
 
     function buildCurrentUpiCredentialForMembership(state = {}, email = '') {
+      const no2faFreeRoute = state.no2faFreeRoute === true;
       return {
         email: parsePoolEntryEmail(email) || resolveCurrentRedeemEmail(state, {}),
-        password: normalizeString(
+        password: no2faFreeRoute ? '' : normalizeString(
           state.password
           || state.gptPassword
           || state.chatGptPassword
@@ -733,13 +734,23 @@
           || state.customPassword
           || ''
         ),
-        totpMfaSecret: normalizeTotpSecret(
+        totpMfaSecret: no2faFreeRoute ? '' : normalizeTotpSecret(
           state.totpMfaSecret
           || state.totpSecret
           || state.twoFactorSecret
           || state.twoFaSecret
           || ''
         ),
+        verificationUrl: normalizeString(
+          state.verificationUrl
+          || state.emailVerificationUrl
+          || state.currentVerificationUrl
+          || state.currentEmailVerificationUrl
+          || ''
+        ),
+        recordedAt: Math.max(0, Math.floor(Number(state.recordedAt || state.no2faFreeRecordedAt) || 0)),
+        twoFactorEnabled: no2faFreeRoute ? false : (state.twoFactorEnabled === true || Boolean(state.totpMfaSecret || state.totpSecret)),
+        no2faFreeRoute,
       };
     }
 
@@ -3101,6 +3112,13 @@
           trialEligibilityStatus: 'eligible',
           trialEligibilityReason: reason,
           trialEligibilityCheckedAt: checkedAt,
+          verificationUrl: normalizeString(patch.verificationUrl || runtimeState.verificationUrl || runtimeState.emailVerificationUrl || ''),
+          recordedAt: Math.max(0, Math.floor(Number(patch.recordedAt || runtimeState.recordedAt || runtimeState.no2faFreeRecordedAt) || Date.now())),
+          twoFactorEnabled: patch.twoFactorEnabled === true || runtimeState.twoFactorEnabled === true,
+          no2faFreeRoute: patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true,
+          gptPassword: (patch.no2faFreeRoute === true || runtimeState.no2faFreeRoute === true)
+            ? ''
+            : normalizeString(patch.gptPassword || runtimeState.gptPassword || runtimeState.password || ''),
           resetRedeemState: true,
         });
         const persistedFreeResults = await ensureTrialEligibleFreeCredentialPersisted(freeResults, email, visibleStep);

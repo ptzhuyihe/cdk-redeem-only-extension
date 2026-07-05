@@ -40,6 +40,7 @@ importScripts(
   'background/steps/set-gpt-password.js',
   'background/steps/enable-totp-mfa.js',
   'background/steps/upi-redeem.js',
+  'background/steps/no-2fa-free-route.js',
   'data/names.js',
   'hotmail-utils.js',
   'microsoft-email.js',
@@ -13615,6 +13616,16 @@ const upiRedeemExecutor = self.MultiPageBackgroundUpiRedeem?.createUpiRedeemExec
   upsertTrialEligibleFreeCredential: (...args) => upiCredentialMembershipChecker?.upsertTrialEligibleFreeCredential?.(...args),
   waitForTabCompleteUntilStopped,
 });
+const no2faFreeRouteExecutor = self.MultiPageBackgroundNo2faFreeRoute?.createNo2faFreeRouteExecutor({
+  addLog,
+  checkRegistrationUpiTrialEligibility: (...args) => upiRedeemExecutor.checkRegistrationUpiTrialEligibility(...args),
+  completeNodeFromBackground,
+  getCustomEmailPoolEntries,
+  getState,
+  readCurrentChatGptSessionForExport,
+  setState,
+  throwIfStopped,
+});
 upiCredentialMembershipChecker = self.MultiPageBackgroundUpiCredentialMembershipChecker?.createUpiCredentialMembershipChecker({
   addLog,
   broadcastDataUpdate,
@@ -13677,6 +13688,7 @@ const stepExecutorsByKey = {
   'local-cpa-json-export': (state) => step6Executor.executeLocalCpaJsonNoRtExport(state),
   'set-gpt-password': (state) => setGptPasswordExecutor.executeSetGptPassword(state),
   'enable-totp-mfa': (state) => totpMfaExecutor.executeEnableTotpMfa(state),
+  'persist-no-2fa-free': (state) => no2faFreeRouteExecutor.executeNo2faFreeRoute(state),
   'upi-redeem': (state) => upiRedeemExecutor.executeUpiRedeem(state),
 };
 messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter({
