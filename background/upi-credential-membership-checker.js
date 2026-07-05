@@ -858,7 +858,28 @@
     return Number.isFinite(Date.parse(text));
   }
 
+  function isLikelyVerificationUrl(value = '') {
+    const text = normalizeString(value);
+    return /^https?:\/\//i.test(text);
+  }
+
   function parseCredentialBackupParts(parts = []) {
+    if (parts.length === 4 && isLikelyVerificationUrl(parts[1])) {
+      const recordedAt = Math.max(0, Math.floor(Number(parts[3]) || Date.parse(normalizeString(parts[3])) || Date.now()));
+      return {
+        email: normalizeEmail(parts[0] || ''),
+        password: '',
+        totpMfaSecret: '',
+        gptPassword: '',
+        verificationUrl: normalizeString(parts[1] || ''),
+        accessToken: normalizeString(parts[2] || ''),
+        accessTokenUpdatedAt: normalizeString(parts[3] || ''),
+        checkedAt: normalizeString(parts[3] || ''),
+        recordedAt,
+        no2faFreeRoute: true,
+        twoFactorEnabled: false,
+      };
+    }
     const accessTokenOrTimestamp = parts[3] || '';
     const explicitTimestamp = parts[4] || '';
     const fourthPartIsTimestamp = !explicitTimestamp && isLikelyCredentialTimestamp(accessTokenOrTimestamp);
@@ -885,14 +906,25 @@
           email,
           password,
           totpMfaSecret,
+          gptPassword,
+          verificationUrl,
           accessToken,
           accessTokenUpdatedAt,
+          checkedAt,
+          recordedAt,
+          no2faFreeRoute,
+          twoFactorEnabled,
         } = parseCredentialBackupParts(parts);
         if (!email) {
           return {
             email: '',
             password,
             totpMfaSecret,
+            gptPassword,
+            verificationUrl,
+            recordedAt,
+            no2faFreeRoute,
+            twoFactorEnabled,
             status: 'failed',
             reason: `第 ${index + 1} 行缺少邮箱`,
           };
@@ -903,9 +935,14 @@
           email,
           password,
           totpMfaSecret,
+          gptPassword,
+          verificationUrl,
           accessToken,
+          recordedAt,
+          no2faFreeRoute,
+          twoFactorEnabled,
           accessTokenUpdatedAt,
-          checkedAt: accessTokenUpdatedAt,
+          checkedAt: checkedAt || accessTokenUpdatedAt,
         };
       })
       .filter(Boolean);
@@ -1169,7 +1206,15 @@
         } else if (normalizedStatus === 'paid' && isResultItemHiddenByPlusDeletion(normalizedResults, item)) {
           return false;
         }
-        if (normalizedStatus !== 'failed' && (!item.password || !item.totpMfaSecret)) return false;
+        if (normalizedStatus !== 'failed') {
+          const no2faExportable = normalizedStatus === 'free'
+            && item.no2faFreeRoute === true
+            && item.email
+            && item.verificationUrl
+            && item.accessToken;
+          const password2faExportable = Boolean(item.email && item.password && item.totpMfaSecret);
+          if (!no2faExportable && !password2faExportable) return false;
+        }
         const key = normalizedStatus === 'paid'
           ? `${getResultItemRedeemChannel(item)}:${email}`
           : `${normalizedStatus}:${email}`;
@@ -1182,6 +1227,10 @@
           return `${item.email}---${item.reason || '核验失败'}`;
         }
         if (normalizedStatus === 'free') {
+          if (item.no2faFreeRoute === true && item.verificationUrl && item.accessToken) {
+            const timestamp = Math.max(0, Math.floor(Number(item.recordedAt) || Date.parse(item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '') || Date.now()));
+            return `${item.email}---${item.verificationUrl}---${item.accessToken || ''}---${timestamp}`;
+          }
           const timestamp = item.trialEligibilityCheckedAt || item.checkedAt || item.accessTokenUpdatedAt || '';
           return `${item.email}---${item.password}---${item.totpMfaSecret}---${item.accessToken || ''}---${timestamp}`;
         }
@@ -6334,7 +6383,15 @@
             return false;
           }
           if (status === 'failed' && !item.email) return false;
-          if (status !== 'failed' && !Boolean(item.email && item.password && item.totpMfaSecret)) return false;
+          if (status !== 'failed') {
+            const no2faExportable = status === 'free'
+              && item.no2faFreeRoute === true
+              && item.email
+              && item.verificationUrl
+              && item.accessToken;
+            const password2faExportable = Boolean(item.email && item.password && item.totpMfaSecret);
+            if (!no2faExportable && !password2faExportable) return false;
+          }
           const key = status === 'paid'
             ? `${getResultItemRedeemChannel(item)}:${email}`
             : `${status}:${email}`;
@@ -6343,11 +6400,17 @@
           return true;
         })
         .map((item) => item.email);
+      const allFreeRowsAreNo2fa = status === 'free'
+        && rows.length > 0
+        && rows.every((row) => {
+          const parts = String(row || '').split(/---+/).map((part) => part.trim());
+          return parts.length === 4 && isLikelyVerificationUrl(parts[1]);
+        });
       const nameMap = {
         paid: 'upi-membership-paid-password-2fa',
         'paid-upi': 'upi-membership-paid-password-2fa',
         'paid-ideal': 'ideal-membership-paid-password-2fa',
-        free: 'upi-membership-free-password-2fa',
+        free: allFreeRowsAreNo2fa ? 'upi-membership-free-email-url-at' : 'upi-membership-free-password-2fa',
         failed: 'upi-membership-check-failed',
       };
       const deleteResult = rows.length && removeAfterExport

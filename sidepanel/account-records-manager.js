@@ -1389,7 +1389,28 @@
       return Number.isFinite(Date.parse(text));
     }
 
+    function isLikelyUpiCredentialMembershipVerificationUrl(value = '') {
+      return /^https?:\/\//i.test(normalizeUpiCredentialMembershipText(value));
+    }
+
     function parseUpiCredentialMembershipParts(parts = []) {
+      if (parts.length === 4 && isLikelyUpiCredentialMembershipVerificationUrl(parts[1])) {
+        const recordedAt = Math.max(0, Math.floor(Number(parts[3]) || Date.parse(normalizeUpiCredentialMembershipText(parts[3])) || Date.now()));
+        return {
+          email: parts[0] || '',
+          password: '',
+          gptPassword: '',
+          totpMfaSecret: '',
+          verificationUrl: parts[1] || '',
+          accessToken: parts[2] || '',
+          accessTokenUpdatedAt: parts[3] || '',
+          checkedAt: parts[3] || '',
+          recordedAt,
+          no2faFreeRoute: true,
+          twoFactorEnabled: false,
+          source: 'txt',
+        };
+      }
       const accessTokenOrTimestamp = parts[3] || '';
       const explicitTimestamp = parts[4] || '';
       const fourthPartIsTimestamp = !explicitTimestamp && isLikelyUpiCredentialMembershipTimestamp(accessTokenOrTimestamp);
@@ -1423,21 +1444,27 @@
         && isLikelyUpiCredentialMembershipTimestamp(rawAccessToken);
       const accessToken = accessTokenIsTimestamp ? '' : rawAccessToken;
       const accessTokenUpdatedAt = rawAccessTokenUpdatedAt || (accessTokenIsTimestamp ? rawAccessToken : '');
+      const no2faFreeRoute = source.no2faFreeRoute === true;
       return {
         ...source,
         email,
-        password: normalizeUpiCredentialMembershipText(
+        password: no2faFreeRoute ? '' : normalizeUpiCredentialMembershipText(
           source.password
           || source.gptPassword
           || source.chatGptPassword
           || ''
         ),
-        totpMfaSecret: normalizeUpiCredentialMembershipTotpSecret(
+        gptPassword: no2faFreeRoute ? '' : normalizeUpiCredentialMembershipText(source.gptPassword || source.password || ''),
+        totpMfaSecret: no2faFreeRoute ? '' : normalizeUpiCredentialMembershipTotpSecret(
           source.totpMfaSecret
           || source.totpSecret
           || source.twoFactorSecret
           || ''
         ),
+        verificationUrl: normalizeUpiCredentialMembershipText(source.verificationUrl || source.emailVerificationUrl || source.url || ''),
+        recordedAt: Math.max(0, Math.floor(Number(source.recordedAt || source.no2faFreeRecordedAt) || 0)),
+        no2faFreeRoute,
+        twoFactorEnabled: no2faFreeRoute ? false : (source.twoFactorEnabled === true || Boolean(normalizeUpiCredentialMembershipTotpSecret(source.totpMfaSecret || source.totpSecret || source.twoFactorSecret || ''))),
         accessToken,
         accessTokenMasked: accessToken ? normalizeUpiCredentialMembershipText(source.accessTokenMasked || '') : '',
         accessTokenUpdatedAt,
