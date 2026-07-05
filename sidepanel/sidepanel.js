@@ -2694,6 +2694,73 @@ async function restoreState() {
   }
 }
 
+function getHotmailAccounts(state = latestState) {
+  return Array.isArray(state?.hotmailAccounts) ? state.hotmailAccounts : [];
+}
+
+function preserveHotmailAccountsForSettingsSaveResponse(responseState = {}, requestPayload = {}) {
+  const nextState = responseState && typeof responseState === 'object' && !Array.isArray(responseState)
+    ? { ...responseState }
+    : {};
+  const payloadIncludesHotmailAccounts = Object.prototype.hasOwnProperty.call(requestPayload || {}, 'hotmailAccounts');
+  const payloadIncludesCurrentHotmail = Object.prototype.hasOwnProperty.call(requestPayload || {}, 'currentHotmailAccountId');
+  const currentHotmailAccounts = getHotmailAccounts(latestState);
+  const responseHotmailAccounts = getHotmailAccounts(nextState);
+
+  if (!payloadIncludesHotmailAccounts && currentHotmailAccounts.length > 0 && responseHotmailAccounts.length === 0) {
+    nextState.hotmailAccounts = currentHotmailAccounts;
+  }
+  if (
+    !payloadIncludesCurrentHotmail
+    && !nextState.currentHotmailAccountId
+    && latestState?.currentHotmailAccountId
+    && getHotmailAccounts(nextState).some((account) => account.id === latestState.currentHotmailAccountId)
+  ) {
+    nextState.currentHotmailAccountId = latestState.currentHotmailAccountId;
+  }
+
+  return nextState;
+}
+
+function getCurrentHotmailAccount(state = latestState) {
+  const currentId = state?.currentHotmailAccountId;
+  return getHotmailAccounts(state).find((account) => account.id === currentId) || null;
+}
+
+function getCurrentHotmailEmail(state = latestState) {
+  return String(getCurrentHotmailAccount(state)?.email || '').trim();
+}
+
+function getMail2925Accounts(state = latestState) {
+  return Array.isArray(state?.mail2925Accounts) ? state.mail2925Accounts : [];
+}
+
+function getCurrentMail2925Account(state = latestState) {
+  const currentId = state?.currentMail2925AccountId;
+  return getMail2925Accounts(state).find((account) => account.id === currentId) || null;
+}
+
+function getCurrentMail2925Email(state = latestState) {
+  return String(getCurrentMail2925Account(state)?.email || '').trim();
+}
+
+function getLegacyWalletAccounts(state = latestState) {
+  return Array.isArray(state?.legacyWalletAccounts) ? state.legacyWalletAccounts : [];
+}
+
+function getCurrentLegacyWalletAccount(state = latestState) {
+  const currentId = String(state?.currentLegacyWalletAccountId || '').trim();
+  return getLegacyWalletAccounts(state).find((account) => account.id === currentId) || null;
+}
+
+function getCurrentLuckmailPurchase(state = latestState) {
+  return state?.currentLuckmailPurchase || null;
+}
+
+function getCurrentLuckmailEmail(state = latestState) {
+  return String(getCurrentLuckmailPurchase(state)?.email_address || '').trim();
+}
+
 function getAccountRecordsManager() {
   if (accountRecordsManager) {
     return accountRecordsManager;
